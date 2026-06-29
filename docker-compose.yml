@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mensa_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d mensa_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: 
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://user:password@db:5432/mensa_db
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    image: node:18-alpine
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    ports:
+      - "3000:3000"
+    command: sh -c "npm install && npm start"
+
+volumes:
+  postgres_data:
