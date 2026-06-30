@@ -48,8 +48,8 @@ function IconLegend() {
       {Object.entries(TAG_LABELS).map(([tag, label]) => (
         <div key={tag} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           <img 
-            src={`${ICON_BASE}${tag}.png`} 
-            alt={tag} 
+          src={`${ICON_BASE}${tag}.png`}
+          alt={tag}
             style={{ width: '16px', height: '16px', objectFit: 'contain' }} 
           />
           <span style={{ fontSize: '12px', color: '#4b5563' }}>{label}</span>
@@ -172,27 +172,16 @@ function App() {
 function IconTags({ tags }) {
   if (!tags || tags.length === 0) return null;
   return (
-    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-      {tags.map(tag => {
-        const label = TAG_LABELS[tag.replace('.png', '')] || tag;
-        return (
-          <span
-            key={tag}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px',
-                     fontSize: '11px', color: '#6b7280',
-                     background: '#f3f4f6', borderRadius: 6,
-                     padding: '2px 6px' }}
-          >
-            <img
-              src={`${ICON_BASE}${tag}.png`}
-              alt={tag.replace('.png', '')}
-              style={{ width: '14px', height: '14px', objectFit: 'contain' }}
-              onError={(e) => { e.target.style.display = 'none'; }}
-            />
-            {label}
-          </span>
-        );
-      })}
+    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+      {tags.map(tag => (
+        <img
+          key={tag}
+          src={`${ICON_BASE}${tag}`}
+          alt={tag.replace('.png', '')}
+          style={{ width: '16px', height: '16px', objectFit: 'contain' }}
+          onError={(e) => { e.target.style.display = 'none'; }}
+        />
+      ))}
     </div>
   );
 }
