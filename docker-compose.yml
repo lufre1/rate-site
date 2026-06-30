@@ -28,13 +28,11 @@ services:
         condition: service_healthy
 
   frontend:
-    image: node:18-alpine
-    working_dir: /app
-    volumes:
-      - ./frontend:/app
+    build: ./frontend
     ports:
-      - "3000:3000"
-    command: sh -c "npm install && npm start"
+      - "3000:80"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
 
 volumes:
   postgres_data:

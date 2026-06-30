@@ -6,6 +6,7 @@ from datetime import date
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 import uvicorn
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from database import SessionLocal, Meal as DBMeal, Rating as DBRating, Mensa as DBMensa, init_db
 from scraper import scrape_menus
@@ -45,6 +46,7 @@ class MealOut(BaseModel):
     id: int
     name: str
     description: Optional[str]
+    tags: Optional[str]
     type: str
     mensa: str
     date: date
@@ -66,13 +68,17 @@ def on_startup():
     init_db()
     scrape_menus()
 
+    scheduler = BackgroundScheduler(daemon=True)
+    scheduler.add_job(scrape_menus, 'interval', hours=4, misfire_grace_time=3600)
+    scheduler.start()
+
 @app.get("/menu/{menu_date}", response_model=list[MealOut])
 def get_menu(menu_date: date, db: Session = Depends(get_db)):
-    scrape_menus()
     results = db.query(
         DBMeal.id,
         DBMeal.name,
         DBMeal.description,
+        DBMeal.tags,
         DBMeal.type,
         DBMensa.name.label('mensa_name'),
         DBMeal.date,
@@ -92,11 +98,12 @@ def get_menu(menu_date: date, db: Session = Depends(get_db)):
             id=r.id,
             name=r.name,
             description=r.description,
+            tags=r.tags,
             type=r.type,
             mensa=r.mensa_name,
             date=r.date,
             avg_rating=round(float(r.avg_rating), 1),
-            rating_count=r.rating_count,
+            rating_count=r.rating_count if r.rating_count else 0,
         ))
     return out
 

@@ -1,11 +1,69 @@
 import React, { useState, useEffect } from 'react';
 
-const API = 'http://localhost:8000';
+const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const ICON_BASE = 'https://www.studierendenwerk-goettingen.de/fileadmin/templates/images/mensaspeiseplan/png/';
+
+const TYPE_ORDER = { main: 0, side: 1, dessert: 2 };
+const TYPE_LABELS = { main: 'Main', side: 'Side', dessert: 'Dessert' };
+const TAG_LABELS = {
+  vegan: 'Vegan',
+  vegetarisch: 'Vegetarisch',
+  fleisch: 'Fleisch',
+  fisch: 'Fisch/Meeresfrüchte',
+  strohschwein: 'Leinekrone Strohschwein',
+  leinetalerrind: 'Leinetaler Bauernrind',
+  NDS: 'Niedersachsenmenü',
+};
+const TAG_COLORS = {
+  vegan: { bg: '#dcfce7', color: '#166534' },
+  vegetarisch: { bg: '#fef9c3', color: '#854d0e' },
+  fleisch: { bg: '#fecaca', color: '#991b1b' },
+  fisch: { bg: '#dbeafe', color: '#1e40af' },
+  strohschwein: { bg: '#fae8d7', color: '#9a3412' },
+  leinetalerrind: { bg: '#fef3c7', color: '#92400e' },
+};
+
+const TYPE_COLORS = {
+  main: { bg: '#dbeafe', color: '#1e40af' },
+  side: { bg: '#fef3c7', color: '#92400e' },
+  dessert: { bg: '#fce7f3', color: '#9d174d' },
+};
+
+function IconLegend() {
+  return (
+    <div style={{ 
+      background: '#fff', 
+      borderRadius: 10, 
+      padding: '12px', 
+      marginBottom: '20px', 
+      border: '1px solid #e5e7eb', 
+      display: 'flex', 
+      gap: '16px', 
+      flexWrap: 'wrap', 
+      justifyContent: 'center', 
+      alignItems: 'center',
+      boxShadow: '0 1px 2px rgba(0,0,0,0.05)' 
+    }}>
+      <span style={{ fontSize: '13px', fontWeight: 600, color: '#6b7280', marginRight: '8px' }}>Legend:</span>
+      {Object.entries(TAG_LABELS).map(([tag, label]) => (
+        <div key={tag} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <img 
+            src={`${ICON_BASE}${tag}.png`} 
+            alt={tag} 
+            style={{ width: '16px', height: '16px', objectFit: 'contain' }} 
+          />
+          <span style={{ fontSize: '12px', color: '#4b5563' }}>{label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function App() {
   const [menu, setMenu] = useState([]);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [filter, setFilter] = useState('all');
+  const [sortMode, setSortMode] = useState('default');
   const [loading, setLoading] = useState(false);
   const [mensas, setMensas] = useState([]);
   const [showReviews, setShowReviews] = useState({});
@@ -18,6 +76,7 @@ function App() {
   }, []);
 
   useEffect(() => {
+    setFilter('all');
     setLoading(true);
     fetch(`${API}/menu/${date}`)
       .then(r => r.json())
@@ -25,11 +84,20 @@ function App() {
       .catch(() => { setLoading(false); });
   }, [date]);
 
-  const filtered = filter === 'all' ? menu : menu.filter(m => m.mensa === filter);
+  const filteredMenu = filter === 'all' ? menu : menu.filter(m => m.mensa === filter);
   const grouped = {};
-  filtered.forEach(m => {
-    if (!grouped[m.mensa + m.type]) grouped[m.mensa + m.type] = [];
-    grouped[m.mensa + m.type].push(m);
+  filteredMenu.forEach(m => {
+    const key = m.mensa + '|' + m.type;
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(m);
+  });
+
+  const sortedKeys = Object.keys(grouped).sort((a, b) => {
+    const [mensaA, typeA] = a.split('|');
+    const [mensaB, typeB] = b.split('|');
+    const mensaComp = mensaA.localeCompare(mensaB);
+    if (mensaComp !== 0) return mensaComp;
+    return (TYPE_ORDER[typeA] || 0) - (TYPE_ORDER[typeB] || 0);
   });
 
   return (
@@ -55,7 +123,16 @@ function App() {
             <option value="all">All Mensas</option>
             {mensas.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
+          <select
+            value={sortMode}
+            onChange={e => setSortMode(e.target.value)}
+            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: '14px' }}
+          >
+            <option value="default">Sort: Standard</option>
+            <option value="alpha">Sort: Alphabetical</option>
+          </select>
         </div>
+        <IconLegend />
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>Loading...</div>
@@ -63,16 +140,22 @@ function App() {
           <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>
             <p>No menu for this date. Try today or the next 7 days.</p>
           </div>
+        ) : filteredMenu.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>
+            <p>No meals for {filter} on this date. Try a different date.</p>
+          </div>
         ) : (
-          Object.keys(grouped).sort().map(key => {
-            const [mensa, type] = key.split('_TYPE_');
-            const items = grouped[key];
-            const typeLabels = { main: 'Main', side: 'Side', dessert: 'Dessert' };
+          sortedKeys.map(key => {
+            const [mensa, type] = key.split('|');
+            const rawItems = grouped[key];
+            const items = sortMode === 'alpha'
+              ? [...rawItems].sort((a, b) => a.name.localeCompare(b.name))
+              : rawItems;
             return (
               <>
                 <h2 key={key} style={{ color: '#374151', fontSize: '18px', marginTop: 24, marginBottom: 8,
                   borderBottom: '3px solid #3b82f6', paddingBottom: 8 }}>
-                  {mensa} &mdash; {typeLabels[type] || type}
+                  {mensa} - {TYPE_LABELS[type] || type}
                 </h2>
                 {items.map(meal => (
                   <DishCard key={meal.id} meal={meal} />
@@ -82,6 +165,34 @@ function App() {
           })
         )}
       </div>
+    </div>
+  );
+}
+
+function IconTags({ tags }) {
+  if (!tags || tags.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+      {tags.map(tag => {
+        const label = TAG_LABELS[tag.replace('.png', '')] || tag;
+        return (
+          <span
+            key={tag}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px',
+                     fontSize: '11px', color: '#6b7280',
+                     background: '#f3f4f6', borderRadius: 6,
+                     padding: '2px 6px' }}
+          >
+            <img
+              src={`${ICON_BASE}${tag}.png`}
+              alt={tag.replace('.png', '')}
+              style={{ width: '14px', height: '14px', objectFit: 'contain' }}
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+            {label}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -114,37 +225,33 @@ function DishCard({ meal }) {
     setTimeout(() => { setSubmitted(false); setRating(0); setComment(''); setName(''); setShow(true); }, 1500);
   };
 
-  const typeColors = {
-    vegan: { bg: '#dcfce7', color: '#166534' },
-    vegetarian: { bg: '#fef9c3', color: '#854d0e' },
-    dessert: { bg: '#fce7f3', color: '#9d174d' },
-    main: { bg: '#e0e7ff', color: '#3730a3' },
-    side: { bg: '#f3e8ff', color: '#6b21a8' },
-  };
-  const tc = typeColors[meal.type] || typeColors.main;
+  const tc = TYPE_COLORS[meal.type] || TYPE_COLORS.main;
+  const tags = typeof meal.tags === 'string' ? JSON.parse(meal.tags) : (meal.tags || []);
 
   return (
     <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb',
       boxShadow: '0 1px 3px rgba(0,0,0,0.06)', padding: '14px 16px', marginBottom: 8 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 2 }}>
             <span style={{ fontSize: '16px', fontWeight: 600, color: '#111827' }}>{meal.name}</span>
             <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: 4,
               background: tc.bg, color: tc.color, fontWeight: 500, textTransform: 'uppercase' }}>
               {meal.type}
             </span>
+            <IconTags tags={tags} />
           </div>
           {meal.description && (
-            <p style={{ margin: '4px 0', color: '#6b7280', fontSize: '13px' }}>
+            <p style={{ margin: '6px 0 0', color: '#6b7280', fontSize: '13px' }}>
               {meal.description.replace(/, +/g, ', ')}
             </p>
           )}
+
         </div>
         <div style={{ textAlign: 'right', marginLeft: 12, whiteSpace: 'nowrap' }}>
           {meal.rating_count > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
-              <span style={{ color: '#f59e0b', fontSize: '14px' }}>{'★'.repeat(Math.round(meal.avg_rating))}{'☆'.repeat(5 - Math.round(meal.avg_rating))}</span>
+              <span style={{ color: '#f59e0b', fontSize: '14px' }}>{"\u2605".repeat(Math.round(meal.avg_rating))}{"\u2606".repeat(5 - Math.round(meal.avg_rating))}</span>
               <span style={{ color: '#6b7280', fontSize: '13px' }}>{meal.avg_rating} ({meal.rating_count})</span>
             </div>
           )}
@@ -162,7 +269,7 @@ function DishCard({ meal }) {
                   background: 'none', border: 'none', cursor: 'pointer',
                   fontSize: '22px', padding: 0, lineHeight: 1,
                   color: i <= rating ? '#f59e0b' : '#d1d5db'
-                }}>â˜…</button>
+                }}>&#9733;</button>
               ))}
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
@@ -197,7 +304,7 @@ function DishCard({ meal }) {
             border: 'none', background: 'none', color: '#3b82f6',
             cursor: 'pointer', fontSize: '12px', padding: '6px 0 0', marginTop: 2
           }}>
-            {show ? 'â–²' : 'â–¼'} {' '}Reviews ({meal.rating_count})
+            {show ? '\u25B2' : '\u25BC'} {' '}Reviews ({meal.rating_count})
           </button>
         )}
 
@@ -208,8 +315,10 @@ function DishCard({ meal }) {
             ) : (
               reviews.map(r => (
                 <div key={r.id} style={{ padding: '4px 0' }}>
-                  <span style={{ color: '#6b7280', fontSize: '12px' }}>
-                    {r.user_name || 'Anonymous'} &middot; {'â˜…'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}
+                  <span style={{ color: '#6b7280', fontSize: '12px',
+                    display: 'flex', alignItems: 'center', gap: '2px', flexWrap: 'wrap' }}>
+                    {r.user_name || 'Anonymous'}
+                    {"\u2605".repeat(r.rating)}{"\u2606".repeat(5 - r.rating)}
                   </span>
                   {r.comment && (
                     <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#374151' }}>{r.comment}</p>

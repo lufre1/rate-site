@@ -20,6 +20,7 @@ class Meal(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
     description = Column(Text, nullable=True)
+    tags = Column(Text, nullable=True)
     type = Column(String)
     date = Column(Date, index=True)
     mensa_id = Column(Integer, ForeignKey("mensas.id"))
@@ -37,8 +38,8 @@ class Rating(Base):
 
 def init_db():
     Base.metadata.create_all(bind=engine)
-    # Add description column if it doesn't exist
     with engine.connect() as conn:
+        # Add description column if missing
         result = conn.execute(text(
             "SELECT column_name FROM information_schema.columns "
             "WHERE table_name='meals' AND column_name='description'"
@@ -47,3 +48,12 @@ def init_db():
             conn.execute(text("ALTER TABLE meals ADD COLUMN description TEXT"))
             conn.commit()
             print("Added description column to meals table")
+        # Add tags column if missing
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='meals' AND column_name='tags'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("ALTER TABLE meals ADD COLUMN tags TEXT"))
+            conn.commit()
+            print("Added tags column to meals table")
