@@ -75,7 +75,7 @@ function App() {
   useEffect(() => {
     fetch(`${API}/mensas`)
       .then(r => r.json())
-      .then(m => setMensas(m))
+      .then(m => setMensas(Array.isArray(m) ? m : ['Zentralmensa', 'CGiN', 'Mensa am Turm', 'Bistro HAWK']))
       .catch(() => setMensas(['Zentralmensa', 'CGiN', 'Mensa am Turm', 'Bistro HAWK']));
   }, []);
 
@@ -86,7 +86,7 @@ function App() {
     setLoading(true);
     fetch(`${API}/menu/${date}`)
       .then(r => r.json())
-      .then(data => { setMenu(data); setLoading(false); })
+      .then(data => { setMenu(Array.isArray(data) ? data : []); setLoading(false); })
       .catch(() => { setLoading(false); });
   }, [date]);
 
@@ -98,7 +98,7 @@ function App() {
     setSearchLoading(true);
     fetch(`${API}/menu/search?q=${encodeURIComponent(query.trim())}&past=${includePast}`)
       .then(r => r.json())
-      .then(data => { setSearchResults(data); setSearchLoading(false); })
+      .then(data => { setSearchResults(Array.isArray(data) ? data : []); setSearchLoading(false); })
       .catch(() => { setSearchResults([]); setSearchLoading(false); });
   }, [includePast]);
 
@@ -323,7 +323,7 @@ function DishCard({ meal }) {
     if (show && reviews.length === 0) {
       fetch(`${API}/ratings/${meal.id}`)
         .then(r => r.json())
-        .then(data => setReviews(data))
+        .then(data => setReviews(Array.isArray(data) ? data : []))
         .catch(() => {});
     }
   }, [show, meal.id]);
