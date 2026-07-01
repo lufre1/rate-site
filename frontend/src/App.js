@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 const ICON_BASE = 'https://www.studierendenwerk-goettingen.de/fileadmin/templates/images/mensaspeiseplan/png/';
@@ -48,8 +48,8 @@ function IconLegend() {
       {Object.entries(TAG_LABELS).map(([tag, label]) => (
         <div key={tag} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           <img 
-          src={`${ICON_BASE}${tag}.png`}
-          alt={tag}
+            src={`${ICON_BASE}${tag}.png`}
+            alt={tag}
             style={{ width: '16px', height: '16px', objectFit: 'contain' }} 
           />
           <span style={{ fontSize: '12px', color: '#4b5563' }}>{label}</span>
@@ -67,6 +67,10 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [mensas, setMensas] = useState([]);
   const [showReviews, setShowReviews] = useState({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [includePast, setIncludePast] = useState(false);
 
   useEffect(() => {
     fetch(`${API}/mensas`)
@@ -77,12 +81,31 @@ function App() {
 
   useEffect(() => {
     setFilter('all');
+    setSearchQuery('');
+    setSearchResults([]);
     setLoading(true);
     fetch(`${API}/menu/${date}`)
       .then(r => r.json())
       .then(data => { setMenu(data); setLoading(false); })
       .catch(() => { setLoading(false); });
   }, [date]);
+
+  const searchDishes = useCallback((query) => {
+    if (!query || query.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    setSearchLoading(true);
+    fetch(`${API}/menu/search?q=${encodeURIComponent(query.trim())}&past=${includePast}`)
+      .then(r => r.json())
+      .then(data => { setSearchResults(data); setSearchLoading(false); })
+      .catch(() => { setSearchResults([]); setSearchLoading(false); });
+  }, [includePast]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => searchDishes(searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, searchDishes]);
 
   const filteredMenu = filter === 'all' ? menu : menu.filter(m => m.mensa === filter);
   const grouped = {};
@@ -132,9 +155,36 @@ function App() {
             <option value="alpha">Sort: Alphabetical</option>
           </select>
         </div>
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '12px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center' }}>
+          <input
+            type="text"
+            placeholder="Search dishes or ingredients..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: '14px', width: 300 }}
+          />
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px', color: '#4b5563', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={includePast}
+              onChange={e => setIncludePast(e.target.checked)}
+            />
+            Include past
+          </label>
+        </div>
         <IconLegend />
 
-        {loading ? (
+        {searchLoading ? (
+          <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>Searching...</div>
+        ) : searchResults.length > 0 ? (
+          <>
+            <p style={{ color: '#374151', fontSize: '14px', marginBottom: '4px' }}>
+              Found <strong>{searchResults.length}</strong> results for "{searchQuery}"
+              {!includePast && " (future only)"}
+            </p>
+            <SearchResults results={searchResults} onNavigate={setDate} TYPE_LABELS={TYPE_LABELS} />
+          </>
+        ) : loading ? (
           <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>Loading...</div>
         ) : menu.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>
@@ -165,6 +215,82 @@ function App() {
           })
         )}
       </div>
+    </div>
+  );
+}
+
+function SearchResults({ results, onNavigate, TYPE_LABELS }) {
+  if (results.length === 0) return null;
+  const grouped = {};
+  results.forEach(m => {
+    const key = m.date + '|' + m.mensa + '|' + m.type;
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(m);
+  });
+
+  const sortedKeys = Object.keys(grouped).sort((a, b) => {
+    const [dA, mA] = a.split('|');
+    const [dB, mB] = b.split('|');
+    const dateComp = dB.localeCompare(dA);
+    if (dateComp !== 0) return dateComp;
+    return mA.localeCompare(mB);
+  });
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      {sortedKeys.map(key => {
+        const [dateStr, mensa, type] = key.split('|');
+        const items = grouped[key];
+        const dayLabel = new Date(dateStr + 'T00:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
+        return (
+          <div key={key} style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ color: '#374151', fontSize: '15px', fontWeight: 600 }}>{mensa}</span>
+              <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: 4, background: '#f3f4f6', color: '#374151' }}>{TYPE_LABELS[type] || type}</span>
+              <span style={{ fontSize: '12px', color: '#8b5cf6', cursor: 'pointer', fontWeight: 500 }}
+                onClick={() => onNavigate(dateStr)}>
+                {dayLabel} →
+              </span>
+              <span style={{ fontSize: '11px', color: '#9ca3af' }}>({items.length})</span>
+            </div>
+            {items.map(meal => (
+              <DishCardSearch key={meal.id} meal={meal} TYPE_COLORS={TYPE_COLORS} />
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DishCardSearch({ meal, TYPE_COLORS }) {
+  const tags = typeof meal.tags === 'string' ? JSON.parse(meal.tags) : (meal.tags || []);
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #e5e7eb',
+      padding: '8px 12px', marginBottom: 4, display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+      <div style={{ flex: 1 }}>
+        <span style={{ fontSize: '14px', fontWeight: 500, color: '#111827' }}>{meal.name}</span>
+      </div>
+      {tags.length > 0 && (
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexShrink: 0 }}>
+          {tags.map(tag => (
+            <img
+              key={tag}
+              src={`${ICON_BASE}${tag}`}
+              alt={tag.replace('.png', '')}
+              title={TAG_LABELS[tag.replace('.png', '')] || tag}
+              style={{ width: '12px', height: '12px', objectFit: 'contain' }}
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+          ))}
+        </div>
+      )}
+      {meal.rating_count > 0 && (
+        <span style={{ fontSize: '11px', color: '#f59e0b', flexShrink: 0 }}>
+          {"\u2605".repeat(Math.round(meal.avg_rating))} {meal.avg_rating} ({meal.rating_count})
+        </span>
+      )}
     </div>
   );
 }

@@ -72,6 +72,50 @@ def on_startup():
     scheduler.add_job(scrape_menus, 'interval', hours=4, misfire_grace_time=3600)
     scheduler.start()
 
+@app.get("/menu/search")
+def search_menu(q: str, past: bool = False, db: Session = Depends(get_db)):
+    from datetime import date as _date
+    today = _date.today()
+    qf = f"%{q}%"
+    results = db.query(
+        DBMeal.id,
+        DBMeal.name,
+        DBMeal.description,
+        DBMeal.tags,
+        DBMeal.type,
+        DBMensa.name.label('mensa_name'),
+        DBMeal.date,
+        func.coalesce(func.avg(DBRating.rating), 0).label('avg_rating'),
+        func.count(DBRating.id).label('rating_count'),
+    ).join(DBMensa, DBMeal.mensa_id == DBMensa.id).outerjoin(
+        DBRating, DBRating.meal_id == DBMeal.id
+    ).filter(
+        DBMeal.name.ilike(qf) | DBMeal.description.ilike(qf)
+    )
+    if not past:
+        results = results.filter(DBMeal.date >= today)
+    results = results.group_by(
+        DBMeal.id, DBMensa.name
+    ).order_by(
+        DBMeal.date.desc(), DBMensa.name, DBMeal.type
+    ).all()
+
+    out = []
+    for r in results:
+        out.append(MealOut(
+            id=r.id,
+            name=r.name,
+            description=r.description,
+            tags=r.tags,
+            type=r.type,
+            mensa=r.mensa_name,
+            date=r.date,
+            avg_rating=round(float(r.avg_rating), 1),
+            rating_count=r.rating_count if r.rating_count else 0,
+        ))
+    return out
+
+
 @app.get("/menu/{menu_date}", response_model=list[MealOut])
 def get_menu(menu_date: date, db: Session = Depends(get_db)):
     results = db.query(
