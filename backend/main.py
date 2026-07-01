@@ -34,6 +34,39 @@ class RatingInput(BaseModel):
     comment: Optional[str] = None
     user_name: Optional[str] = None
 
+import random
+
+FAKES = {
+    "adj": [
+        "deep fried", "mildly", "super spicy", "grumpy", "burnt",
+        "extra crispy", "soggy", "zesty", "tanzy", "slightly burnt",
+        "aggressively", "underseasoned", "overcooked", "partially",
+        "definitely", "questionably", "suspiciously", "mysteriously",
+        "aggressively", "deeply", "mildly", "heavily",
+    ],
+    "noun": [
+        "cucumber", "taco", "pickle", "burrito", "lasagna", "nachos",
+        "gravy", "ketchup", "mayo", "mustard", "relish", "hummus",
+        "guacamole", "salsa", "cheddar", "provolone", "brie",
+        "pretzel", "bagel", "waffle", "pancake", "wonton",
+    ],
+    "name": [
+        "Fred", "Steve", "Chad", "Gary", "Beth", "Larry", "Nancy",
+        "Norm", "Doris", "Barry", "Gladys", "Walter", "Marjorie",
+        "Evelyn", "Bertram", "Wilma", "Ethel", "Herbert",
+    ],
+}
+
+
+def generate_funny_name() -> str:
+    adj = random.choice(FAKES["adj"])
+    noun = random.choice(FAKES["noun"])
+    name = random.choice(FAKES["name"])
+    if random.random() < 0.3:
+        return f"{adj} {name}"
+    return f"{adj} {noun} {name}"
+
+
 class RatingOut(BaseModel):
     id: int
     rating: int
@@ -153,7 +186,12 @@ def get_menu(menu_date: date, db: Session = Depends(get_db)):
 
 @app.post("/rate")
 def rate_meal(data: RatingInput, db: Session = Depends(get_db)):
-    rating = DBRating(**data.model_dump())
+    rating = DBRating(
+        meal_id=data.meal_id,
+        rating=data.rating,
+        comment=data.comment,
+        user_name=generate_funny_name(),
+    )
     db.add(rating)
     db.commit()
     db.refresh(rating)

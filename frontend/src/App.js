@@ -315,7 +315,6 @@ function IconTags({ tags }) {
 function DishCard({ meal }) {
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
-  const [name, setName] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [reviews, setReviews] = useState([]);
   const [show, setShow] = useState(false);
@@ -334,10 +333,10 @@ function DishCard({ meal }) {
     await fetch(`${API}/rate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ meal_id: meal.id, rating, comment, user_name: name }),
+      body: JSON.stringify({ meal_id: meal.id, rating, comment }),
     });
     setSubmitted(true);
-    setTimeout(() => { setSubmitted(false); setRating(0); setComment(''); setName(''); setShow(true); }, 1500);
+    setTimeout(() => { setSubmitted(false); setRating(0); setComment(''); setShow(true); }, 1500);
   };
 
   const tc = TYPE_COLORS[meal.type] || TYPE_COLORS.main;
@@ -388,10 +387,6 @@ function DishCard({ meal }) {
               ))}
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <input placeholder="Your name (optional)" value={name}
-                onChange={e => setName(e.target.value)}
-                style={{ flex: 0, minWidth: 80, padding: '4px 8px', border: '1px solid #d1d5db',
-                  borderRadius: 6, fontSize: '13px' }} />
               <textarea placeholder="Your thoughts..." value={comment}
                 onChange={e => setComment(e.target.value)}
                 rows={1}
