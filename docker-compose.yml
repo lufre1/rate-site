@@ -33,9 +33,8 @@ services:
       dockerfile: Dockerfile
       args:
         - REACT_APP_API_URL=${REACT_APP_API_URL}
-    volumes:
-      - frontend_data:/usr/share/nginx/html/static
+    ports:
+      - "3000:80"
 
 volumes:
   postgres_data:
-  frontend_data:
