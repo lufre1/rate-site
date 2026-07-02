@@ -8,7 +8,7 @@ from sqlalchemy import func
 import uvicorn
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from database import SessionLocal, Meal as DBMeal, Rating as DBRating, Mensa as DBMensa, init_db
+from database import SessionLocal, Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, init_db
 from scraper import scrape_menus
 
 app = FastAPI(
@@ -40,6 +40,11 @@ class RatingInput(BaseModel):
     rating: int
     comment: Optional[str] = None
     user_name: Optional[str] = None
+
+class SideRatingInput(BaseModel):
+    side_name: str
+    rating: int
+    comment: Optional[str] = None
 
 import random
 
@@ -106,6 +111,14 @@ class RatingOutWithMeal(BaseModel):
 class RatingOut(RatingOutWithMeal):
     meal_id: int
 
+class RatingOutWithDate(RatingOutWithMeal):
+    date: date
+
+class SideRatingOut(BaseModel):
+    side_name: str
+    avg_rating: float
+    rating_count: int
+
 @app.on_event("startup")
 def on_startup():
     init_db()
@@ -120,6 +133,14 @@ def search_menu(q: str, past: bool = False, db: Session = Depends(get_db)):
     from datetime import date as _date
     today = _date.today()
     qf = f"%{q}%"
+    rating_agg = db.query(
+        DBMeal.name.label('agg_name'),
+        DBMeal.mensa_id.label('agg_mensa_id'),
+        func.avg(DBRating.rating).label('avg_rating'),
+        func.count(DBRating.id).label('rating_count'),
+    ).join(DBRating, DBRating.meal_id == DBMeal.id
+    ).group_by(DBMeal.name, DBMeal.mensa_id).subquery()
+
     results = db.query(
         DBMeal.id,
         DBMeal.name,
@@ -128,18 +149,16 @@ def search_menu(q: str, past: bool = False, db: Session = Depends(get_db)):
         DBMeal.type,
         DBMensa.name.label('mensa_name'),
         DBMeal.date,
-        func.coalesce(func.avg(DBRating.rating), 0).label('avg_rating'),
-        func.count(DBRating.id).label('rating_count'),
+        func.coalesce(rating_agg.c.avg_rating, 0).label('avg_rating'),
+        func.coalesce(rating_agg.c.rating_count, 0).label('rating_count'),
     ).join(DBMensa, DBMeal.mensa_id == DBMensa.id).outerjoin(
-        DBRating, DBRating.meal_id == DBMeal.id
+        rating_agg, (rating_agg.c.agg_name == DBMeal.name) & (rating_agg.c.agg_mensa_id == DBMeal.mensa_id)
     ).filter(
         DBMeal.name.ilike(qf) | DBMeal.description.ilike(qf)
     )
     if not past:
         results = results.filter(DBMeal.date >= today)
-    results = results.group_by(
-        DBMeal.id, DBMensa.name
-    ).order_by(
+    results = results.order_by(
         DBMeal.date.desc(), DBMensa.name, DBMeal.type
     ).all()
 
@@ -161,6 +180,14 @@ def search_menu(q: str, past: bool = False, db: Session = Depends(get_db)):
 
 @app.get("/api/v1/meals", response_model=List[MealOut], tags=["Meals"])
 def get_meals(date: date = Query(None), db: Session = Depends(get_db)):
+    rating_agg = db.query(
+        DBMeal.name.label('agg_name'),
+        DBMeal.mensa_id.label('agg_mensa_id'),
+        func.avg(DBRating.rating).label('avg_rating'),
+        func.count(DBRating.id).label('rating_count'),
+    ).join(DBRating, DBRating.meal_id == DBMeal.id
+    ).group_by(DBMeal.name, DBMeal.mensa_id).subquery()
+
     query = db.query(
         DBMeal.id,
         DBMeal.name,
@@ -169,37 +196,20 @@ def get_meals(date: date = Query(None), db: Session = Depends(get_db)):
         DBMeal.type,
         DBMensa.name.label('mensa'),
         DBMeal.date,
-        func.coalesce(func.avg(DBRating.rating), 0).label('avg_rating'),
-        func.count(DBRating.id).label('rating_count'),
+        func.coalesce(rating_agg.c.avg_rating, 0).label('avg_rating'),
+        func.coalesce(rating_agg.c.rating_count, 0).label('rating_count'),
     ).join(DBMensa, DBMeal.mensa_id == DBMensa.id).outerjoin(
-        DBRating, DBMeal.id == DBRating.meal_id
+        rating_agg, (rating_agg.c.agg_name == DBMeal.name) & (rating_agg.c.agg_mensa_id == DBMeal.mensa_id)
     )
 
     if date:
         query = query.filter(DBMeal.date == date)
 
-    results = query.group_by(
-        DBMeal.id, DBMensa.name
-    ).order_by(
+    results = query.order_by(
         DBMensa.name, DBMeal.type
     ).all()
 
     return results
-
-    out = []
-    for r in results:
-        out.append(MealOut(
-            id=r.id,
-            name=r.name,
-            description=r.description,
-            tags=r.tags,
-            type=r.type,
-            mensa=r.mensa_name,
-            date=r.date,
-            avg_rating=round(float(r.avg_rating), 1),
-            rating_count=r.rating_count if r.rating_count else 0,
-        ))
-    return out
 
 @app.post("/api/v1/meals/{meal_id}/ratings", status_code=201, tags=["Ratings"])
 def create_rating(meal_id: int, data: RatingInput, db: Session = Depends(get_db)):
@@ -219,16 +229,64 @@ def create_rating(meal_id: int, data: RatingInput, db: Session = Depends(get_db)
     db.refresh(rating)
     return rating
 
-@app.get("/api/v1/meals/{meal_id}/ratings", response_model=List[RatingOutWithMeal], tags=["Ratings"])
+@app.get("/api/v1/meals/{meal_id}/ratings", response_model=List[RatingOutWithDate], tags=["Ratings"])
 def get_ratings(meal_id: int, db: Session = Depends(get_db)):
     # Check if meal exists
     meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
     if not meal:
         raise HTTPException(status_code=404, detail="Meal not found")
 
-    return db.query(DBRating).filter(DBRating.meal_id == meal_id).order_by(
-        DBRating.id.desc()
-    ).all()
+    rows = db.query(DBRating, DBMeal.date).join(
+        DBMeal, DBRating.meal_id == DBMeal.id
+    ).filter(
+        DBMeal.name == meal.name,
+        DBMeal.mensa_id == meal.mensa_id,
+    ).order_by(DBMeal.date.desc(), DBRating.id.desc()).all()
+
+    return [
+        RatingOutWithDate(id=r.Rating.id, rating=r.Rating.rating, comment=r.Rating.comment,
+                           user_name=r.Rating.user_name, date=r.date)
+        for r in rows
+    ]
+
+@app.post("/api/v1/meals/{meal_id}/side-ratings", status_code=201, tags=["Ratings"])
+def create_side_rating(meal_id: int, data: SideRatingInput, db: Session = Depends(get_db)):
+    meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
+    if not meal:
+        raise HTTPException(status_code=404, detail="Meal not found")
+    if not data.side_name.strip():
+        raise HTTPException(status_code=400, detail="side_name must not be empty")
+
+    side_rating = DBSideRating(
+        meal_id=meal_id,
+        side_name=data.side_name,
+        rating=data.rating,
+        comment=data.comment,
+        user_name=generate_funny_name(),
+    )
+    db.add(side_rating)
+    db.commit()
+    db.refresh(side_rating)
+    return side_rating
+
+@app.get("/api/v1/meals/{meal_id}/side-ratings", response_model=List[SideRatingOut], tags=["Ratings"])
+def get_side_ratings(meal_id: int, db: Session = Depends(get_db)):
+    meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
+    if not meal:
+        raise HTTPException(status_code=404, detail="Meal not found")
+
+    results = db.query(
+        DBSideRating.side_name,
+        func.coalesce(func.avg(DBSideRating.rating), 0).label('avg_rating'),
+        func.count(DBSideRating.id).label('rating_count'),
+    ).join(DBMeal, DBSideRating.meal_id == DBMeal.id
+    ).filter(DBMeal.mensa_id == meal.mensa_id
+    ).group_by(DBSideRating.side_name).all()
+
+    return [
+        SideRatingOut(side_name=r.side_name, avg_rating=round(float(r.avg_rating), 1), rating_count=r.rating_count)
+        for r in results
+    ]
 
 @app.get("/api/v1/ratings/{rating_id}", response_model=RatingOut, tags=["Ratings"])
 def get_rating(rating_id: int, db: Session = Depends(get_db)):

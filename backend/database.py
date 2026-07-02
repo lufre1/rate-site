@@ -28,6 +28,7 @@ class Meal(Base):
     mensa_id = Column(Integer, ForeignKey("mensas.id"))
     mensa = relationship("Mensa", back_populates="meals")
     ratings = relationship("Rating", back_populates="meal")
+    side_ratings = relationship("SideRating", back_populates="meal")
 
 class Rating(Base):
     __tablename__ = "ratings"
@@ -37,6 +38,16 @@ class Rating(Base):
     comment = Column(Text, nullable=True)
     user_name = Column(String, nullable=True)
     meal = relationship("Meal", back_populates="ratings")
+
+class SideRating(Base):
+    __tablename__ = "side_ratings"
+    id = Column(Integer, primary_key=True, index=True)
+    meal_id = Column(Integer, ForeignKey("meals.id"))
+    side_name = Column(String)
+    rating = Column(Integer)
+    comment = Column(Text, nullable=True)
+    user_name = Column(String, nullable=True)
+    meal = relationship("Meal", back_populates="side_ratings")
 
 def init_db():
     Base.metadata.create_all(bind=engine)

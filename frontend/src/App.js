@@ -29,6 +29,16 @@ const TYPE_COLORS = {
   dessert: { bg: '#fce7f3', color: '#9d174d' },
 };
 
+function formatRelativeDate(dateStr) {
+  const days = Math.round((new Date() - new Date(dateStr + 'T00:00:00')) / 86400000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days} days ago`;
+  if (days < 30) return `${Math.round(days / 7)} weeks ago`;
+  if (days < 365) return `${Math.round(days / 30)} months ago`;
+  return `${Math.round(days / 365)} years ago`;
+}
+
 function IconLegend() {
   return (
     <div style={{ 
@@ -312,12 +322,64 @@ function IconTags({ tags }) {
   );
 }
 
+function StarPicker({ value, onChange, size = 22 }) {
+  return (
+    <div style={{ display: 'flex', gap: 4 }}>
+      {[1, 2, 3, 4, 5].map(i => (
+        <button key={i} onClick={() => onChange(i)} style={{
+          background: 'none', border: 'none', cursor: 'pointer',
+          fontSize: size, lineHeight: 1, padding: '12px 6px',
+          minWidth: 48, minHeight: 48,
+          color: i <= value ? '#f59e0b' : '#d1d5db'
+        }}>&#9733;</button>
+      ))}
+    </div>
+  );
+}
+
+function SideRatingRow({ mealId, sideName, avgRating, ratingCount }) {
+  const [rating, setRating] = useState(0);
+  const [justRated, setJustRated] = useState(false);
+
+  const handleRate = async (i) => {
+    setRating(i);
+    setJustRated(true);
+    setTimeout(() => setJustRated(false), 1500);
+    await fetch(`${API}/api/v1/meals/${mealId}/side-ratings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ side_name: sideName, rating: i, comment: null }),
+    });
+  };
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+      <span style={{ fontSize: '0.8125rem', color: '#374151', flexShrink: 0 }}>{sideName}</span>
+      {ratingCount > 0 && (
+        <span style={{ fontSize: '11px', color: '#9ca3af', flexShrink: 0 }}>
+          {"★".repeat(Math.round(avgRating))} {avgRating} ({ratingCount})
+        </span>
+      )}
+      <StarPicker value={rating} onChange={handleRate} size={16} />
+      {justRated && (
+        <span style={{ fontSize: '11px', color: '#16a34a' }}>Thanks!</span>
+      )}
+    </div>
+  );
+}
+
 function DishCard({ meal }) {
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [reviews, setReviews] = useState([]);
   const [show, setShow] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [sideRatings, setSideRatings] = useState({});
+
+  const sideNames = meal.type === 'main' && meal.description
+    ? meal.description.split(',').map(s => s.trim()).filter(Boolean)
+    : [];
 
   useEffect(() => {
     if (show && reviews.length === 0) {
@@ -327,6 +389,19 @@ function DishCard({ meal }) {
         .catch(() => {});
     }
   }, [show, meal.id]);
+
+  useEffect(() => {
+    if (expanded && sideNames.length > 0) {
+      fetch(`${API}/api/v1/meals/${meal.id}/side-ratings`)
+        .then(r => r.json())
+        .then(data => {
+          const map = {};
+          (Array.isArray(data) ? data : []).forEach(s => { map[s.side_name] = s; });
+          setSideRatings(map);
+        })
+        .catch(() => {});
+    }
+  }, [expanded, meal.id]);
 
   const submitRating = async () => {
     if (rating === 0) return;
@@ -345,7 +420,11 @@ function DishCard({ meal }) {
   return (
     <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb',
       boxShadow: '0 1px 3px rgba(0,0,0,0.06)', padding: '14px 16px', marginBottom: 8 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <button onClick={() => setExpanded(e => !e)} aria-expanded={expanded} style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+        width: '100%', background: 'none', border: 'none', padding: 0,
+        textAlign: 'left', cursor: 'pointer', font: 'inherit'
+      }}>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 2 }}>
             <span style={{ fontSize: '1rem', fontWeight: 600, color: '#111827' }}>{meal.name}</span>
@@ -362,84 +441,100 @@ function DishCard({ meal }) {
           )}
 
         </div>
-           <div style={{ textAlign: 'right', marginLeft: 12, whiteSpace: 'nowrap' }}>
+           <div style={{ textAlign: 'right', marginLeft: 12, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 8 }}>
              {meal.rating_count > 0 && (
                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
                  <span style={{ color: '#f59e0b', fontSize: '0.875rem' }}>{"\u2605".repeat(Math.round(meal.avg_rating))}{"\u2606".repeat(5 - Math.round(meal.avg_rating))}</span>
                  <span style={{ color: '#6b7280', fontSize: '0.8125rem' }}>{meal.avg_rating} ({meal.rating_count})</span>
                </div>
              )}
+             <span style={{ color: '#9ca3af', fontSize: '12px' }}>{expanded ? '\u25B2' : '\u25BC'}</span>
         </div>
-      </div>
+      </button>
 
-      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #f3f4f6' }}>
-        {submitted ? (
-          <p style={{ color: '#16a34a', fontSize: '13px', margin: 0 }}>Thank you for rating!</p>
-        ) : (
-          <>
-            <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
-              {[1, 2, 3, 4, 5].map(i => (
-                <button key={i} onClick={() => setRating(i)} style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  fontSize: '22px', padding: 0, lineHeight: 1,
-                  color: i <= rating ? '#f59e0b' : '#d1d5db'
-                }}>&#9733;</button>
+      {expanded && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #f3f4f6' }}>
+          {submitted ? (
+            <p style={{ color: '#16a34a', fontSize: '13px', margin: 0 }}>Thank you for rating!</p>
+          ) : (
+            <>
+              <div style={{ marginBottom: 6 }}>
+                <StarPicker value={rating} onChange={setRating} size={22} />
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+               <textarea placeholder="Your thoughts..." value={comment}
+                 onChange={e => setComment(e.target.value)}
+                 rows={1}
+                 style={{ flex: 1, padding: '4px 8px', border: '1px solid #d1d5db',
+                   borderRadius: 6, fontSize: '0.8125rem', resize: 'none' }}
+                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitRating(); } }} />
+               <button
+                 onClick={submitRating}
+                 disabled={rating === 0}
+                 style={{
+                   padding: '0.75rem 1rem', borderRadius: '0.5rem', border: 'none',
+                   background: rating > 0 ? '#3b82f6' : '#d1d5db',
+                   color: rating > 0 ? '#fff' : '#9ca3af',
+                   cursor: rating > 0 ? 'pointer' : 'not-allowed',
+                   fontSize: '0.875rem', fontWeight: 500, whiteSpace: 'nowrap'
+                 }}>
+                 Rate
+               </button>
+              </div>
+            </>
+          )}
+
+          {sideNames.length > 0 && (
+            <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #f3f4f6' }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', margin: '0 0 6px' }}>
+                Rate this dish's sides
+              </p>
+              {sideNames.map(name => (
+                <SideRatingRow
+                  key={name}
+                  mealId={meal.id}
+                  sideName={name}
+                  avgRating={sideRatings[name]?.avg_rating || 0}
+                  ratingCount={sideRatings[name]?.rating_count || 0}
+                />
               ))}
             </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-             <textarea placeholder="Your thoughts..." value={comment}
-               onChange={e => setComment(e.target.value)}
-               rows={1}
-               style={{ flex: 1, padding: '4px 8px', border: '1px solid #d1d5db',
-                 borderRadius: 6, fontSize: '0.8125rem', resize: 'none' }}
-               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitRating(); } }} />
-             <button
-               onClick={submitRating}
-               disabled={rating === 0}
-               style={{
-                 padding: '0.75rem 1rem', borderRadius: '0.5rem', border: 'none',
-                 background: rating > 0 ? '#3b82f6' : '#d1d5db',
-                 color: rating > 0 ? '#fff' : '#9ca3af',
-                 cursor: rating > 0 ? 'pointer' : 'not-allowed',
-                 fontSize: '0.875rem', fontWeight: 500, whiteSpace: 'nowrap',
-                 width: '100%', marginTop: '0.5rem'
-               }}>
-               Rate
-             </button>
+          )}
+
+          {meal.rating_count > 0 && (
+            <button onClick={() => setShow(!show)} style={{
+              border: 'none', background: 'none', color: '#3b82f6',
+              cursor: 'pointer', fontSize: '12px', padding: '6px 0 0', marginTop: 2
+            }}>
+              {show ? '\u25B2' : '\u25BC'} {' '}Reviews ({meal.rating_count})
+            </button>
+          )}
+
+          {show && (
+            <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #f3f4f6' }}>
+              {reviews.length === 0 ? (
+                <p style={{ color: '#9ca3af', fontSize: '12px', margin: 0 }}>No reviews yet</p>
+              ) : (
+                reviews.map(r => (
+                  <div key={r.id} style={{ padding: '4px 0' }}>
+                    <span style={{ color: '#6b7280', fontSize: '12px',
+                      display: 'flex', alignItems: 'center', gap: '2px', flexWrap: 'wrap' }}>
+                      {r.user_name || 'Anonymous'}
+                      {"\u2605".repeat(r.rating)}{"\u2606".repeat(5 - r.rating)}
+                      {r.date && (
+                        <span style={{ color: '#9ca3af', marginLeft: 4 }}>{formatRelativeDate(r.date)}</span>
+                      )}
+                    </span>
+                    {r.comment && (
+                      <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#374151' }}>{r.comment}</p>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
-          </>
-        )}
-
-        {meal.rating_count > 0 && (
-          <button onClick={() => setShow(!show)} style={{
-            border: 'none', background: 'none', color: '#3b82f6',
-            cursor: 'pointer', fontSize: '12px', padding: '6px 0 0', marginTop: 2
-          }}>
-            {show ? '\u25B2' : '\u25BC'} {' '}Reviews ({meal.rating_count})
-          </button>
-        )}
-
-        {show && (
-          <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #f3f4f6' }}>
-            {reviews.length === 0 ? (
-              <p style={{ color: '#9ca3af', fontSize: '12px', margin: 0 }}>No reviews yet</p>
-            ) : (
-              reviews.map(r => (
-                <div key={r.id} style={{ padding: '4px 0' }}>
-                  <span style={{ color: '#6b7280', fontSize: '12px',
-                    display: 'flex', alignItems: 'center', gap: '2px', flexWrap: 'wrap' }}>
-                    {r.user_name || 'Anonymous'}
-                    {"\u2605".repeat(r.rating)}{"\u2606".repeat(5 - r.rating)}
-                  </span>
-                  {r.comment && (
-                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#374151' }}>{r.comment}</p>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
