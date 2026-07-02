@@ -1,7 +1,7 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import date
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -11,7 +11,15 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from database import SessionLocal, Meal as DBMeal, Rating as DBRating, Mensa as DBMensa, init_db
 from scraper import scrape_menus
 
-app = FastAPI(title="Mensa Rating API")
+app = FastAPI(
+    title="Mensa Rating API",
+    version="1.0",
+    openapi_tags=[
+        {"name": "Mensas", "description": "Operations on mensas"},
+        {"name": "Meals", "description": "Operations on meals"},
+        {"name": "Ratings", "description": "Operations on ratings"},
+    ]
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -29,7 +37,6 @@ def get_db():
         db.close()
 
 class RatingInput(BaseModel):
-    meal_id: int
     rating: int
     comment: Optional[str] = None
     user_name: Optional[str] = None
@@ -81,7 +88,7 @@ class MealOut(BaseModel):
     description: Optional[str]
     tags: Optional[str]
     type: str
-    mensa: str
+    mensa: str  # This should match the 'mensa_name' label in the query
     date: date
     avg_rating: float
     rating_count: int
@@ -96,6 +103,9 @@ class RatingOutWithMeal(BaseModel):
     class Config:
         from_attributes = True
 
+class RatingOut(RatingOutWithMeal):
+    meal_id: int
+
 @app.on_event("startup")
 def on_startup():
     init_db()
@@ -105,7 +115,7 @@ def on_startup():
     scheduler.add_job(scrape_menus, 'interval', hours=4, misfire_grace_time=3600)
     scheduler.start()
 
-@app.get("/menu/search")
+@app.get("/api/v1/meals/search")
 def search_menu(q: str, past: bool = False, db: Session = Depends(get_db)):
     from datetime import date as _date
     today = _date.today()
@@ -149,25 +159,32 @@ def search_menu(q: str, past: bool = False, db: Session = Depends(get_db)):
     return out
 
 
-@app.get("/menu/{menu_date}", response_model=list[MealOut])
-def get_menu(menu_date: date, db: Session = Depends(get_db)):
-    results = db.query(
+@app.get("/api/v1/meals", response_model=List[MealOut], tags=["Meals"])
+def get_meals(date: date = Query(None), db: Session = Depends(get_db)):
+    query = db.query(
         DBMeal.id,
         DBMeal.name,
         DBMeal.description,
         DBMeal.tags,
         DBMeal.type,
-        DBMensa.name.label('mensa_name'),
+        DBMensa.name.label('mensa'),
         DBMeal.date,
         func.coalesce(func.avg(DBRating.rating), 0).label('avg_rating'),
         func.count(DBRating.id).label('rating_count'),
     ).join(DBMensa, DBMeal.mensa_id == DBMensa.id).outerjoin(
         DBRating, DBMeal.id == DBRating.meal_id
-    ).filter(DBMeal.date == menu_date).group_by(
+    )
+
+    if date:
+        query = query.filter(DBMeal.date == date)
+
+    results = query.group_by(
         DBMeal.id, DBMensa.name
     ).order_by(
         DBMensa.name, DBMeal.type
     ).all()
+
+    return results
 
     out = []
     for r in results:
@@ -184,10 +201,15 @@ def get_menu(menu_date: date, db: Session = Depends(get_db)):
         ))
     return out
 
-@app.post("/rate")
-def rate_meal(data: RatingInput, db: Session = Depends(get_db)):
+@app.post("/api/v1/meals/{meal_id}/ratings", status_code=201, tags=["Ratings"])
+def create_rating(meal_id: int, data: RatingInput, db: Session = Depends(get_db)):
+    # Check if meal exists
+    meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
+    if not meal:
+        raise HTTPException(status_code=404, detail="Meal not found")
+
     rating = DBRating(
-        meal_id=data.meal_id,
+        meal_id=meal_id,
         rating=data.rating,
         comment=data.comment,
         user_name=generate_funny_name(),
@@ -197,13 +219,25 @@ def rate_meal(data: RatingInput, db: Session = Depends(get_db)):
     db.refresh(rating)
     return rating
 
-@app.get("/ratings/{meal_id}", response_model=list[RatingOutWithMeal])
+@app.get("/api/v1/meals/{meal_id}/ratings", response_model=List[RatingOutWithMeal], tags=["Ratings"])
 def get_ratings(meal_id: int, db: Session = Depends(get_db)):
+    # Check if meal exists
+    meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
+    if not meal:
+        raise HTTPException(status_code=404, detail="Meal not found")
+
     return db.query(DBRating).filter(DBRating.meal_id == meal_id).order_by(
         DBRating.id.desc()
     ).all()
 
-@app.get("/mensas")
+@app.get("/api/v1/ratings/{rating_id}", response_model=RatingOut, tags=["Ratings"])
+def get_rating(rating_id: int, db: Session = Depends(get_db)):
+    rating = db.query(DBRating).filter(DBRating.id == rating_id).first()
+    if not rating:
+        raise HTTPException(status_code=404, detail="Rating not found")
+    return rating
+
+@app.get("/api/v1/mensas")
 def get_mensas(db: Session = Depends(get_db)):
     return [m.name for m in db.query(DBMensa).order_by(DBMensa.name).all()]
 

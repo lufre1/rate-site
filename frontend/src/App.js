@@ -73,7 +73,7 @@ function App() {
   const [includePast, setIncludePast] = useState(false);
 
   useEffect(() => {
-    fetch(`${API}/mensas`)
+    fetch(`${API}/api/v1/mensas`)
       .then(r => r.json())
       .then(m => setMensas(Array.isArray(m) ? m : ['Zentralmensa', 'CGiN', 'Mensa am Turm', 'Bistro HAWK']))
       .catch(() => setMensas(['Zentralmensa', 'CGiN', 'Mensa am Turm', 'Bistro HAWK']));
@@ -84,7 +84,7 @@ function App() {
     setSearchQuery('');
     setSearchResults([]);
     setLoading(true);
-    fetch(`${API}/menu/${date}`)
+    fetch(`${API}/api/v1/meals?date=${date}&limit=20`)
       .then(r => r.json())
       .then(data => { setMenu(Array.isArray(data) ? data : []); setLoading(false); })
       .catch(() => { setLoading(false); });
@@ -96,7 +96,7 @@ function App() {
       return;
     }
     setSearchLoading(true);
-    fetch(`${API}/menu/search?q=${encodeURIComponent(query.trim())}&past=${includePast}`)
+    fetch(`${API}/api/v1/meals?query=${encodeURIComponent(query.trim())}&past=${includePast}&limit=20`)
       .then(r => r.json())
       .then(data => { setSearchResults(Array.isArray(data) ? data : []); setSearchLoading(false); })
       .catch(() => { setSearchResults([]); setSearchLoading(false); });
@@ -321,7 +321,7 @@ function DishCard({ meal }) {
 
   useEffect(() => {
     if (show && reviews.length === 0) {
-      fetch(`${API}/ratings/${meal.id}`)
+      fetch(`${API}/api/v1/meals/${meal.id}/ratings`)
         .then(r => r.json())
         .then(data => setReviews(Array.isArray(data) ? data : []))
         .catch(() => {});
@@ -330,10 +330,10 @@ function DishCard({ meal }) {
 
   const submitRating = async () => {
     if (rating === 0) return;
-    await fetch(`${API}/rate`, {
+    await fetch(`${API}/api/v1/meals/${meal.id}/ratings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ meal_id: meal.id, rating, comment }),
+      body: JSON.stringify({ rating, comment }),
     });
     setSubmitted(true);
     setTimeout(() => { setSubmitted(false); setRating(0); setComment(''); setShow(true); }, 1500);
