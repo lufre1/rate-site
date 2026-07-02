@@ -1,3 +1,7 @@
+html {
+  font-size: 16px; /* Base font size: 1rem = 16px */
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
@@ -6,4 +10,13 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: #f3f4f6;
+  font-size: 1rem; /* Inherit base size */
+  overflow-x: hidden; /* Disable horizontal scroll */
+  touch-action: manipulation; /* Optimize for touch */
+}
+
+.container {
+  max-width: 100%;
+  padding: 0 0.75rem; /* 12px padding on sides */
+  box-sizing: border-box;
 }

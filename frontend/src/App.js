@@ -126,44 +126,44 @@ function App() {
   return (
     <div style={{ minHeight: '100vh', background: '#f0f2f5', fontFamily: '-apple-system, sans-serif' }}>
       <header style={{ background: 'linear-gradient(135deg, #1e40af, #3b82f6)', padding: '20px', textAlign: 'center' }}>
-        <h1 style={{ margin: 0, color: '#fff', fontSize: '28px' }}>Mensa Rating</h1>
-        <p style={{ margin: '4px 0 0', color: '#bfdbfe', fontSize: '14px' }}>Rate your canteen meals in Göttingen</p>
+        <h1 style={{ margin: 0, color: '#fff', fontSize: '1.75rem' }}>Mensa Rating</h1>
+        <p style={{ margin: '4px 0 0', color: '#bfdbfe', fontSize: '0.875rem' }}>Rate your canteen meals in Göttingen</p>
       </header>
 
       <div style={{ maxWidth: '800px', margin: '0 auto', padding: '16px' }}>
-        <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap', justifyContent: 'center' }}>
-          <input
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: '14px' }}
-          />
-          <select
-            value={filter}
-            onChange={e => setFilter(e.target.value)}
-            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: '14px' }}
-          >
-            <option value="all">All Mensas</option>
-            {mensas.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
-          <select
-            value={sortMode}
-            onChange={e => setSortMode(e.target.value)}
-            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: '14px' }}
-          >
-            <option value="default">Sort: Standard</option>
-            <option value="alpha">Sort: Alphabetical</option>
-          </select>
+        <div style={{ display: 'flex', gap: '0.625rem', marginBottom: '1rem', flexWrap: 'wrap', justifyContent: 'center', width: '100%' }}>
+           <input
+             type="date"
+             value={date}
+             onChange={e => setDate(e.target.value)}
+             style={{ padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%' }}
+           />
+           <select
+             value={filter}
+             onChange={e => setFilter(e.target.value)}
+             style={{ padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%' }}
+           >
+             <option value="all">All Mensas</option>
+             {mensas.map(m => <option key={m} value={m}>{m}</option>)}
+           </select>
+           <select
+             value={sortMode}
+             onChange={e => setSortMode(e.target.value)}
+             style={{ padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%' }}
+           >
+             <option value="default">Sort: Standard</option>
+             <option value="alpha">Sort: Alphabetical</option>
+           </select>
         </div>
-        <div style={{ display: 'flex', gap: '10px', marginBottom: '12px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center' }}>
-          <input
-            type="text"
-            placeholder="Search dishes or ingredients..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: '14px', width: 300 }}
-          />
-          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px', color: '#4b5563', cursor: 'pointer' }}>
+         <div style={{ display: 'flex', gap: '0.625rem', marginBottom: '0.75rem', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%' }}>
+           <input
+             type="text"
+             placeholder="Search dishes or ingredients..."
+             value={searchQuery}
+             onChange={e => setSearchQuery(e.target.value)}
+             style={{ padding: '0.5rem 0.75rem', borderRadius: '0.5rem', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%' }}
+           />
+           <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.8125rem', color: '#4b5563', cursor: 'pointer' }}>
             <input
               type="checkbox"
               checked={includePast}
@@ -348,27 +348,27 @@ function DishCard({ meal }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 2 }}>
-            <span style={{ fontSize: '16px', fontWeight: 600, color: '#111827' }}>{meal.name}</span>
-            <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: 4,
+            <span style={{ fontSize: '1rem', fontWeight: 600, color: '#111827' }}>{meal.name}</span>
+            <span style={{ fontSize: '0.6875rem', padding: '2px 6px', borderRadius: 4,
               background: tc.bg, color: tc.color, fontWeight: 500, textTransform: 'uppercase' }}>
               {meal.type}
             </span>
             <IconTags tags={tags} />
           </div>
           {meal.description && (
-            <p style={{ margin: '6px 0 0', color: '#6b7280', fontSize: '13px' }}>
+            <p style={{ margin: '6px 0 0', color: '#6b7280', fontSize: '0.8125rem' }}>
               {meal.description.replace(/, +/g, ', ')}
             </p>
           )}
 
         </div>
-        <div style={{ textAlign: 'right', marginLeft: 12, whiteSpace: 'nowrap' }}>
-          {meal.rating_count > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
-              <span style={{ color: '#f59e0b', fontSize: '14px' }}>{"\u2605".repeat(Math.round(meal.avg_rating))}{"\u2606".repeat(5 - Math.round(meal.avg_rating))}</span>
-              <span style={{ color: '#6b7280', fontSize: '13px' }}>{meal.avg_rating} ({meal.rating_count})</span>
-            </div>
-          )}
+           <div style={{ textAlign: 'right', marginLeft: 12, whiteSpace: 'nowrap' }}>
+             {meal.rating_count > 0 && (
+               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                 <span style={{ color: '#f59e0b', fontSize: '0.875rem' }}>{"\u2605".repeat(Math.round(meal.avg_rating))}{"\u2606".repeat(5 - Math.round(meal.avg_rating))}</span>
+                 <span style={{ color: '#6b7280', fontSize: '0.8125rem' }}>{meal.avg_rating} ({meal.rating_count})</span>
+               </div>
+             )}
         </div>
       </div>
 
@@ -387,24 +387,25 @@ function DishCard({ meal }) {
               ))}
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <textarea placeholder="Your thoughts..." value={comment}
-                onChange={e => setComment(e.target.value)}
-                rows={1}
-                style={{ flex: 1, padding: '4px 8px', border: '1px solid #d1d5db',
-                  borderRadius: 6, fontSize: '13px', resize: 'none' }}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitRating(); } }} />
-              <button
-                onClick={submitRating}
-                disabled={rating === 0}
-                style={{
-                  padding: '4px 12px', borderRadius: 6, border: 'none',
-                  background: rating > 0 ? '#3b82f6' : '#d1d5db',
-                  color: rating > 0 ? '#fff' : '#9ca3af',
-                  cursor: rating > 0 ? 'pointer' : 'not-allowed',
-                  fontSize: '13px', fontWeight: 500, whiteSpace: 'nowrap'
-                }}>
-                Rate
-              </button>
+             <textarea placeholder="Your thoughts..." value={comment}
+               onChange={e => setComment(e.target.value)}
+               rows={1}
+               style={{ flex: 1, padding: '4px 8px', border: '1px solid #d1d5db',
+                 borderRadius: 6, fontSize: '0.8125rem', resize: 'none' }}
+               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitRating(); } }} />
+             <button
+               onClick={submitRating}
+               disabled={rating === 0}
+               style={{
+                 padding: '0.75rem 1rem', borderRadius: '0.5rem', border: 'none',
+                 background: rating > 0 ? '#3b82f6' : '#d1d5db',
+                 color: rating > 0 ? '#fff' : '#9ca3af',
+                 cursor: rating > 0 ? 'pointer' : 'not-allowed',
+                 fontSize: '0.875rem', fontWeight: 500, whiteSpace: 'nowrap',
+                 width: '100%', marginTop: '0.5rem'
+               }}>
+               Rate
+             </button>
             </div>
           </>
         )}
