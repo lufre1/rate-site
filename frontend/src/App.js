@@ -106,7 +106,7 @@ function App() {
       return;
     }
     setSearchLoading(true);
-    fetch(`${API}/api/v1/meals?query=${encodeURIComponent(query.trim())}&past=${includePast}&limit=20`)
+    fetch(`${API}/api/v1/meals/search?q=${encodeURIComponent(query.trim())}&past=${includePast}`)
       .then(r => r.json())
       .then(data => { setSearchResults(Array.isArray(data) ? data : []); setSearchLoading(false); })
       .catch(() => { setSearchResults([]); setSearchLoading(false); });
