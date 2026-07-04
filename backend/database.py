@@ -21,7 +21,11 @@ class Meal(Base):
     __tablename__ = "meals"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
+    name_de = Column(String, index=True)  # German name
+    name_en = Column(String, index=True)  # English name
     description = Column(Text, nullable=True)
+    description_de = Column(Text, nullable=True)  # German description
+    description_en = Column(Text, nullable=True)  # English description
     tags = Column(Text, nullable=True)
     type = Column(String)
     date = Column(Date, index=True)
@@ -70,3 +74,39 @@ def init_db():
             conn.execute(text("ALTER TABLE meals ADD COLUMN tags TEXT"))
             conn.commit()
             print("Added tags column to meals table")
+        # Add name_de column if missing
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='meals' AND column_name='name_de'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("ALTER TABLE meals ADD COLUMN name_de VARCHAR"))
+            conn.commit()
+            print("Added name_de column to meals table")
+        # Add name_en column if missing
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='meals' AND column_name='name_en'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("ALTER TABLE meals ADD COLUMN name_en VARCHAR"))
+            conn.commit()
+            print("Added name_en column to meals table")
+        # Add description_de column if missing
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='meals' AND column_name='description_de'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("ALTER TABLE meals ADD COLUMN description_de TEXT"))
+            conn.commit()
+            print("Added description_de column to meals table")
+        # Add description_en column if missing
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='meals' AND column_name='description_en'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("ALTER TABLE meals ADD COLUMN description_en TEXT"))
+            conn.commit()
+            print("Added description_en column to meals table")

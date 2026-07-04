@@ -1,7 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { initReactI18next, useTranslation } from 'react-i18next';
+import i18n from 'i18next';
+import de from './translations/de.json';
+import en from './translations/en.json';
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 const ICON_BASE = 'https://www.studierendenwerk-goettingen.de/fileadmin/templates/images/mensaspeiseplan/png/';
+
+// Initialize i18next
+i18n
+  .use(initReactI18next)
+  .init({
+    resources: {
+      de: { translation: de },
+      en: { translation: en }
+    },
+    lng: 'de', // Default language
+    fallbackLng: 'de',
+    interpolation: {
+      escapeValue: false
+    }
+  });
 
 const TYPE_ORDER = { main: 0, side: 1, dessert: 2 };
 const TYPE_LABELS = { main: 'Main', side: 'Side', dessert: 'Dessert' };
@@ -30,16 +49,18 @@ const TYPE_COLORS = {
 };
 
 function formatRelativeDate(dateStr) {
+  const { t } = useTranslation();
   const days = Math.round((new Date() - new Date(dateStr + 'T00:00:00')) / 86400000);
-  if (days <= 0) return 'today';
-  if (days === 1) return 'yesterday';
-  if (days < 7) return `${days} days ago`;
-  if (days < 30) return `${Math.round(days / 7)} weeks ago`;
-  if (days < 365) return `${Math.round(days / 30)} months ago`;
-  return `${Math.round(days / 365)} years ago`;
+  if (days <= 0) return t('dates.today');
+  if (days === 1) return t('dates.yesterday');
+  if (days < 7) return t('dates.daysAgo', { count: days });
+  if (days < 30) return t('dates.weeksAgo', { count: Math.round(days / 7) });
+  if (days < 365) return t('dates.monthsAgo', { count: Math.round(days / 30) });
+  return t('dates.yearsAgo', { count: Math.round(days / 365) });
 }
 
 function IconLegend() {
+  const { t } = useTranslation();
   return (
     <div style={{ 
       background: '#fff', 
@@ -54,7 +75,7 @@ function IconLegend() {
       alignItems: 'center',
       boxShadow: '0 1px 2px rgba(0,0,0,0.05)' 
     }}>
-      <span style={{ fontSize: '13px', fontWeight: 600, color: '#6b7280', marginRight: '8px' }}>Legend:</span>
+      <span style={{ fontSize: '13px', fontWeight: 600, color: '#6b7280', marginRight: '8px' }}>{t('ui.legend')}</span>
       {Object.entries(TAG_LABELS).map(([tag, label]) => (
         <div key={tag} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           <img 
@@ -62,7 +83,7 @@ function IconLegend() {
             alt={tag}
             style={{ width: '16px', height: '16px', objectFit: 'contain' }} 
           />
-          <span style={{ fontSize: '12px', color: '#4b5563' }}>{label}</span>
+          <span style={{ fontSize: '12px', color: '#4b5563' }}>{t('tags.' + tag)}</span>
         </div>
       ))}
     </div>
@@ -70,6 +91,7 @@ function IconLegend() {
 }
 
 function App() {
+  const { t, i18n } = useTranslation();
   const [menu, setMenu] = useState([]);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [filter, setFilter] = useState('all');
@@ -81,6 +103,13 @@ function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [includePast, setIncludePast] = useState(false);
+  const [language, setLanguage] = useState('de');
+
+  // Function to change language
+  const changeLanguage = (lng) => {
+    i18n.changeLanguage(lng);
+    setLanguage(lng);
+  };
 
   useEffect(() => {
     fetch(`${API}/api/v1/mensas`)
@@ -89,16 +118,30 @@ function App() {
       .catch(() => setMensas(['Zentralmensa', 'CGiN', 'Mensa am Turm', 'Bistro HAWK']));
   }, []);
 
+  // Navigate from a search result to the dish's day + mensa in the menu view.
+  const navigateTo = (dateStr, mensa) => {
+    setSearchQuery('');
+    setSearchResults([]);
+    setFilter(mensa || 'all');
+    setDate(dateStr);
+  };
+
+  // Reset to the default view: today's menu with the search cleared.
+  const goHome = () => {
+    setSearchQuery('');
+    setSearchResults([]);
+    setDate(new Date().toISOString().slice(0, 10));
+  };
+
   useEffect(() => {
-    setFilter('all');
     setSearchQuery('');
     setSearchResults([]);
     setLoading(true);
-    fetch(`${API}/api/v1/meals?date=${date}&limit=20`)
+    fetch(`${API}/api/v1/meals?date=${date}&lang=${language}`)
       .then(r => r.json())
       .then(data => { setMenu(Array.isArray(data) ? data : []); setLoading(false); })
       .catch(() => { setLoading(false); });
-  }, [date]);
+  }, [date, language]);
 
   const searchDishes = useCallback((query) => {
     if (!query || query.trim().length < 2) {
@@ -106,16 +149,16 @@ function App() {
       return;
     }
     setSearchLoading(true);
-    fetch(`${API}/api/v1/meals/search?q=${encodeURIComponent(query.trim())}&past=${includePast}`)
+    fetch(`${API}/api/v1/meals/search?q=${encodeURIComponent(query.trim())}&past=${includePast}&lang=${language}`)
       .then(r => r.json())
       .then(data => { setSearchResults(Array.isArray(data) ? data : []); setSearchLoading(false); })
       .catch(() => { setSearchResults([]); setSearchLoading(false); });
-  }, [includePast]);
+  }, [includePast, language]);
 
   useEffect(() => {
     const timer = setTimeout(() => searchDishes(searchQuery), 300);
     return () => clearTimeout(timer);
-  }, [searchQuery, searchDishes]);
+  }, [searchQuery, searchDishes, language]);
 
   const filteredMenu = filter === 'all' ? menu : menu.filter(m => m.mensa === filter);
   const grouped = {};
@@ -136,8 +179,49 @@ function App() {
   return (
     <div style={{ minHeight: '100vh', background: '#f0f2f5', fontFamily: '-apple-system, sans-serif' }}>
       <header style={{ background: 'linear-gradient(135deg, #1e40af, #3b82f6)', padding: '20px', textAlign: 'center' }}>
-        <h1 style={{ margin: 0, color: '#fff', fontSize: '1.75rem' }}>Mensa Rating</h1>
-        <p style={{ margin: '4px 0 0', color: '#bfdbfe', fontSize: '0.875rem' }}>Rate your canteen meals in Göttingen</p>
+        <h1
+          role="button"
+          tabIndex={0}
+          onClick={goHome}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goHome(); } }}
+          onMouseEnter={e => { e.currentTarget.style.opacity = '0.85'; }}
+          onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+          aria-label={t('ui.backHome')}
+          title={t('ui.backHome')}
+          style={{ margin: 0, color: '#fff', fontSize: '1.75rem', cursor: 'pointer', display: 'inline-block' }}
+        >{t('app.title')}</h1>
+        <p style={{ margin: '4px 0 0', color: '#bfdbfe', fontSize: '0.875rem' }}>{t('app.subtitle')}</p>
+        <div style={{ marginTop: '10px' }}>
+          <button 
+            onClick={() => changeLanguage('de')} 
+            style={{ 
+              background: language === 'de' ? '#3b82f6' : '#e5e7eb', 
+              color: language === 'de' ? '#fff' : '#000',
+              border: 'none', 
+              padding: '4px 8px', 
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '0.8rem'
+            }}
+          >
+            DE
+          </button>
+          <button 
+            onClick={() => changeLanguage('en')} 
+            style={{ 
+              background: language === 'en' ? '#3b82f6' : '#e5e7eb', 
+              color: language === 'en' ? '#fff' : '#000',
+              border: 'none', 
+              padding: '4px 8px', 
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '0.8rem',
+              marginLeft: '4px'
+            }}
+          >
+            EN
+          </button>
+        </div>
       </header>
 
       <div style={{ maxWidth: '800px', margin: '0 auto', padding: '16px' }}>
@@ -145,7 +229,7 @@ function App() {
            <input
              type="date"
              value={date}
-             onChange={e => setDate(e.target.value)}
+             onChange={e => { setFilter('all'); setDate(e.target.value); }}
              style={{ padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%' }}
            />
            <select
@@ -153,7 +237,7 @@ function App() {
              onChange={e => setFilter(e.target.value)}
              style={{ padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%' }}
            >
-             <option value="all">All Mensas</option>
+             <option value="all">{t('ui.allMensas')}</option>
              {mensas.map(m => <option key={m} value={m}>{m}</option>)}
            </select>
            <select
@@ -161,63 +245,98 @@ function App() {
              onChange={e => setSortMode(e.target.value)}
              style={{ padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%' }}
            >
-             <option value="default">Sort: Standard</option>
-             <option value="alpha">Sort: Alphabetical</option>
+             <option value="default">{t('ui.sortStandard')}</option>
+             <option value="alpha">{t('ui.sortAlphabetical')}</option>
            </select>
         </div>
-         <div style={{ display: 'flex', gap: '0.625rem', marginBottom: '0.75rem', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%' }}>
-           <input
-             type="text"
-             placeholder="Search dishes or ingredients..."
-             value={searchQuery}
-             onChange={e => setSearchQuery(e.target.value)}
-             style={{ padding: '0.5rem 0.75rem', borderRadius: '0.5rem', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%' }}
-           />
+         <div style={{ display: 'flex', gap: '0.625rem', marginBottom: '0.75rem', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', position: 'relative' }}>
+           <div style={{ position: 'relative', width: '100%' }}>
+             <input
+               type="text"
+               placeholder={t('ui.searchPlaceholder')}
+               value={searchQuery}
+               onChange={e => setSearchQuery(e.target.value)}
+               style={{ padding: '0.5rem 0.75rem', borderRadius: '0.5rem', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%' }}
+             />
+             {searchQuery && (
+               <button
+                 onClick={() => setSearchQuery('')}
+                 style={{
+                   position: 'absolute',
+                   right: '0.75rem',
+                   top: '50%',
+                   transform: 'translateY(-50%)',
+                   background: 'none',
+                   border: 'none',
+                   cursor: 'pointer',
+                   fontSize: '1.25rem',
+                   color: '#9ca3af',
+                   padding: '0',
+                   width: '20px',
+                   height: '20px',
+                   display: 'flex',
+                   alignItems: 'center',
+                   justifyContent: 'center'
+                 }}
+                 aria-label={t('ui.clearSearch')}
+               >
+                 ×
+               </button>
+             )}
+           </div>
            <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.8125rem', color: '#4b5563', cursor: 'pointer' }}>
             <input
               type="checkbox"
               checked={includePast}
               onChange={e => setIncludePast(e.target.checked)}
             />
-            Include past
+            {t('ui.includePast')}
           </label>
-        </div>
+         </div>
         <IconLegend />
-
+        
         {searchLoading ? (
-          <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>Searching...</div>
+          <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>{t('search.loading')}</div>
         ) : searchResults.length > 0 ? (
           <>
             <p style={{ color: '#374151', fontSize: '14px', marginBottom: '4px' }}>
-              Found <strong>{searchResults.length}</strong> results for "{searchQuery}"
-              {!includePast && " (future only)"}
+              {t('ui.foundResults', { count: searchResults.length, query: searchQuery })}
+              {!includePast && " " + t('ui.futureOnly')}
             </p>
-            <SearchResults results={searchResults} onNavigate={setDate} TYPE_LABELS={TYPE_LABELS} />
+            <SearchResults results={searchResults} onNavigate={navigateTo} TYPE_LABELS={TYPE_LABELS} formatRelativeDate={formatRelativeDate} />
           </>
         ) : loading ? (
-          <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>Loading...</div>
+          <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>{t('search.loadingMenu')}</div>
         ) : menu.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>
-            <p>No menu for this date. Try today or the next 7 days.</p>
+            <p>{t('ui.noMenu')}</p>
           </div>
         ) : filteredMenu.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>
-            <p>No meals for {filter} on this date. Try a different date.</p>
+            <p>{t('ui.noMeals', { filter: filter })}</p>
           </div>
         ) : (
           sortedKeys.map(key => {
             const [mensa, type] = key.split('|');
             const rawItems = grouped[key];
-            const items = sortMode === 'alpha'
-              ? [...rawItems].sort((a, b) => a.name.localeCompare(b.name))
-              : rawItems;
+            // Safety net: drop any duplicate dishes by name (backend already
+            // returns a single language-correct row per dish).
+            const seenNames = new Set();
+            const items = rawItems.filter(item => {
+              if (seenNames.has(item.name)) return false;
+              seenNames.add(item.name);
+              return true;
+            });
+            const sortedItems = sortMode === 'alpha'
+              ? [...items].sort((a, b) => a.name.localeCompare(b.name))
+              : items;
             return (
               <>
                 <h2 key={key} style={{ color: '#374151', fontSize: '18px', marginTop: 24, marginBottom: 8,
                   borderBottom: '3px solid #3b82f6', paddingBottom: 8 }}>
-                  {mensa} - {TYPE_LABELS[type] || type}
+                  {mensa} - {t('mealTypes.' + type) || type}
                 </h2>
-                {items.map(meal => (
+                {sortedItems.map(meal => (
                   <DishCard key={meal.id} meal={meal} />
                 ))}
               </>
@@ -229,7 +348,7 @@ function App() {
   );
 }
 
-function SearchResults({ results, onNavigate, TYPE_LABELS }) {
+function SearchResults({ results, onNavigate, TYPE_LABELS, formatRelativeDate }) {
   if (results.length === 0) return null;
   const grouped = {};
   results.forEach(m => {
@@ -258,13 +377,13 @@ function SearchResults({ results, onNavigate, TYPE_LABELS }) {
               <span style={{ color: '#374151', fontSize: '15px', fontWeight: 600 }}>{mensa}</span>
               <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: 4, background: '#f3f4f6', color: '#374151' }}>{TYPE_LABELS[type] || type}</span>
               <span style={{ fontSize: '12px', color: '#8b5cf6', cursor: 'pointer', fontWeight: 500 }}
-                onClick={() => onNavigate(dateStr)}>
+                onClick={() => onNavigate(dateStr, mensa)}>
                 {dayLabel} →
               </span>
               <span style={{ fontSize: '11px', color: '#9ca3af' }}>({items.length})</span>
             </div>
             {items.map(meal => (
-              <DishCardSearch key={meal.id} meal={meal} TYPE_COLORS={TYPE_COLORS} />
+              <DishCardSearch key={meal.id} meal={meal} TYPE_COLORS={TYPE_COLORS} onNavigate={onNavigate} />
             ))}
           </div>
         );
@@ -273,11 +392,21 @@ function SearchResults({ results, onNavigate, TYPE_LABELS }) {
   );
 }
 
-function DishCardSearch({ meal, TYPE_COLORS }) {
+function DishCardSearch({ meal, TYPE_COLORS, onNavigate }) {
+  const { t } = useTranslation();
   const tags = typeof meal.tags === 'string' ? JSON.parse(meal.tags) : (meal.tags || []);
+  const go = () => onNavigate && onNavigate(meal.date, meal.mensa);
 
   return (
-    <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #e5e7eb',
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={go}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } }}
+      onMouseEnter={e => { e.currentTarget.style.background = '#f9fafb'; e.currentTarget.style.borderColor = '#c7d2fe'; }}
+      onMouseLeave={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e5e7eb'; }}
+      title={`${meal.mensa} · ${meal.date}`}
+      style={{ background: '#fff', borderRadius: 8, border: '1px solid #e5e7eb', cursor: 'pointer',
       padding: '8px 12px', marginBottom: 4, display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
       <div style={{ flex: 1 }}>
         <span style={{ fontSize: '14px', fontWeight: 500, color: '#111827' }}>{meal.name}</span>
@@ -289,7 +418,7 @@ function DishCardSearch({ meal, TYPE_COLORS }) {
               key={tag}
               src={`${ICON_BASE}${tag}`}
               alt={tag.replace('.png', '')}
-              title={TAG_LABELS[tag.replace('.png', '')] || tag}
+              title={t('tags.' + tag.replace('.png', '')) || tag}
               style={{ width: '12px', height: '12px', objectFit: 'contain' }}
               onError={(e) => { e.target.style.display = 'none'; }}
             />
@@ -338,6 +467,7 @@ function StarPicker({ value, onChange, size = 22 }) {
 }
 
 function SideRatingRow({ mealId, sideName, avgRating, ratingCount }) {
+  const { t } = useTranslation();
   const [rating, setRating] = useState(0);
   const [justRated, setJustRated] = useState(false);
 
@@ -362,13 +492,14 @@ function SideRatingRow({ mealId, sideName, avgRating, ratingCount }) {
       )}
       <StarPicker value={rating} onChange={handleRate} size={16} />
       {justRated && (
-        <span style={{ fontSize: '11px', color: '#16a34a' }}>Thanks!</span>
+        <span style={{ fontSize: '11px', color: '#16a34a' }}>{t('ui.thanksForRating')}</span>
       )}
     </div>
   );
 }
 
 function DishCard({ meal }) {
+  const { t } = useTranslation();
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
   const [submitted, setSubmitted] = useState(false);
@@ -417,6 +548,10 @@ function DishCard({ meal }) {
   const tc = TYPE_COLORS[meal.type] || TYPE_COLORS.main;
   const tags = typeof meal.tags === 'string' ? JSON.parse(meal.tags) : (meal.tags || []);
 
+  // The API already returns name/description in the selected language.
+  const displayName = meal.name;
+  const displayDescription = meal.description;
+
   return (
     <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb',
       boxShadow: '0 1px 3px rgba(0,0,0,0.06)', padding: '14px 16px', marginBottom: 8 }}>
@@ -427,16 +562,16 @@ function DishCard({ meal }) {
       }}>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 2 }}>
-            <span style={{ fontSize: '1rem', fontWeight: 600, color: '#111827' }}>{meal.name}</span>
+            <span style={{ fontSize: '1rem', fontWeight: 600, color: '#111827' }}>{displayName}</span>
             <span style={{ fontSize: '0.6875rem', padding: '2px 6px', borderRadius: 4,
               background: tc.bg, color: tc.color, fontWeight: 500, textTransform: 'uppercase' }}>
-              {meal.type}
+              {t('mealTypes.' + meal.type)}
             </span>
             <IconTags tags={tags} />
           </div>
-          {meal.description && (
+          {displayDescription && (
             <p style={{ margin: '6px 0 0', color: '#6b7280', fontSize: '0.8125rem' }}>
-              {meal.description.replace(/, +/g, ', ')}
+              {displayDescription.replace(/, +/g, ', ')}
             </p>
           )}
 
@@ -455,14 +590,14 @@ function DishCard({ meal }) {
       {expanded && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #f3f4f6' }}>
           {submitted ? (
-            <p style={{ color: '#16a34a', fontSize: '13px', margin: 0 }}>Thank you for rating!</p>
+            <p style={{ color: '#16a34a', fontSize: '13px', margin: 0 }}>{t('ui.thanksForRating')}</p>
           ) : (
             <>
               <div style={{ marginBottom: 6 }}>
                 <StarPicker value={rating} onChange={setRating} size={22} />
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
-               <textarea placeholder="Your thoughts..." value={comment}
+               <textarea placeholder={t('ui.rate')} value={comment}
                  onChange={e => setComment(e.target.value)}
                  rows={1}
                  style={{ flex: 1, padding: '4px 8px', border: '1px solid #d1d5db',
@@ -478,7 +613,7 @@ function DishCard({ meal }) {
                    cursor: rating > 0 ? 'pointer' : 'not-allowed',
                    fontSize: '0.875rem', fontWeight: 500, whiteSpace: 'nowrap'
                  }}>
-                 Rate
+                 {t('ui.rate')}
                </button>
               </div>
             </>
@@ -487,7 +622,7 @@ function DishCard({ meal }) {
           {sideNames.length > 0 && (
             <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #f3f4f6' }}>
               <p style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', margin: '0 0 6px' }}>
-                Rate this dish's sides
+                {t('ui.rateSides')}
               </p>
               {sideNames.map(name => (
                 <SideRatingRow
@@ -506,14 +641,14 @@ function DishCard({ meal }) {
               border: 'none', background: 'none', color: '#3b82f6',
               cursor: 'pointer', fontSize: '12px', padding: '6px 0 0', marginTop: 2
             }}>
-              {show ? '\u25B2' : '\u25BC'} {' '}Reviews ({meal.rating_count})
+              {show ? '\u25B2' : '\u25BC'} {' '} {t('ui.reviews')} ({meal.rating_count})
             </button>
           )}
 
           {show && (
             <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #f3f4f6' }}>
               {reviews.length === 0 ? (
-                <p style={{ color: '#9ca3af', fontSize: '12px', margin: 0 }}>No reviews yet</p>
+                <p style={{ color: '#9ca3af', fontSize: '12px', margin: 0 }}>{t('ui.noReviews')}</p>
               ) : (
                 reviews.map(r => (
                   <div key={r.id} style={{ padding: '4px 0' }}>

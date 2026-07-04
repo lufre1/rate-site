@@ -1,0 +1,51 @@
+{
+  "app": {
+    "title": "Mensa-Bewertung",
+    "subtitle": "Bewerte deine Mensagerichte in Göttingen"
+  },
+  "ui": {
+    "allMensas": "Alle Mensen",
+    "sortStandard": "Sortierung: Standard",
+    "sortAlphabetical": "Sortierung: Alphabetisch",
+    "searchPlaceholder": "Gerichte oder Zutaten suchen...",
+    "includePast": "Vergangene einbeziehen",
+    "clearSearch": "Suche zurücksetzen",
+    "noMenu": "Kein Menü für dieses Datum. Versuche heute oder die nächsten 7 Tage.",
+    "noMeals": "Keine Gerichte für {{filter}} an diesem Datum. Versuche ein anderes Datum.",
+    "noReviews": "Noch keine Bewertungen",
+    "rate": "Bewerten",
+    "thanksForRating": "Danke für deine Bewertung!",
+    "rateSides": "Bewerte die Beilagen dieses Gerichts",
+    "reviews": "Bewertungen",
+    "futureOnly": "(nur zukünftige)",
+    "foundResults": "{{count}} Ergebnisse für \"{{query}}\" gefunden",
+    "legend": "Legende",
+    "backHome": "Zurück zur Startansicht"
+  },
+  "mealTypes": {
+    "main": "Hauptgericht",
+    "side": "Beilage",
+    "dessert": "Dessert"
+  },
+  "tags": {
+    "vegan": "Vegan",
+    "vegetarisch": "Vegetarisch",
+    "fleisch": "Fleisch",
+    "fisch": "Fisch/Meeresfrüchte",
+    "strohschwein": "Leinekrone Strohschwein",
+    "leinetalerrind": "Leinetaler Bauernrind",
+    "NDS": "Niedersachsenmenü"
+  },
+  "dates": {
+    "today": "heute",
+    "yesterday": "gestern",
+    "daysAgo": "vor {{count}} Tagen",
+    "weeksAgo": "vor {{count}} Wochen",
+    "monthsAgo": "vor {{count}} Monaten",
+    "yearsAgo": "vor {{count}} Jahren"
+  },
+  "search": {
+    "loading": "Suche läuft...",
+    "loadingMenu": "Lädt..."
+  }
+}

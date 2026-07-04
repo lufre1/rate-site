@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, Query, HTTPException
+from fastapi import FastAPI, Depends, Query, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 import uvicorn
 from apscheduler.schedulers.background import BackgroundScheduler
+import locale
 
 from database import SessionLocal, Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, init_db
 from scraper import scrape_menus
@@ -35,6 +36,39 @@ def get_db():
         yield db
     finally:
         db.close()
+
+def get_user_language(request: Request) -> str:
+    """Determine user's preferred language"""
+    # Check Accept-Language header
+    accept_lang = request.headers.get("Accept-Language", "")
+    if accept_lang:
+        # Parse the header to get the first preferred language
+        langs = [lang.split(';')[0].strip() for lang in accept_lang.split(',')]
+        for lang in langs:
+            if lang.startswith('de'):
+                return 'de'
+            elif lang.startswith('en'):
+                return 'en'
+    
+    # Default to German
+    return 'de'
+
+def resolve_language(r, lang: str):
+    """Pick name/description for the requested language.
+
+    Falls back (EN -> DE -> legacy name) so a missing translation never causes a
+    dish to disappear from the menu.
+    """
+    if lang == "en":
+        name = r.name_en or r.name_de or r.name
+        description = r.description_en or r.description_de or r.description
+    else:  # "de" (default)
+        name = r.name_de or r.name
+        description = r.description_de or r.description
+    if not name:
+        name = r.name
+        description = r.description
+    return name, description
 
 class RatingInput(BaseModel):
     rating: int
@@ -69,7 +103,6 @@ FAKES = {
     ],
 }
 
-
 def generate_funny_name() -> str:
     adj = random.choice(FAKES["adj"])
     noun = random.choice(FAKES["noun"])
@@ -77,7 +110,6 @@ def generate_funny_name() -> str:
     if random.random() < 0.3:
         return f"{adj} {name}"
     return f"{adj} {noun} {name}"
-
 
 class RatingOut(BaseModel):
     id: int
@@ -129,10 +161,15 @@ def on_startup():
     scheduler.start()
 
 @app.get("/api/v1/meals/search")
-def search_menu(q: str, past: bool = False, db: Session = Depends(get_db)):
+def search_menu(q: str, past: bool = False, lang: str = "de", request: Request = None, db: Session = Depends(get_db)):
     from datetime import date as _date
     today = _date.today()
     qf = f"%{q}%"
+    
+    # Determine language preference
+    if lang != "de" and lang != "en":
+        lang = get_user_language(request) if request else "de"
+    
     rating_agg = db.query(
         DBMeal.name.label('agg_name'),
         DBMeal.mensa_id.label('agg_mensa_id'),
@@ -144,7 +181,11 @@ def search_menu(q: str, past: bool = False, db: Session = Depends(get_db)):
     results = db.query(
         DBMeal.id,
         DBMeal.name,
+        DBMeal.name_de,
+        DBMeal.name_en,
         DBMeal.description,
+        DBMeal.description_de,
+        DBMeal.description_en,
         DBMeal.tags,
         DBMeal.type,
         DBMensa.name.label('mensa_name'),
@@ -163,11 +204,23 @@ def search_menu(q: str, past: bool = False, db: Session = Depends(get_db)):
     ).all()
 
     out = []
+    # Guard against residual duplicate rows: one entry per (mensa, name, date).
+    seen = set()
+
     for r in results:
+        name, description = resolve_language(r, lang)
+        if not name or not name.strip():
+            continue
+
+        key = (r.mensa_name, name, r.date)
+        if key in seen:
+            continue
+        seen.add(key)
+
         out.append(MealOut(
             id=r.id,
-            name=r.name,
-            description=r.description,
+            name=name,
+            description=description,
             tags=r.tags,
             type=r.type,
             mensa=r.mensa_name,
@@ -175,11 +228,15 @@ def search_menu(q: str, past: bool = False, db: Session = Depends(get_db)):
             avg_rating=round(float(r.avg_rating), 1),
             rating_count=r.rating_count if r.rating_count else 0,
         ))
+
     return out
 
-
 @app.get("/api/v1/meals", response_model=List[MealOut], tags=["Meals"])
-def get_meals(date: date = Query(None), db: Session = Depends(get_db)):
+def get_meals(date: date = Query(None), lang: str = "de", request: Request = None, db: Session = Depends(get_db)):
+    # Determine language preference
+    if lang != "de" and lang != "en":
+        lang = get_user_language(request) if request else "de"
+    
     rating_agg = db.query(
         DBMeal.name.label('agg_name'),
         DBMeal.mensa_id.label('agg_mensa_id'),
@@ -191,7 +248,11 @@ def get_meals(date: date = Query(None), db: Session = Depends(get_db)):
     query = db.query(
         DBMeal.id,
         DBMeal.name,
+        DBMeal.name_de,
+        DBMeal.name_en,
         DBMeal.description,
+        DBMeal.description_de,
+        DBMeal.description_en,
         DBMeal.tags,
         DBMeal.type,
         DBMensa.name.label('mensa'),
@@ -209,7 +270,33 @@ def get_meals(date: date = Query(None), db: Session = Depends(get_db)):
         DBMensa.name, DBMeal.type
     ).all()
 
-    return results
+    out = []
+    # Guard against residual duplicate rows: one entry per (mensa, name, date).
+    seen = set()
+
+    for r in results:
+        name, description = resolve_language(r, lang)
+        if not name or not name.strip():
+            continue
+
+        key = (r.mensa, name, r.date)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        out.append(MealOut(
+            id=r.id,
+            name=name,
+            description=description,
+            tags=r.tags,
+            type=r.type,
+            mensa=r.mensa,
+            date=r.date,
+            avg_rating=round(float(r.avg_rating), 1),
+            rating_count=r.rating_count if r.rating_count else 0,
+        ))
+
+    return out
 
 @app.post("/api/v1/meals/{meal_id}/ratings", status_code=201, tags=["Ratings"])
 def create_rating(meal_id: int, data: RatingInput, db: Session = Depends(get_db)):

@@ -1,0 +1,51 @@
+{
+  "app": {
+    "title": "Mensa Rating",
+    "subtitle": "Rate your canteen meals in Göttingen"
+  },
+  "ui": {
+    "allMensas": "All Mensas",
+    "sortStandard": "Sort: Standard",
+    "sortAlphabetical": "Sort: Alphabetical",
+    "searchPlaceholder": "Search dishes or ingredients...",
+    "includePast": "Include past",
+    "clearSearch": "Clear search",
+    "noMenu": "No menu for this date. Try today or the next 7 days.",
+    "noMeals": "No meals for {{filter}} on this date. Try a different date.",
+    "noReviews": "No reviews yet",
+    "rate": "Rate",
+    "thanksForRating": "Thank you for rating!",
+    "rateSides": "Rate this dish's sides",
+    "reviews": "Reviews",
+    "futureOnly": "(future only)",
+    "foundResults": "Found {{count}} results for \"{{query}}\"",
+    "legend": "Legend",
+    "backHome": "Back to today"
+  },
+  "mealTypes": {
+    "main": "Main",
+    "side": "Side",
+    "dessert": "Dessert"
+  },
+  "tags": {
+    "vegan": "Vegan",
+    "vegetarisch": "Vegetarian",
+    "fleisch": "Meat",
+    "fisch": "Fish/Seafood",
+    "strohschwein": "Leinekrone Strohschwein",
+    "leinetalerrind": "Leinetaler Bauernrind",
+    "NDS": "Lower Saxony menu"
+  },
+  "dates": {
+    "today": "today",
+    "yesterday": "yesterday",
+    "daysAgo": "{{count}} days ago",
+    "weeksAgo": "{{count}} weeks ago",
+    "monthsAgo": "{{count}} months ago",
+    "yearsAgo": "{{count}} years ago"
+  },
+  "search": {
+    "loading": "Searching...",
+    "loadingMenu": "Loading..."
+  }
+}
