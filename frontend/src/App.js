@@ -126,10 +126,11 @@ function App() {
     setDate(dateStr);
   };
 
-  // Reset to the default view: today's menu with the search cleared.
+  // Reset to the default view: today's menu with the search cleared and filter reset to all mensas.
   const goHome = () => {
     setSearchQuery('');
     setSearchResults([]);
+    setFilter('all');
     setDate(new Date().toISOString().slice(0, 10));
   };
 
