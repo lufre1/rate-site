@@ -1,262 +1,83 @@
-# Mensa Rating System
-
-## Overview
-
-A web application for rating and discovering daily mensa (cafeteria) menus at universities in Göttingen, Germany. Users can browse daily menus, search for specific dishes, rate meals, and read community reviews.
-
-- **Frontend**: React.js (served via Nginx)
-- **Backend**: FastAPI (Python 3.11)
-- **Database**: PostgreSQL 15 (persistent storage)
-- **Infrastructure**: Docker Compose + Nginx reverse proxy
-- **Live Site**: http://141.5.100.246/
+# Mensa Rating System — AGENTS.md
 
 ## Architecture
 
-```
-┌────────────────────────────────────────────────────────┐
-│  User Browser (141.5.100.246)                          │
-└────────────────────┬───────────────────────────────────┘
-                     │ Port 80
-                     ▼
-┌────────────────────────────────────────────────────────┐
-│  proxy (Nginx Reverse Proxy)                            │
-│  /         → frontend:80   (React static files)         │
-│  /api/v1   → backend:8000  (FastAPI)                    │
-└──────────────┬───────────────────────┬─────────────────┘
-               │                       │
-               ▼                       ▼
-        ┌──────────┐          ┌──────────────┐
-        │ frontend │          │   backend    │
-        │ (Nginx)  │          │ (Uvicorn)    │
-        │ :80      │          │ :8000        │
-        └────┬─────┘          └──────┬───────┘
-             │                       │
-             │                       ▼
-             │                ┌──────────┐
-             └───────────────►│    db    │
-                             │PostgreSQL│
-                             │ :5432    │
-                             └──────────┘
-```
+- **Frontend**: React (Nginx serve), **Backend**: FastAPI (Python 3.11), **DB**: PostgreSQL 15
+- **All API routes under `/api/v1/`** — frontend calls `http://localhost:8000` by default, but in prod through nginx on `/api/v1`
+- **API URL from env**: `REACT_APP_API_URL` (set at build time in `frontend/Dockerfile:4`)
+- **Language support**: Each meal stores `name_de`, `name_en`, `description_de`, `description_en`; API returns `lang` parameter (default `de`)
 
-## Directory Structure
+## Database Schema Details (Non-Obvious)
 
-```
-rate-site/
-├── docker-compose.yml      # Docker services definition
-├── nginx-proxy.conf        # Nginx reverse proxy config (routes to services)
-├── .env                    # Environment variables (secrets, not committed)
-├── .env.example            # Template for environment variables
-├── backend/                # FastAPI backend
-│   ├── Dockerfile          # Python 3.11 image
-│   ├── main.py             # API routes (all under /api/v1)
-│   ├── database.py         # SQLAlchemy models & DB connection
-│   ├── scraper.py          # Menu scraper (runs every 4 hours)
-│   └── requirements.txt    # Python dependencies
-├── frontend/               # React frontend
-│   ├── Dockerfile          # Node build + Nginx serve
-│   ├── nginx.conf          # Frontend Nginx config (SPA fallback)
-│   ├── public/index.html   # HTML template
-│   └── src/
-│       ├── App.js          # Main React component
-│       └── index.css       # Global styles (mobile-responsive)
-└── AGENTS.md               # This file
-```
+- **Meal deduplication**: `(date, mensa_id, name)` must be unique. `scrape_menus()` deletes stale rows but preserves rows with existing ratings
+- **German/English merge**: Scraper pairs DE/EN rows positionally. Missing EN doesn't wipe existing EN data
+- **Autofilled funny usernames**: `generate_funny_name()` in `main.py:106` — every rating has a generated `user_name`; don't expect user accounts
+- **Side ratings aggregation**: `side-ratings` are **global per side name** across all meals in a mensa, not per-meal; API returns aggregated stats
 
-## RESTful API
-
-The API strictly follows RESTful principles. All endpoints are versioned under `/api/v1`.
-
-### Endpoints
-
-| Resource     | Endpoint                                  | Method | Description                                    |
-|--------------|-------------------------------------------|--------|------------------------------------------------|
-| **Mensas**   | `/api/v1/mensas`                          | GET    | List all mensas                                |
-| **Meals**    | `/api/v1/meals?date=YYYY-MM-DD`           | GET    | List/filter meals by date                      |
-|              | `/api/v1/meals?query=search&past=false`   | GET    | Search meals by name/description               |
-| **Ratings**  | `/api/v1/meals/{meal_id}/ratings`         | GET    | List ratings for a specific meal               |
-|              | `/api/v1/meals/{meal_id}/ratings`         | POST   | Submit a rating (body: `{rating, comment}`)    |
-|              | `/api/v1/ratings/{rating_id}`             | GET    | Get a single rating by ID                      |
-|              | `/api/v1/meals/{meal_id}/side-ratings`    | GET    | List aggregated per-side ratings for a dish    |
-|              | `/api/v1/meals/{meal_id}/side-ratings`    | POST   | Rate one of a dish's sides (body: `{side_name, rating, comment}`) |
-
-### Key Principles
-
-1. **Resource-Oriented URLs**: Nouns only, no verbs (`/meals`, not `/getMeals`).
-2. **Hierarchical Resources**: Ratings are nested under meals (`/meals/{id}/ratings`).
-3. **Standard HTTP Methods**: `GET` for retrieval, `POST` for creation.
-4. **Standard Status Codes**:
-   - `200 OK` — Successful GET
-   - `201 Created` — Successful POST
-   - `400 Bad Request` — Invalid query parameters
-   - `404 Not Found` — Resource not found
-   - `422 Unprocessable Entity` — Validation errors (FastAPI default)
-5. **Pagination**: Defaults to `limit=20`. Override with `?limit=X`.
-6. **Filtering**: `?date=`, `?query=`, `?past=` (boolean).
-
-### Error Response Format
-
-```json
-{ "detail": "Meal not found" }
-```
-
-### Live API Endpoints
+## Key Commands
 
 ```bash
-# List all mensas
-curl http://141.5.100.246/api/v1/mensas
-
-# Get meals for a specific date
-curl "http://141.5.100.246/api/v1/meals?date=2026-07-02"
-
-# Search for "Pizza" among past menus
-curl "http://141.5.100.246/api/v1/meals?query=Pizza&past=true"
-
-# Get ratings for meal ID 32
-curl "http://141.5.100.246/api/v1/meals/32/ratings"
-
-# Submit a rating for meal ID 32
-curl -X POST "http://141.5.100.246/api/v1/meals/32/ratings" \
-  -H "Content-Type: application/json" \
-  -d '{"rating": 5, "comment": "Delicious!"}'
-
-# Rate one of meal 32's sides (e.g. "Pommes frites", parsed from its description)
-curl -X POST "http://141.5.100.246/api/v1/meals/32/side-ratings" \
-  -H "Content-Type: application/json" \
-  -d '{"side_name": "Pommes frites", "rating": 4}'
-```
-
-**Swagger UI**: http://141.5.100.246/docs
-
-## Infrastructure
-
-### Docker Services
-
-| Service    | Image              | Port | Purpose                            |
-|------------|--------------------|------|------------------------------------|
-| `proxy`    | `nginx:alpine`     | 80   | Reverse proxy (routes traffic)     |
-| `frontend` | `rate-site-frontend`| 80   | Serves React SPA (internal)        |
-| `backend`  | `rate-site-backend`| 8000  | FastAPI server (internal)          |
-| `db`       | `postgres:15-alpine`| 5432 | PostgreSQL database                |
-
-### Database
-
-- **Persistent Volume**: `postgres_data` — survives container restarts.
-- **Connection**: Via `DATABASE_URL` env var (`postgresql://user:pass@db:5432/mensa_db`).
-- **Schema**: `meals`, `mensas`, `ratings` tables.
-- **Auto-Refresh**: Menu scraper runs every 4 hours; new meals persisted automatically.
-
-## Development Commands
-
-### Docker
-
-```bash
-# Full rebuild and restart
+# Full stack rebuild & start
 docker compose down && docker compose up -d --build
 
-# Rebuild only backend
-docker compose build backend && docker compose up -d backend
-
-# Rebuild only frontend
-docker compose build frontend && docker compose up -d frontend
-
-# View logs (follow mode)
-docker compose logs -f backend
-docker compose logs -f proxy
-
-# Run a single service
-docker compose up -d db backend
-```
-
-### Frontend
-
-```bash
-# Development mode (on host)
-cd frontend && npm start
-
-# Rebuild image
-docker compose build frontend
-
-# Check linting
-cd frontend && npm run lint
-```
-
-### Backend
-
-```bash
-# Run locally (without Docker)
-cd backend && pip install -r requirements.txt
-uvicorn main:app --reload
-
-# Check linting
+# Run backend lint
 docker compose exec backend python -m ruff check .
 
-# Run tests
-docker compose exec backend pytest
+# Run backend tests (parse-only, no DB needed)
+docker compose exec backend python -m pytest tests/
+
+# Run DB integration tests (needs Postgres)
+docker compose exec backend pytest tests/test_db_integrity.py -v
+
+# Update menu data manually (e.g. after DB reset)
+docker compose exec backend python -c "from scraper import scrape_menus; scrape_menus()"
 ```
 
-### Database
+## Testing
 
-```bash
-# Connect to PostgreSQL
-docker compose exec db psql -U user -d mensa_db
+- **Unit tests**: Parse-only, no DB required (`os.environ.setdefault("DATABASE_URL", "sqlite:///./test_parse_only.db")` in `conftest.py:18`)
+- **Integration tests**: Require running backend (`API_BASE_URL`) or Postgres (`DATABASE_URL` with `postgres` in URL)
+- **Test files**:
+  - `test_scraper_alignment.py` — validates DE/EN row alignment, no duplicates, mensa-name consistency
+  - `test_db_integrity.py` — validates DB schema, no duplicates, matches official site
+  - `test_api_language.py` — validates API multilingual output, no duplicates
+  - `test_for_unused_items.py` — verifies backend code is actually in use
+  - `validate-translations.py` — validates translation files structure
 
-# List tables
-docker compose exec db psql -U user -d mensa_db -c "\dt"
+## Scraper Behavior
 
-# Count meals
-docker compose exec db psql -U user -d mensa_db -c "SELECT COUNT(*) FROM meals;"
-```
+- Fetches **next 7 days** inclusive of today
+- Two-stage URL fallback: `alle.html` → per-mensas (`ALIAS_MAP` in `scraper.py:43`)
+- Skips: `last minute`, `pastabuffet`, `Selbstbedienung` rows; filters to 4 mensas only
+- **Description cleanup**: Removes "oder"/"or" separators between ingredients; normalizes whitespace
 
-### Nginx Proxy
+## Language Resolution (main.py:56)
 
-```bash
-# Test configuration
-docker compose exec proxy nginx -t
+Priority for each dish (when `lang` param is `en`):
+1. `name_en` → `name_de` → `name`  
+For `de`:
+1. `name_de` → `name`
 
-# Reload without restart
-docker compose exec proxy nginx -s reload
-```
+Same fallback applies to descriptions.
 
-## Mobile Optimization
+## Nginx Proxy Routes (`nginx-proxy.conf`)
 
-The frontend includes mobile-specific improvements:
+- `/` → `frontend:80`
+- `/api/v1` → `backend:8000`
 
-- **Viewport**: `<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0">`
-- **Base font size**: `16px` root, using `rem` units throughout
-- **Horizontal overflow**: Disabled (`body { overflow-x: hidden }`)
-- **Touch-friendly targets**: Buttons ≥ 48x48px
-- **Responsive layout**: Flexbox wrapping, `max-width: 100%` containers
-- **Media queries**: Filters stack vertically on small screens
+**Note**: The frontend's `nginx.conf` strips `/api/` prefix before proxying to backend (see `location ~ ^/api/(.*)` on line 9).
 
-## Deployment
+## Common Pitfalls
 
-1. Push changes to the main branch.
-2. Rebuild and restart:
-   ```bash
-   docker compose down && docker compose up -d --build
-   ```
-3. Verify at http://141.5.100.246/
-4. Check logs for issues: `docker compose logs --tail=50`
+1. **Duplicate rows**: After DB reset, call `scrape_menus()` to regenerate. Stale rows with ratings are preserved.
+2. **English data loss**: Scraper never overwrites existing `name_en` if new EN source is empty — protects against temporary page outages.
+3. **Port conflict**: Host port 80 must be free (`sudo systemctl stop nginx` if needed).
+4. **Frontend build**: `REACT_APP_API_URL` must be set at build time via Docker arg (default `http://localhost:8000`).
+5. **Database health**: Backend waits for `pg_isready` (see `docker-compose.yml:11-16`); wait ~5-10s after `docker compose up` before API is ready.
 
-## Troubleshooting
+## Mobile Behavior
 
-| Problem                        | Solution                                           |
-|--------------------------------|----------------------------------------------------|
-| Port 80 already in use       | Stop host Nginx: `sudo systemctl stop nginx`       |
-| Frontend not loading         | Rebuild: `docker compose build frontend`           |
-| API returns 404              | Check proxy: `docker compose logs proxy`           |
-| Backend crash/error          | Check logs: `docker compose logs backend`          |
-| Stale browser cache          | Hard refresh (Ctrl+Shift+R)                        |
-| Database not ready           | Backend waits for healthcheck; wait a few seconds  |
-
-## Future Improvements
-
-- [ ] Pagination UI (infinite scroll / "Load More" button)
-- [ ] Dark mode toggle
-- [ ] PWA support (manifest.json, service worker)
-- [ ] User authentication for custom ratings
-- [ ] Dish image upload
-- [ ] Backend unit tests (pytest)
-- [ ] CI/CD pipeline (GitHub Actions)
-- [ ] Price and allergen fields in meal schema
+- Viewport: `width=device-width, initial-scale=1.0, maximum-scale=3.0`
+- Base font: `16px` (1rem = 16px), uses `rem` throughout
+- Buttons ≥ 48px touch targets (`MinWidth: 48` in `StarPicker`)
+- No horizontal scroll (`overflow-x: hidden` in `index.css:14`)

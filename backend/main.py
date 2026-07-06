@@ -111,13 +111,6 @@ def generate_funny_name() -> str:
         return f"{adj} {name}"
     return f"{adj} {noun} {name}"
 
-class RatingOut(BaseModel):
-    id: int
-    rating: int
-    comment: Optional[str]
-    user_name: Optional[str]
-    class Config:
-        from_attributes = True
 
 class MealOut(BaseModel):
     id: int
@@ -132,7 +125,7 @@ class MealOut(BaseModel):
     class Config:
         from_attributes = True
 
-class RatingOutWithMeal(BaseModel):
+class RatingOut(BaseModel):
     id: int
     rating: int
     comment: Optional[str]
@@ -140,11 +133,10 @@ class RatingOutWithMeal(BaseModel):
     class Config:
         from_attributes = True
 
-class RatingOut(RatingOutWithMeal):
-    meal_id: int
 
-class RatingOutWithDate(RatingOutWithMeal):
+class RatingOutWithDate(RatingOut):
     date: date
+    meal_id: int
 
 class SideRatingOut(BaseModel):
     side_name: str

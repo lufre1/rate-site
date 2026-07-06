@@ -13,7 +13,11 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
+    "test:translation": "react-scripts test translations.test.js",
     "eject": "react-scripts eject"
+  },
+  "jest": {
+    "testMatch": ["**/*.test.js", "**/*.test.jsx", "**/translations.test.js"]
   },
   "browserslist": {
     "production": [
