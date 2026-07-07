@@ -59,6 +59,84 @@ function formatRelativeDate(dateStr) {
   return t('dates.yearsAgo', { count: Math.round(days / 365) });
 }
 
+function formatDate(dateStr, lang) {
+  const date = new Date(dateStr + 'T00:00:00');
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  const weekdayOptions = { weekday: 'short' };
+  const weekday = date.toLocaleDateString(lang === 'en' ? 'en-GB' : 'de-DE', weekdayOptions);
+  return `${weekday} ${day}.${month}.${year}`;
+}
+
+// Convert ISO date (YYYY-MM-DD) to display format based on language
+function getDisplayDate(isoDate, lang) {
+  if (!isoDate) return '';
+  const [year, month, day] = isoDate.split('-');
+  if (!year || !month || !day) return isoDate;
+  if (lang === 'de') {
+    return `${day}.${month}.${year}`;  // DD.MM.YYYY
+  }
+  return `${month}/${day}/${year}`;    // MM/DD/YYYY
+}
+
+// Convert display format back to ISO date (YYYY-MM-DD)
+function parseDate(displayDate, lang) {
+  if (!displayDate) return null;
+  let parts;
+  if (lang === 'de') {
+    parts = displayDate.split('.');
+  } else {
+    parts = displayDate.split('/');
+  }
+  if (parts.length !== 3) return null;
+  
+  const [first, second, third] = parts;
+  // Validate basic format
+  if (!/^\d{1,4}$/.test(first) || !/^\d{1,4}$/.test(second) || !/^\d{1,4}$/.test(third)) {
+    return null;
+  }
+  
+  if (lang === 'de') {
+    // DD.MM.YYYY -> YYYY-MM-DD
+    const [day, month, year] = parts;
+    return `${year.padEnd(4, year)}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  } else {
+    // MM/DD/YYYY -> YYYY-MM-DD
+    const [month, day, year] = parts;
+    return `${year.padEnd(4, year)}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+}
+
+// Generate the next 7 days with display names
+function getNext7Days(lang) {
+  const dates = [];
+  const today = new Date();
+  const weekdayOptions = { weekday: 'short' };
+  
+  for (let i = 0; i < 7; i++) {
+    const date = new Date(today);
+    date.setDate(today.getDate() + i);
+    
+    const iso = date.toISOString().slice(0, 10);
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    
+    const weekday = date.toLocaleDateString(lang === 'en' ? 'en-GB' : 'de-DE', weekdayOptions);
+    
+    let display;
+    if (lang === 'de') {
+      display = `${weekday} ${day}.${month}.${year}`;
+    } else {
+      display = `${weekday} ${month}/${day}/${year}`;
+    }
+    
+    dates.push({ iso, display });
+  }
+  return dates;
+}
+
 function IconLegend() {
   const { t } = useTranslation();
   return (
@@ -226,30 +304,33 @@ function App() {
       </header>
 
       <div style={{ maxWidth: '800px', margin: '0 auto', padding: '16px' }}>
-        <div style={{ display: 'flex', gap: '0.625rem', marginBottom: '1rem', flexWrap: 'wrap', justifyContent: 'center', width: '100%' }}>
-           <input
-             type="date"
-             value={date}
-             onChange={e => { setFilter('all'); setDate(e.target.value); }}
-             style={{ padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%' }}
-           />
-           <select
-             value={filter}
-             onChange={e => setFilter(e.target.value)}
-             style={{ padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%' }}
-           >
-             <option value="all">{t('ui.allMensas')}</option>
-             {mensas.map(m => <option key={m} value={m}>{m}</option>)}
-           </select>
-           <select
-             value={sortMode}
-             onChange={e => setSortMode(e.target.value)}
-             style={{ padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%' }}
-           >
-             <option value="default">{t('ui.sortStandard')}</option>
-             <option value="alpha">{t('ui.sortAlphabetical')}</option>
-           </select>
-        </div>
+<div style={{ display: 'flex', gap: '0.625rem', marginBottom: '1rem', flexWrap: 'wrap', justifyContent: 'center', width: '100%' }}>
+            <select
+              value={date}
+              onChange={e => { setFilter('all'); setDate(e.target.value); }}
+              style={{ padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%' }}
+            >
+              {getNext7Days(language).map(d => (
+                <option key={d.iso} value={d.iso}>{d.display}</option>
+              ))}
+            </select>
+            <select
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+              style={{ padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%' }}
+            >
+              <option value="all">{t('ui.allMensas')}</option>
+              {mensas.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <select
+              value={sortMode}
+              onChange={e => setSortMode(e.target.value)}
+              style={{ padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%' }}
+            >
+              <option value="default">{t('ui.sortStandard')}</option>
+              <option value="alpha">{t('ui.sortAlphabetical')}</option>
+            </select>
+         </div>
          <div style={{ display: 'flex', gap: '0.625rem', marginBottom: '0.75rem', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', position: 'relative' }}>
            <div style={{ position: 'relative', width: '100%' }}>
              <input
@@ -304,7 +385,7 @@ function App() {
               {t('ui.foundResults', { count: searchResults.length, query: searchQuery })}
               {!includePast && " " + t('ui.futureOnly')}
             </p>
-            <SearchResults results={searchResults} onNavigate={navigateTo} TYPE_LABELS={TYPE_LABELS} formatRelativeDate={formatRelativeDate} />
+            <SearchResults results={searchResults} onNavigate={navigateTo} TYPE_LABELS={TYPE_LABELS} formatRelativeDate={formatRelativeDate} formatDate={formatDate} language={language} />
           </>
         ) : loading ? (
           <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>{t('search.loadingMenu')}</div>
@@ -349,7 +430,7 @@ function App() {
   );
 }
 
-function SearchResults({ results, onNavigate, TYPE_LABELS, formatRelativeDate }) {
+function SearchResults({ results, onNavigate, TYPE_LABELS, formatRelativeDate, formatDate, language }) {
   if (results.length === 0) return null;
   const grouped = {};
   results.forEach(m => {
@@ -366,12 +447,12 @@ function SearchResults({ results, onNavigate, TYPE_LABELS, formatRelativeDate })
     return mA.localeCompare(mB);
   });
 
-  return (
-    <div style={{ marginBottom: 24 }}>
-      {sortedKeys.map(key => {
-        const [dateStr, mensa, type] = key.split('|');
-        const items = grouped[key];
-        const dayLabel = new Date(dateStr + 'T00:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
+return (
+     <div style={{ marginBottom: 24 }}>
+       {sortedKeys.map(key => {
+         const [dateStr, mensa, type] = key.split('|');
+         const items = grouped[key];
+         const dayLabel = formatDate(dateStr, language);
         return (
           <div key={key} style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: 8 }}>
