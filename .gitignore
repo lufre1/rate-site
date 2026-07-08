@@ -1,5 +1,6 @@
 frontend/node_modules/
 frontend/build/
+frontend/coverage/
 .env
 .env.*.local
 .DS_Store
@@ -8,3 +9,6 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+backend/uploads/
+backend/__pycache__/
+backend/*.db

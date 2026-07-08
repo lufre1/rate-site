@@ -1,0 +1,121 @@
+import React from 'react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import App from './App';
+
+const MENSA = 'Testmensa';
+
+function jsonResponse(data) {
+  return Promise.resolve({ ok: true, json: () => Promise.resolve(data) });
+}
+
+beforeEach(() => {
+  global.fetch = jest.fn(() => jsonResponse([]));
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
+test('opening a dish\'s reviews with dated comments renders them instead of crashing', async () => {
+  // Regression test for: formatRelativeDate() used to call useTranslation()
+  // inside a plain helper, invoked once per review -- a variable number of
+  // hook calls between renders crashed the whole app ("Rendered more hooks
+  // than during the previous render"), which is what blanked the tab when a
+  // user opened the comments on a dish that had reviews.
+  const meal = {
+    id: 1, name: 'Testgericht', description: '', tags: null, type: 'side',
+    mensa: MENSA, date: '2026-07-07', avg_rating: 5, rating_count: 1,
+  };
+  const review = {
+    id: 100, rating: 5, comment: 'Sehr lecker', user_name: 'Fred',
+    date: '2026-07-05', meal_id: 1, photo_url: null,
+  };
+
+  global.fetch = jest.fn((url) => {
+    if (url.includes('/mensas')) return jsonResponse([MENSA]);
+    if (url.includes('/meals?')) return jsonResponse([meal]);
+    if (url.includes(`/meals/${meal.id}/ratings`)) return jsonResponse([review]);
+    return jsonResponse([]);
+  });
+
+  render(<App />);
+
+  const dishHeading = await screen.findByText('Testgericht');
+  await userEvent.click(dishHeading); // expand the dish
+
+  const reviewsButton = await screen.findByText(/Bewertungen/i);
+  await userEvent.click(reviewsButton); // open the reviews list -> triggers formatRelativeDate
+
+  // The review renders with its relative date, and the app is still mounted
+  // (not a blank page) -- both would fail before the fix.
+  expect(await screen.findByText('Sehr lecker')).toBeInTheDocument();
+  expect(screen.getByText('Testgericht')).toBeInTheDocument();
+});
+
+test('expanding a main dish fetches side-ratings once, not in an infinite loop', async () => {
+  // Regression test for: `sideNames` was a brand-new array on every render
+  // and was a dependency of the side-ratings useEffect, so expanding a main
+  // dish triggered an endless fetch -> setState -> re-render -> fetch loop
+  // that hung the tab.
+  const meal = {
+    id: 2, name: 'Hauptgericht Test', description: 'Reis, Bohnen', tags: null,
+    type: 'main', mensa: MENSA, date: '2026-07-07', avg_rating: 0, rating_count: 0,
+  };
+
+  let sideRatingsCallCount = 0;
+  global.fetch = jest.fn((url) => {
+    if (url.includes('/mensas')) return jsonResponse([MENSA]);
+    if (url.includes('/meals?')) return jsonResponse([meal]);
+    if (url.includes(`/meals/${meal.id}/side-ratings`)) {
+      sideRatingsCallCount += 1;
+      return jsonResponse([]);
+    }
+    return jsonResponse([]);
+  });
+
+  render(<App />);
+
+  const dishHeading = await screen.findByText('Hauptgericht Test');
+  await userEvent.click(dishHeading); // expand the main dish -> triggers the side-ratings effect
+
+  await waitFor(() => expect(sideRatingsCallCount).toBeGreaterThanOrEqual(1));
+  // Give a buggy, looping effect plenty of time to fire again before asserting.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  expect(sideRatingsCallCount).toBe(1);
+});
+
+test('a review with an uploaded photo renders the photo thumbnail', async () => {
+  // Regression test for: the backend already returns photo_url on each
+  // review, but the reviews list never rendered it -- uploaded photos never
+  // showed up in the comments section.
+  const meal = {
+    id: 3, name: 'Gericht mit Foto', description: '', tags: null, type: 'side',
+    mensa: MENSA, date: '2026-07-07', avg_rating: 5, rating_count: 1,
+  };
+  const review = {
+    id: 200, rating: 5, comment: 'Sieht toll aus', user_name: 'Ada',
+    date: '2026-07-05', meal_id: 3, photo_url: '/uploads/test_abc123.png',
+  };
+
+  global.fetch = jest.fn((url) => {
+    if (url.includes('/mensas')) return jsonResponse([MENSA]);
+    if (url.includes('/meals?')) return jsonResponse([meal]);
+    if (url.includes(`/meals/${meal.id}/ratings`)) return jsonResponse([review]);
+    return jsonResponse([]);
+  });
+
+  render(<App />);
+
+  const dishHeading = await screen.findByText('Gericht mit Foto');
+  await userEvent.click(dishHeading); // expand the dish
+
+  const reviewsButton = await screen.findByText(/Bewertungen/i);
+  await userEvent.click(reviewsButton); // open the reviews list
+
+  await screen.findByText('Sieht toll aus');
+
+  const photo = document.querySelector(`img[src="http://localhost:8000${review.photo_url}"]`);
+  expect(photo).toBeInTheDocument();
+});
