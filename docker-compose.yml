@@ -23,6 +23,8 @@ services:
       - "8000"
     environment:
       DATABASE_URL: ${DATABASE_URL}
+    volumes:
+      - ./backend/uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy

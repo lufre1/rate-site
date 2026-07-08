@@ -20,7 +20,14 @@
     "futureOnly": "(future only)",
     "foundResults": "Found {{count}} results for \"{{query}}\"",
     "legend": "Legend",
-    "backHome": "Back to today"
+    "backHome": "Back to today",
+    "uploadPhoto": "Select Photo",
+    "removePhoto": "Remove Photo",
+    "uploading": "Uploading...",
+    "photoError": "Upload failed",
+    "photoTypeError": "Only JPG, PNG and WebP images are allowed",
+    "photoSizeError": "File size exceeds 5MB",
+    "noPhotos": "No photos"
   },
   "mealTypes": {
     "main": "Main",

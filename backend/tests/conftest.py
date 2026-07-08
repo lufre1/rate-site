@@ -16,3 +16,8 @@ if BACKEND_DIR not in sys.path:
 # default so parse-only tests can import scraper without a live DB. Real
 # integration runs (docker compose) already set a Postgres URL, which wins.
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_parse_only.db")
+
+# main.py hardcodes UPLOAD_DIR to "/app/uploads" (only writable inside the
+# docker-compose container) and creates it at import time. Point it at a
+# local, writable folder so importing main outside Docker doesn't crash.
+os.environ.setdefault("UPLOAD_DIR", os.path.join(BACKEND_DIR, "uploads"))

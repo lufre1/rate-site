@@ -20,7 +20,14 @@
     "futureOnly": "(nur zukünftige)",
     "foundResults": "{{count}} Ergebnisse für \"{{query}}\" gefunden",
     "legend": "Legende",
-    "backHome": "Zurück zur Startansicht"
+    "backHome": "Zurück zur Startansicht",
+    "uploadPhoto": "Foto auswählen",
+    "removePhoto": "Foto entfernen",
+    "uploading": "Hochladen...",
+    "photoError": "Fehler beim Hochladen",
+    "photoTypeError": "Nur JPG, PNG und WebP Bilder sind erlaubt",
+    "photoSizeError": "Dateigröße überschreitet 5MB",
+    "noPhotos": "Keine Fotos"
   },
   "mealTypes": {
     "main": "Hauptgericht",

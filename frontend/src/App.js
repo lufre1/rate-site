@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { initReactI18next, useTranslation } from 'react-i18next';
 import i18n from 'i18next';
 import de from './translations/de.json';
@@ -48,8 +48,7 @@ const TYPE_COLORS = {
   dessert: { bg: '#fce7f3', color: '#9d174d' },
 };
 
-function formatRelativeDate(dateStr) {
-  const { t } = useTranslation();
+function formatRelativeDate(dateStr, t) {
   const days = Math.round((new Date() - new Date(dateStr + 'T00:00:00')) / 86400000);
   if (days <= 0) return t('dates.today');
   if (days === 1) return t('dates.yesterday');
@@ -100,11 +99,11 @@ function parseDate(displayDate, lang) {
   if (lang === 'de') {
     // DD.MM.YYYY -> YYYY-MM-DD
     const [day, month, year] = parts;
-    return `${year.padEnd(4, year)}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    return `${year.padStart(4, '0')}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   } else {
     // MM/DD/YYYY -> YYYY-MM-DD
     const [month, day, year] = parts;
-    return `${year.padEnd(4, year)}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    return `${year.padStart(4, '0')}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   }
 }
 
@@ -182,6 +181,10 @@ function App() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [includePast, setIncludePast] = useState(false);
   const [language, setLanguage] = useState('de');
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [imageError, setImageError] = useState('');
 
   // Function to change language
   const changeLanguage = (lng) => {
@@ -385,7 +388,7 @@ function App() {
               {t('ui.foundResults', { count: searchResults.length, query: searchQuery })}
               {!includePast && " " + t('ui.futureOnly')}
             </p>
-            <SearchResults results={searchResults} onNavigate={navigateTo} TYPE_LABELS={TYPE_LABELS} formatRelativeDate={formatRelativeDate} formatDate={formatDate} language={language} />
+            <SearchResults results={searchResults} onNavigate={navigateTo} TYPE_LABELS={TYPE_LABELS} formatRelativeDate={(d) => formatRelativeDate(d, t)} formatDate={formatDate} language={language} />
           </>
         ) : loading ? (
           <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>{t('search.loadingMenu')}</div>
@@ -413,15 +416,15 @@ function App() {
               ? [...items].sort((a, b) => a.name.localeCompare(b.name))
               : items;
             return (
-              <>
-                <h2 key={key} style={{ color: '#374151', fontSize: '18px', marginTop: 24, marginBottom: 8,
+              <React.Fragment key={key}>
+                <h2 style={{ color: '#374151', fontSize: '18px', marginTop: 24, marginBottom: 8,
                   borderBottom: '3px solid #3b82f6', paddingBottom: 8 }}>
                   {mensa} - {t('mealTypes.' + type) || type}
                 </h2>
                 {sortedItems.map(meal => (
                   <DishCard key={meal.id} meal={meal} />
                 ))}
-              </>
+              </React.Fragment>
             );
           })
         )}
@@ -589,10 +592,16 @@ function DishCard({ meal }) {
   const [show, setShow] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [sideRatings, setSideRatings] = useState({});
+  const [uploading, setUploading] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [imageError, setImageError] = useState('');
 
-  const sideNames = meal.type === 'main' && meal.description
-    ? meal.description.split(',').map(s => s.trim()).filter(Boolean)
-    : [];
+  const sideNames = useMemo(() => (
+    meal.type === 'main' && meal.description
+      ? meal.description.split(',').map(s => s.trim()).filter(Boolean)
+      : []
+  ), [meal.type, meal.description]);
 
   useEffect(() => {
     if (show && reviews.length === 0) {
@@ -614,25 +623,67 @@ function DishCard({ meal }) {
         })
         .catch(() => {});
     }
-  }, [expanded, meal.id]);
+  }, [expanded, meal.id, sideNames]);
 
   const submitRating = async () => {
     if (rating === 0) return;
-    await fetch(`${API}/api/v1/meals/${meal.id}/ratings`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rating, comment }),
-    });
-    setSubmitted(true);
-    setTimeout(() => { setSubmitted(false); setRating(0); setComment(''); setShow(true); }, 1500);
+    if (uploading) return;
+
+    setUploading(true);
+    setImageError('');
+
+    try {
+      let response;
+      if (selectedImage) {
+        const formData = new FormData();
+        formData.append('rating', rating);
+        if (comment) formData.append('comment', comment);
+        formData.append('photo', selectedImage);
+
+        response = await fetch(`${API}/api/v1/meals/${meal.id}/ratings-with-photo`, {
+          method: 'POST',
+          body: formData,
+        });
+      } else {
+        response = await fetch(`${API}/api/v1/meals/${meal.id}/ratings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rating, comment: comment || null }),
+        });
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      }
+
+      setSubmitted(true);
+    } catch (err) {
+      setImageError(err.message || t('ui.photoError') || 'Upload failed');
+    } finally {
+      setUploading(false);
+      setTimeout(() => { 
+        setSubmitted(false); 
+        setRating(0); 
+        setComment(''); 
+        setSelectedImage(null);
+        setImagePreview(null);
+        setShow(true); 
+      }, 1500);
+    }
   };
 
   const tc = TYPE_COLORS[meal.type] || TYPE_COLORS.main;
-  const tags = typeof meal.tags === 'string' ? JSON.parse(meal.tags) : (meal.tags || []);
+  let tags = [];
+  try {
+    tags = typeof meal.tags === 'string' ? JSON.parse(meal.tags) : (meal.tags || []);
+  } catch (e) {
+    tags = []; // Fallback to empty array on parse error
+  }
 
   // The API already returns name/description in the selected language.
   const displayName = meal.name;
-  const displayDescription = meal.description;
+  const displayDescription = meal.description || '';
 
   return (
     <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb',
@@ -651,20 +702,25 @@ function DishCard({ meal }) {
             </span>
             <IconTags tags={tags} />
           </div>
-          {displayDescription && (
+          {displayDescription && typeof displayDescription === 'string' && (
             <p style={{ margin: '6px 0 0', color: '#6b7280', fontSize: '0.8125rem' }}>
               {displayDescription.replace(/, +/g, ', ')}
             </p>
           )}
 
-        </div>
-           <div style={{ textAlign: 'right', marginLeft: 12, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 8 }}>
-             {meal.rating_count > 0 && (
-               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
-                 <span style={{ color: '#f59e0b', fontSize: '0.875rem' }}>{"\u2605".repeat(Math.round(meal.avg_rating))}{"\u2606".repeat(5 - Math.round(meal.avg_rating))}</span>
-                 <span style={{ color: '#6b7280', fontSize: '0.8125rem' }}>{meal.avg_rating} ({meal.rating_count})</span>
-               </div>
-             )}
+</div>
+            <div style={{ textAlign: 'right', marginLeft: 12, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 8 }}>
+              {meal.rating_count > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                  <span style={{ color: '#f59e0b', fontSize: '0.875rem' }}>
+                    {"★".repeat(Math.round(meal.avg_rating || 0))}
+                    {"☆".repeat(5 - Math.round(meal.avg_rating || 0))}
+                  </span>
+                  <span style={{ color: '#6b7280', fontSize: '0.8125rem' }}>
+                    {(meal.avg_rating || 0).toFixed(1)} ({meal.rating_count})
+                  </span>
+</div>
+              )}
              <span style={{ color: '#9ca3af', fontSize: '12px' }}>{expanded ? '\u25B2' : '\u25BC'}</span>
         </div>
       </button>
@@ -678,6 +734,84 @@ function DishCard({ meal }) {
               <div style={{ marginBottom: 6 }}>
                 <StarPicker value={rating} onChange={setRating} size={22} />
               </div>
+              {/* Photo upload section */}
+              {imageError && (
+                <p style={{ color: '#dc2626', fontSize: '12px', margin: '4px 0' }}>{imageError}</p>
+              )}
+
+              <div style={{ marginBottom: 8 }}>
+                {imagePreview ? (
+                  <div style={{ position: 'relative', display: 'inline-block' }}>
+                    <img 
+                      src={imagePreview} 
+                      alt="Preview" 
+                      style={{ maxWidth: '150px', maxHeight: '150px', borderRadius: '8px', border: '1px solid #e5e7eb' }}
+                    />
+                    <button
+                      onClick={() => { setSelectedImage(null); setImagePreview(null); setImageError(''); }}
+                      style={{
+                        position: 'absolute',
+                        top: '-8px',
+                        right: '-8px',
+                        background: '#dc2626',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '50%',
+                        width: '24px',
+                        height: '24px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                      title={t('ui.removePhoto')}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ) : (
+                  <label style={{
+                    display: 'block',
+                    padding: '12px',
+                    border: '2px dashed #d1d5db',
+                    borderRadius: '8px',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    background: '#f9fafb'
+                  }}>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/jpg,image/png,image/webp"
+                      onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (!file) return;
+                        const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+                        if (!validTypes.includes(file.type)) {
+                          setImageError(t('ui.photoTypeError') || 'Only JPG, PNG, and WebP images are allowed');
+                          return;
+                        }
+                        if (file.size > 5 * 1024 * 1024) {
+                          setImageError(t('ui.photoSizeError') || 'File size exceeds 5MB');
+                          return;
+                        }
+                        setSelectedImage(file);
+                        const reader = new FileReader();
+                        reader.onloadend = () => { setImagePreview(reader.result); };
+                        reader.readAsDataURL(file);
+                      }}
+                      style={{ display: 'none' }}
+                    />
+                    <span style={{ color: '#3b82f6', fontSize: '13px', fontWeight: 500 }}>
+                      {t('ui.uploadPhoto')}
+                    </span>
+                    <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#6b7280' }}>
+                      JPG, PNG, WebP (max 5MB)
+                    </p>
+                  </label>
+                )}
+              </div>
+
               <div style={{ display: 'flex', gap: '8px' }}>
                <textarea placeholder={t('ui.rate')} value={comment}
                  onChange={e => setComment(e.target.value)}
@@ -687,15 +821,15 @@ function DishCard({ meal }) {
                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitRating(); } }} />
                <button
                  onClick={submitRating}
-                 disabled={rating === 0}
+                 disabled={rating === 0 || uploading}
                  style={{
                    padding: '0.75rem 1rem', borderRadius: '0.5rem', border: 'none',
-                   background: rating > 0 ? '#3b82f6' : '#d1d5db',
-                   color: rating > 0 ? '#fff' : '#9ca3af',
-                   cursor: rating > 0 ? 'pointer' : 'not-allowed',
+                   background: rating > 0 && !uploading ? '#3b82f6' : '#d1d5db',
+                   color: rating > 0 && !uploading ? '#fff' : '#9ca3af',
+                   cursor: rating > 0 && !uploading ? 'pointer' : 'not-allowed',
                    fontSize: '0.875rem', fontWeight: 500, whiteSpace: 'nowrap'
                  }}>
-                 {t('ui.rate')}
+                 {uploading ? t('ui.uploading') : t('ui.rate')}
                </button>
               </div>
             </>
@@ -739,11 +873,22 @@ function DishCard({ meal }) {
                       {r.user_name || 'Anonymous'}
                       {"\u2605".repeat(r.rating)}{"\u2606".repeat(5 - r.rating)}
                       {r.date && (
-                        <span style={{ color: '#9ca3af', marginLeft: 4 }}>{formatRelativeDate(r.date)}</span>
+                        <span style={{ color: '#9ca3af', marginLeft: 4 }}>{formatRelativeDate(r.date, t)}</span>
                       )}
                     </span>
                     {r.comment && (
                       <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#374151' }}>{r.comment}</p>
+                    )}
+                    {r.photo_url && (
+                      <img
+                        src={`${API}${r.photo_url}`}
+                        alt=""
+                        style={{
+                          marginTop: 4, maxWidth: '120px', maxHeight: '120px',
+                          borderRadius: '8px', border: '1px solid #e5e7eb', display: 'block',
+                        }}
+                        onError={(e) => { e.target.style.display = 'none'; }}
+                      />
                     )}
                   </div>
                 ))

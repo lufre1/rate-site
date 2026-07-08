@@ -41,6 +41,7 @@ class Rating(Base):
     rating = Column(Integer)
     comment = Column(Text, nullable=True)
     user_name = Column(String, nullable=True)
+    photo_url = Column(String, nullable=True)
     meal = relationship("Meal", back_populates="ratings")
 
 class SideRating(Base):
@@ -110,3 +111,12 @@ def init_db():
             conn.execute(text("ALTER TABLE meals ADD COLUMN description_en TEXT"))
             conn.commit()
             print("Added description_en column to meals table")
+        # Add photo_url column if missing
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='ratings' AND column_name='photo_url'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("ALTER TABLE ratings ADD COLUMN photo_url VARCHAR"))
+            conn.commit()
+            print("Added photo_url column to ratings table")

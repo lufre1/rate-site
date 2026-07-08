@@ -6,3 +6,5 @@ pydantic
 beautifulsoup4
 requests
 apscheduler
+python-multipart
+pytest

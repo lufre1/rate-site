@@ -1,6 +1,8 @@
-from fastapi import FastAPI, Depends, Query, HTTPException, Request
+from fastapi import FastAPI, Depends, Query, HTTPException, Request, File, Form, UploadFile, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import date
 from sqlalchemy.orm import Session
@@ -8,6 +10,10 @@ from sqlalchemy import func
 import uvicorn
 from apscheduler.schedulers.background import BackgroundScheduler
 import locale
+import os
+import shutil
+import uuid
+from datetime import datetime
 
 from database import SessionLocal, Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, init_db
 from scraper import scrape_menus
@@ -25,7 +31,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -36,6 +42,18 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# Upload directory
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
+
+def ensure_upload_dir():
+    """Ensure upload directory exists"""
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# Must exist before the StaticFiles mount below (module import time), not just
+# at app startup -- otherwise running outside the docker-compose volume mount
+# (e.g. local dev, tests) crashes on import.
+ensure_upload_dir()
 
 def get_user_language(request: Request) -> str:
     """Determine user's preferred language"""
@@ -71,13 +89,13 @@ def resolve_language(r, lang: str):
     return name, description
 
 class RatingInput(BaseModel):
-    rating: int
+    rating: int = Field(ge=1, le=5)
     comment: Optional[str] = None
     user_name: Optional[str] = None
 
 class SideRatingInput(BaseModel):
     side_name: str
-    rating: int
+    rating: int = Field(ge=1, le=5)
     comment: Optional[str] = None
 
 import random
@@ -130,6 +148,7 @@ class RatingOut(BaseModel):
     rating: int
     comment: Optional[str]
     user_name: Optional[str]
+    photo_url: Optional[str] = None
     class Config:
         from_attributes = True
 
@@ -137,6 +156,14 @@ class RatingOut(BaseModel):
 class RatingOutWithDate(RatingOut):
     date: date
     meal_id: int
+
+class PhotoOut(BaseModel):
+    id: int
+    photo_url: str
+    rating: int
+    user_name: Optional[str]
+    class Config:
+        from_attributes = True
 
 class SideRatingOut(BaseModel):
     side_name: str
@@ -146,6 +173,7 @@ class SideRatingOut(BaseModel):
 @app.on_event("startup")
 def on_startup():
     init_db()
+    ensure_upload_dir()
     scrape_menus()
 
     scheduler = BackgroundScheduler(daemon=True)
@@ -308,6 +336,63 @@ def create_rating(meal_id: int, data: RatingInput, db: Session = Depends(get_db)
     db.refresh(rating)
     return rating
 
+
+@app.post("/api/v1/meals/{meal_id}/ratings-with-photo", status_code=201, tags=["Ratings"])
+def create_rating_with_photo(meal_id: int, rating: int = Form(..., ge=1, le=5), comment: Optional[str] = Form(None), photo: Optional[UploadFile] = File(None), db: Session = Depends(get_db)):
+    """Create a rating with optional photo upload"""
+    # Check if meal exists
+    meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
+    if not meal:
+        raise HTTPException(status_code=404, detail="Meal not found")
+
+    # Validate photo if provided
+    photo_url = None
+    if photo is not None:
+        # Check file extension
+        valid_extensions = {'.jpg', '.jpeg', '.png', '.webp'}
+        file_ext = os.path.splitext(photo.filename)[1].lower()
+        if file_ext not in valid_extensions:
+            raise HTTPException(status_code=400, detail="Invalid file type. Only JPG, PNG, and WebP images are allowed")
+        
+        # Check content type
+        content_type = photo.content_type
+        if content_type not in ['image/jpeg', 'image/png', 'image/webp']:
+            raise HTTPException(status_code=400, detail="Invalid file type. Only JPG, PNG, and WebP images are allowed")
+        
+        # Check file size (max 5MB)
+        file_size = 0
+        content = photo.file.read()
+        file_size = len(content)
+        photo.file.seek(0)
+        
+        if file_size > 5 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="File size exceeds 5MB limit")
+        
+        # Generate unique filename
+        original_name = os.path.splitext(photo.filename)[0]
+        safe_name = "".join(c for c in original_name if c.isalnum() or c in " -_")
+        new_filename = f"{safe_name}_{uuid.uuid4().hex[:8]}{file_ext}"
+        photo_path = os.path.join(UPLOAD_DIR, new_filename)
+        
+        # Save file
+        with open(photo_path, 'wb') as f:
+            shutil.copyfileobj(photo.file, f)
+        
+        photo_url = f"/uploads/{new_filename}"
+
+    rating_obj = DBRating(
+        meal_id=meal_id,
+        rating=rating,
+        comment=comment,
+        user_name=generate_funny_name(),
+        photo_url=photo_url,
+    )
+    db.add(rating_obj)
+    db.commit()
+    db.refresh(rating_obj)
+    return rating_obj
+
+
 @app.get("/api/v1/meals/{meal_id}/ratings", response_model=List[RatingOutWithDate], tags=["Ratings"])
 def get_ratings(meal_id: int, db: Session = Depends(get_db)):
     # Check if meal exists
@@ -323,8 +408,9 @@ def get_ratings(meal_id: int, db: Session = Depends(get_db)):
     ).order_by(DBMeal.date.desc(), DBRating.id.desc()).all()
 
     return [
-        RatingOutWithDate(id=r.Rating.id, rating=r.Rating.rating, comment=r.Rating.comment,
-                           user_name=r.Rating.user_name, date=r.date)
+        RatingOutWithDate(id=r.Rating.id, meal_id=r.Rating.meal_id, rating=r.Rating.rating,
+                           comment=r.Rating.comment, user_name=r.Rating.user_name, date=r.date,
+                           photo_url=r.Rating.photo_url)
         for r in rows
     ]
 
@@ -374,9 +460,39 @@ def get_rating(rating_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Rating not found")
     return rating
 
+@app.get("/api/v1/meals/{meal_id}/photos", response_model=List[dict], tags=["Ratings"])
+def get_photos_for_meal(meal_id: int, db: Session = Depends(get_db)):
+    """Get all photos for a specific meal"""
+    meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
+    if not meal:
+        raise HTTPException(status_code=404, detail="Meal not found")
+
+    photos = db.query(DBRating).filter(DBRating.meal_id == meal_id).filter(DBRating.photo_url.isnot(None)).all()
+    # Rating rows have no timestamp column; use the meal's own date instead,
+    # consistent with how /ratings reports a review's date.
+    return [{"id": p.id, "photo_url": p.photo_url, "rating": p.rating, "user_name": p.user_name, "date": meal.date.isoformat()} for p in photos]
+
+@app.get("/uploads/{filename}")
+def serve_photo(filename: str):
+    """Serve uploaded photos"""
+    file_path = os.path.join(UPLOAD_DIR, filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Photo not found")
+    
+    content_type = "image/jpeg"
+    if filename.lower().endswith('.png'):
+        content_type = "image/png"
+    elif filename.lower().endswith('.webp'):
+        content_type = "image/webp"
+    
+    return FileResponse(file_path, media_type=content_type)
+
 @app.get("/api/v1/mensas")
 def get_mensas(db: Session = Depends(get_db)):
     return [m.name for m in db.query(DBMensa).order_by(DBMensa.name).all()]
+
+# Mount static files for photos
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
