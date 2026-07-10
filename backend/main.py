@@ -630,6 +630,22 @@ def get_rating(rating_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Rating not found")
     return rating
 
+
+@app.patch("/api/v1/ratings/{rating_id}/comment", response_model=RatingOut, tags=["Ratings"])
+def update_rating_comment(rating_id: int, data: dict, db: Session = Depends(get_db)):
+    """Set or update the comment on an existing rating."""
+    rating = db.query(DBRating).filter(DBRating.id == rating_id).first()
+    if not rating:
+        raise HTTPException(status_code=404, detail="Rating not found")
+    comment = data.get("comment")
+    if not isinstance(comment, str):
+        raise HTTPException(status_code=400, detail="comment must be a string")
+    rating.comment = comment
+    db.add(rating)
+    db.commit()
+    db.refresh(rating)
+    return rating
+
 @app.get("/api/v1/meals/{meal_id}/photos", response_model=List[dict], tags=["Ratings"])
 def get_photos_for_meal(meal_id: int, db: Session = Depends(get_db)):
     """Get all photos for a specific meal"""

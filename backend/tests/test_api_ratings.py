@@ -154,6 +154,119 @@ def test_photos_endpoint_returns_meal_date(client, meal_id):
     assert photos[0]["date"] == date_cls.today().isoformat()
 
 
+# ---- Comment edge cases ----
+
+
+def test_create_rating_with_null_comment(client, meal_id):
+    resp = client.post(f"/api/v1/meals/{meal_id}/ratings", json={"rating": 3, "comment": None})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["comment"] is None
+
+
+def test_create_rating_with_empty_comment(client, meal_id):
+    resp = client.post(f"/api/v1/meals/{meal_id}/ratings", json={"rating": 3, "comment": ""})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["comment"] == ""
+
+
+def test_create_rating_without_comment_field(client, meal_id):
+    resp = client.post(f"/api/v1/meals/{meal_id}/ratings", json={"rating": 3})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["comment"] is None
+
+
+def test_create_rating_nonexistent_meal(client):
+    resp = client.post("/api/v1/meals/99999/ratings", json={"rating": 4, "comment": "test"})
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["detail"].lower()
+
+
+def test_patch_comment_on_rating(client, meal_id):
+    create = client.post(f"/api/v1/meals/{meal_id}/ratings", json={"rating": 2, "comment": "Meh"})
+    assert create.status_code == 201
+    rating_id = create.json()["id"]
+
+    resp = client.patch(f"/api/v1/ratings/{rating_id}/comment", json={"comment": "Updated comment"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["comment"] == "Updated comment"
+
+    get = client.get(f"/api/v1/ratings/{rating_id}")
+    assert get.json()["comment"] == "Updated comment"
+
+
+def test_patch_comment_nonexistent_rating(client):
+    resp = client.patch("/api/v1/ratings/99999/comment", json={"comment": "test"})
+    assert resp.status_code == 404
+
+
+def test_patch_comment_rejects_non_string(client, meal_id):
+    create = client.post(f"/api/v1/meals/{meal_id}/ratings", json={"rating": 5, "comment": "OK"})
+    assert create.status_code == 201
+    rating_id = create.json()["id"]
+
+    resp = client.patch(f"/api/v1/ratings/{rating_id}/comment", json={"comment": 42})
+    assert resp.status_code == 400
+
+
+# ---- Photo upload edge cases ----
+
+
+def test_photo_upload_without_file(client, meal_id):
+    resp = client.post(
+        f"/api/v1/meals/{meal_id}/ratings-with-photo",
+        data={"rating": 4},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["rating"] == 4
+    assert body["photo_url"] is None
+
+
+def test_photo_upload_without_file_rating_only(client, meal_id):
+    resp = client.post(
+        f"/api/v1/meals/{meal_id}/ratings-with-photo",
+        data={"rating": 5, "comment": "Only rating no photo"},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["comment"] == "Only rating no photo"
+    assert body["photo_url"] is None
+
+
+def test_photo_upload_nonexistent_meal(client):
+    png_bytes = base64.b64decode(PNG_BASE64)
+    resp = client.post(
+        "/api/v1/meals/99999/ratings-with-photo",
+        data={"rating": 4},
+        files={"photo": ("test.png", png_bytes, "image/png")},
+    )
+    assert resp.status_code == 404
+
+
+def test_photo_upload_rejects_invalid_file_type(client, meal_id):
+    resp = client.post(
+        f"/api/v1/meals/{meal_id}/ratings-with-photo",
+        data={"rating": 4},
+        files={"photo": ("test.txt", b"not an image", "text/plain")},
+    )
+    assert resp.status_code == 400
+    assert "file type" in resp.json()["detail"].lower()
+
+
+def test_photo_upload_rejects_oversized(client, meal_id):
+    oversized = b"x" * (5 * 1024 * 1024 + 1)
+    resp = client.post(
+        f"/api/v1/meals/{meal_id}/ratings-with-photo",
+        data={"rating": 3},
+        files={"photo": ("big.png", oversized, "image/png")},
+    )
+    assert resp.status_code == 400
+    assert "5mb" in resp.json()["detail"].lower()
+
+
+# ---- Existing tests ----
+
+
 def test_side_ratings_round_trip(client, meal_id):
     create = client.post(
         f"/api/v1/meals/{meal_id}/side-ratings",
