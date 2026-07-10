@@ -276,6 +276,71 @@ def _reconcile(db, mensa_obj, date_obj, keep_names):
     return removed
 
 
+def scrape_today():
+    """Scrape only today's menus. Lightweight — used for the precise lunch-time pre-open updates."""
+    db = SessionLocal()
+    valid_names = set(ALIAS_MAP.values())
+    try:
+        today = date.today()
+        date_str = today.strftime('%Y-%m-%d')
+
+        de_tables = _mensa_tables_for_date(date_str, ALL_URL, CACHE_URL)
+        en_tables = _mensa_tables_for_date(date_str, ALL_URL_EN, CACHE_URL_EN)
+
+        new_count = 0
+        updated_count = 0
+
+        for mensa_name, de_table in de_tables.items():
+            if mensa_name not in valid_names:
+                continue
+
+            mensa_obj = _get_or_create_mensa(db, mensa_name)
+
+            de_rows = _dish_rows(de_table)
+            en_table = en_tables.get(mensa_name)
+            en_rows = _dish_rows(en_table) if en_table is not None else []
+
+            if en_table is not None and len(en_rows) != len(de_rows):
+                print(
+                    f'WARNING: DE/EN row count mismatch for "{mensa_name}" on {date_str}: '
+                    f'{len(de_rows)} DE vs {len(en_rows)} EN - pairing by index'
+                )
+
+            german_names = set()
+            seen = set()
+
+            for i, de_row in enumerate(de_rows):
+                de_dish = _parse_dish_row(de_row)
+                if not de_dish:
+                    continue
+
+                dedup_key = (de_dish['name'].lower(), (de_dish.get('description') or '').lower())
+                if dedup_key in seen:
+                    continue
+                seen.add(dedup_key)
+                german_names.add(de_dish['name'])
+
+                en_dish = _parse_dish_row(en_rows[i]) if i < len(en_rows) else None
+
+                result = _upsert_meal(db, mensa_obj, today, de_dish, en_dish)
+                if result == 'new':
+                    new_count += 1
+                else:
+                    updated_count += 1
+
+            _reconcile(db, mensa_obj, today, german_names)
+
+        db.commit()
+        print(f'scrape_today OK - {new_count} new, {updated_count} updated')
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        db.rollback()
+        print(f'scrape_today error: {e}')
+    finally:
+        db.close()
+
+
 def scrape_menus():
     """Scrape German + English menus and merge them into one row per dish."""
     db = SessionLocal()

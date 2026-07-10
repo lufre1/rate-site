@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime
 
 from database import SessionLocal, Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, init_db
-from scraper import scrape_menus
+from scraper import scrape_menus, scrape_today
 
 app = FastAPI(
     title="Mensa Rating API",
@@ -195,7 +195,14 @@ def on_startup():
     ensure_upload_dir()
     scrape_menus()
 
-    scheduler = BackgroundScheduler(daemon=True)
+    scheduler = BackgroundScheduler(daemon=True, timezone="Europe/Berlin")
+
+    # Precise lunch-time pre-open updates (mensas open at 11:30, dishes change right before)
+    scheduler.add_job(scrape_today, 'cron', hour=11, minute=0, misfire_grace_time=300)
+    scheduler.add_job(scrape_today, 'cron', hour=11, minute=15, misfire_grace_time=300)
+    scheduler.add_job(scrape_today, 'cron', hour=11, minute=30, misfire_grace_time=300)
+
+    # Background fallback: full 7-day refresh through the day
     scheduler.add_job(scrape_menus, 'interval', hours=4, misfire_grace_time=3600)
     scheduler.start()
 
