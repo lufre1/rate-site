@@ -157,6 +157,23 @@ class RatingOutWithDate(RatingOut):
     date: date
     meal_id: int
 
+class RatingBadgeSection(BaseModel):
+    ratings: List[RatingOutWithDate]
+    avg: float
+    count: int
+
+class CommentDisplay(BaseModel):
+    id: int
+    rating: int
+    comment: str
+    user_name: Optional[str]
+    date: date
+    created_at: datetime
+    photo_url: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
 class PhotoOut(BaseModel):
     id: int
     photo_url: str
@@ -169,6 +186,8 @@ class SideRatingOut(BaseModel):
     side_name: str
     avg_rating: float
     rating_count: int
+    recent_avg: float = 0
+    recent_count: int = 0
 
 @app.on_event("startup")
 def on_startup():
@@ -395,6 +414,7 @@ def create_rating_with_photo(meal_id: int, rating: int = Form(..., ge=1, le=5), 
 
 @app.get("/api/v1/meals/{meal_id}/ratings", response_model=List[RatingOutWithDate], tags=["Ratings"])
 def get_ratings(meal_id: int, db: Session = Depends(get_db)):
+    """Get ratings for all instances of this dish across all dates."""
     # Check if meal exists
     meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
     if not meal:
@@ -413,6 +433,107 @@ def get_ratings(meal_id: int, db: Session = Depends(get_db)):
                            photo_url=r.Rating.photo_url)
         for r in rows
     ]
+
+
+@app.get("/api/v1/meals/{meal_id}/ratings-breakdown", response_model=dict, tags=["Ratings"])
+def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db)):
+    """Get detailed rating breakdown with recent vs overall sections and comments."""
+    # Check if meal exists
+    meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
+    if not meal:
+        raise HTTPException(status_code=404, detail="Meal not found")
+
+    today = date.today()
+
+    # Find all meal instances with same (name, mensa_id) combination
+    all_meals = db.query(DBMeal).filter(
+        DBMeal.name == meal.name,
+        DBMeal.mensa_id == meal.mensa_id
+    ).all()
+
+    # Recent = today's meal only (by date)
+    recent_meal_ids = [m.id for m in all_meals if m.date == today]
+    # Overall = all meals (recent + old)
+    all_meal_ids = [m.id for m in all_meals]
+
+    # Get recent ratings with full details
+    recent_ratings = db.query(DBRating).join(
+        DBMeal, DBRating.meal_id == DBMeal.id
+    ).filter(
+        DBMeal.id.in_(recent_meal_ids)
+    ).order_by(DBRating.created_at.desc(), DBRating.id.desc()).all()
+
+    # Calculate recent average and count
+    recent_avg = 0
+    if recent_ratings:
+        recent_avg = round(float(sum(r.rating for r in recent_ratings)) / len(recent_ratings), 1)
+
+    # Get overall ratings with average
+    overall_result = db.query(
+        func.coalesce(func.avg(DBRating.rating), 0).label('avg_rating'),
+        func.count(DBRating.id).label('rating_count')
+    ).join(DBMeal, DBRating.meal_id == DBMeal.id).filter(
+        DBMeal.id.in_(all_meal_ids)
+    ).first()
+
+    overall_avg = round(float(overall_result.avg_rating), 1) if overall_result else 0
+    overall_count = overall_result.rating_count if overall_result else 0
+
+    # Get comments for display (most recent 15 across all ratings for this dish)
+    comments_query = db.query(DBRating, DBMeal.date, DBRating.created_at).join(
+        DBMeal, DBRating.meal_id == DBMeal.id
+    ).filter(
+        DBMeal.id.in_(all_meal_ids),
+        DBRating.comment.isnot(None)
+    ).order_by(DBRating.created_at.desc()).limit(15).all()
+
+    comments = [
+        CommentDisplay(
+            id=r.Rating.id,
+            rating=r.Rating.rating,
+            comment=r.Rating.comment,
+            user_name=r.Rating.user_name,
+            date=r.date,
+            created_at=r.Rating.created_at,
+            photo_url=r.Rating.photo_url
+        )
+        for r in comments_query
+    ]
+
+    return {
+        "recent": {
+            "ratings": [
+                RatingOutWithDate(
+                    id=r.id,
+                    rating=r.rating,
+                    comment=r.comment,
+                    user_name=r.user_name,
+                    photo_url=r.photo_url,
+                    date=meal.date,
+                    meal_id=r.meal_id
+                )
+                for r in recent_ratings
+            ],
+            "avg": recent_avg,
+            "count": len(recent_ratings)
+        },
+        "overall": {
+            "avg": overall_avg,
+            "count": overall_count
+        },
+        "comments": [
+            {
+                "id": c.id,
+                "rating": c.rating,
+                "comment": c.comment,
+                "user_name": c.user_name,
+                "date": c.date.isoformat(),
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "photo_url": c.photo_url
+            }
+            for c in comments
+        ]
+    }
 
 @app.post("/api/v1/meals/{meal_id}/side-ratings", status_code=201, tags=["Ratings"])
 def create_side_rating(meal_id: int, data: SideRatingInput, db: Session = Depends(get_db)):
@@ -440,18 +561,60 @@ def get_side_ratings(meal_id: int, db: Session = Depends(get_db)):
     if not meal:
         raise HTTPException(status_code=404, detail="Meal not found")
 
-    results = db.query(
+    today = date.today()
+
+    # Find all meal instances with same (name, mensa_id) combination
+    all_meals = db.query(DBMeal).filter(
+        DBMeal.name == meal.name,
+        DBMeal.mensa_id == meal.mensa_id
+    ).all()
+
+    # Recent = today's meal only (by date)
+    recent_meal_ids = [m.id for m in all_meals if m.date == today]
+    # Overall = all meals (recent + old)
+    all_meal_ids = [m.id for m in all_meals]
+
+    # Get side ratings for overall (all meals)
+    overall_results = db.query(
         DBSideRating.side_name,
         func.coalesce(func.avg(DBSideRating.rating), 0).label('avg_rating'),
         func.count(DBSideRating.id).label('rating_count'),
     ).join(DBMeal, DBSideRating.meal_id == DBMeal.id
-    ).filter(DBMeal.mensa_id == meal.mensa_id
+    ).filter(DBMeal.id.in_(all_meal_ids)
     ).group_by(DBSideRating.side_name).all()
 
-    return [
-        SideRatingOut(side_name=r.side_name, avg_rating=round(float(r.avg_rating), 1), rating_count=r.rating_count)
-        for r in results
-    ]
+    # Get side ratings for recent (today only)
+    recent_results = db.query(
+        DBSideRating.side_name,
+        func.coalesce(func.avg(DBSideRating.rating), 0).label('recent_avg_rating'),
+        func.count(DBSideRating.id).label('recent_rating_count'),
+    ).join(DBMeal, DBSideRating.meal_id == DBMeal.id
+    ).filter(DBMeal.id.in_(recent_meal_ids)
+    ).group_by(DBSideRating.side_name).all()
+# Merge recent and overall data
+    recent_map = {r.side_name: r for r in recent_results}
+    
+    side_ratings_out = []
+    for r in overall_results:
+        if r.side_name in recent_map:
+            recent = recent_map[r.side_name]
+            side_ratings_out.append(SideRatingOut(
+                side_name=r.side_name,
+                avg_rating=round(float(r.avg_rating), 1),
+                rating_count=r.rating_count,
+                recent_avg=round(float(recent.recent_avg_rating), 1),
+                recent_count=recent.recent_rating_count
+            ))
+        else:
+            side_ratings_out.append(SideRatingOut(
+                side_name=r.side_name,
+                avg_rating=round(float(r.avg_rating), 1),
+                rating_count=r.rating_count,
+                recent_avg=0,
+                recent_count=0
+            ))
+    
+    return side_ratings_out
 
 @app.get("/api/v1/ratings/{rating_id}", response_model=RatingOut, tags=["Ratings"])
 def get_rating(rating_id: int, db: Session = Depends(get_db)):

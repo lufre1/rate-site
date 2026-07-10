@@ -1,6 +1,7 @@
-from sqlalchemy import create_engine, Column, Integer, String, Date, ForeignKey, Float, Text, text
+from sqlalchemy import create_engine, Column, Integer, String, Date, ForeignKey, Float, Text, text, DateTime, func
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
+from datetime import datetime
 import os
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -42,6 +43,7 @@ class Rating(Base):
     comment = Column(Text, nullable=True)
     user_name = Column(String, nullable=True)
     photo_url = Column(String, nullable=True)
+    created_at = Column(DateTime, default=func.now())
     meal = relationship("Meal", back_populates="ratings")
 
 class SideRating(Base):
@@ -52,6 +54,7 @@ class SideRating(Base):
     rating = Column(Integer)
     comment = Column(Text, nullable=True)
     user_name = Column(String, nullable=True)
+    created_at = Column(DateTime, default=func.now())
     meal = relationship("Meal", back_populates="side_ratings")
 
 def init_db():

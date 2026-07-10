@@ -551,7 +551,7 @@ function StarPicker({ value, onChange, size = 22 }) {
   );
 }
 
-function SideRatingRow({ mealId, sideName, avgRating, ratingCount }) {
+function SideRatingRow({ mealId, sideName, avgRating, ratingCount, recentAvg = 0, recentCount = 0 }) {
   const { t } = useTranslation();
   const [rating, setRating] = useState(0);
   const [justRated, setJustRated] = useState(false);
@@ -570,9 +570,14 @@ function SideRatingRow({ mealId, sideName, avgRating, ratingCount }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
       <span style={{ fontSize: '0.8125rem', color: '#374151', flexShrink: 0 }}>{sideName}</span>
+      {recentCount > 0 && (
+        <span style={{ fontSize: '10px', color: '#16a34a', flexShrink: 0, background: '#dcfce7', padding: '2px 6px', borderRadius: 4 }}>
+            recent {recentAvg.toFixed(1)} ({recentCount}) {'★'}
+        </span>
+      )}
       {ratingCount > 0 && (
         <span style={{ fontSize: '11px', color: '#9ca3af', flexShrink: 0 }}>
-          {"★".repeat(Math.round(avgRating))} {avgRating} ({ratingCount})
+          {"★".repeat(Math.round(avgRating))} {avgRating} overall ({ratingCount})
         </span>
       )}
       <StarPicker value={rating} onChange={handleRate} size={16} />
@@ -588,7 +593,11 @@ function DishCard({ meal }) {
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
   const [submitted, setSubmitted] = useState(false);
-  const [reviews, setReviews] = useState([]);
+  const [reviews, setReviews] = useState({
+    recent: { ratings: [], avg: 0, count: 0 },
+    overall: { avg: 0, count: 0 },
+    comments: []
+});
   const [show, setShow] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [sideRatings, setSideRatings] = useState({});
@@ -603,14 +612,21 @@ function DishCard({ meal }) {
       : []
   ), [meal.type, meal.description]);
 
+// Fetch ratings-breakdown on mount (not just when expanded)
   useEffect(() => {
-    if (show && reviews.length === 0) {
-      fetch(`${API}/api/v1/meals/${meal.id}/ratings`)
-        .then(r => r.json())
-        .then(data => setReviews(Array.isArray(data) ? data : []))
-        .catch(() => {});
+    if (reviews.overall.count === 0) {
+        fetch(`${API}/api/v1/meals/${meal.id}/ratings-breakdown`)
+            .then(r => r.json())
+            .then(data => {
+                setReviews({
+                    recent: data.recent || { ratings: [], avg: 0, count: 0 },
+                    overall: data.overall || { avg: 0, count: 0 },
+                    comments: data.comments || []
+                });
+            })
+            .catch(() => {});
     }
-  }, [show, meal.id]);
+  }, [meal.id]);
 
   useEffect(() => {
     if (expanded && sideNames.length > 0) {
@@ -710,18 +726,43 @@ function DishCard({ meal }) {
 
 </div>
             <div style={{ textAlign: 'right', marginLeft: 12, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 8 }}>
-              {meal.rating_count > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+              {/* Recent rating - only show if count > 0 */}
+              {reviews.recent.count > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ color: '#f59e0b', fontSize: '0.875rem' }}>
-                    {"★".repeat(Math.round(meal.avg_rating || 0))}
-                    {"☆".repeat(5 - Math.round(meal.avg_rating || 0))}
+                    {"★".repeat(Math.round(reviews.recent.avg))}
+                    {"☆".repeat(5 - Math.round(reviews.recent.avg))}
                   </span>
-                  <span style={{ color: '#6b7280', fontSize: '0.8125rem' }}>
-                    {(meal.avg_rating || 0).toFixed(1)} ({meal.rating_count})
+                  <span style={{ color: '#16a34a', fontSize: '0.75rem', fontWeight: 600 }}>
+                    recent {reviews.recent.avg.toFixed(1)} ({reviews.recent.count})
                   </span>
-</div>
+                </div>
               )}
-             <span style={{ color: '#9ca3af', fontSize: '12px' }}>{expanded ? '\u25B2' : '\u25BC'}</span>
+              {/* Overall rating - only show if count > 0 */}
+              {reviews.overall.count > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ color: '#f59e0b', fontSize: '0.875rem' }}>
+                    {"★".repeat(Math.round(reviews.overall.avg))}
+                    {"☆".repeat(5 - Math.round(reviews.overall.avg))}
+                  </span>
+                  <span style={{ color: '#9ca3af', fontSize: '0.75rem', fontWeight: 600 }}>
+                    overall {reviews.overall.avg.toFixed(1)} ({reviews.overall.count})
+                  </span>
+                </div>
+              )}
+              {/* Fallback to meal.avg_rating if no detailed breakdown available */}
+              {reviews.overall.count === 0 && reviews.recent.count === 0 && meal.rating_count > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ color: '#f59e0b', fontSize: '0.875rem' }}>
+                    {"★".repeat(Math.round(meal.avg_rating))}
+                    {"☆".repeat(5 - Math.round(meal.avg_rating))}
+                  </span>
+                  <span style={{ color: '#16a34a', fontSize: '0.75rem', fontWeight: 600 }}>
+                    recent {meal.avg_rating.toFixed(1)} ({meal.rating_count})
+                  </span>
+                </div>
+              )}
+              <span style={{ color: '#9ca3af', fontSize: '12px' }}>{expanded ? '\u25B2' : '\u25BC'}</span>
         </div>
       </button>
 
@@ -841,32 +882,84 @@ function DishCard({ meal }) {
                 {t('ui.rateSides')}
               </p>
               {sideNames.map(name => (
-                <SideRatingRow
-                  key={name}
-                  mealId={meal.id}
-                  sideName={name}
-                  avgRating={sideRatings[name]?.avg_rating || 0}
-                  ratingCount={sideRatings[name]?.rating_count || 0}
-                />
+<SideRatingRow
+    key={name}
+    mealId={meal.id}
+    sideName={name}
+    avgRating={sideRatings[name]?.avg_rating || 0}
+    ratingCount={sideRatings[name]?.rating_count || 0}
+    recentAvg={sideRatings[name]?.recent_avg || 0}
+    recentCount={sideRatings[name]?.recent_count || 0}
+/>
               ))}
             </div>
           )}
 
-          {meal.rating_count > 0 && (
+          {(reviews.recent.count > 0 || reviews.overall.count > 0) && (
             <button onClick={() => setShow(!show)} style={{
               border: 'none', background: 'none', color: '#3b82f6',
               cursor: 'pointer', fontSize: '12px', padding: '6px 0 0', marginTop: 2
             }}>
-              {show ? '\u25B2' : '\u25BC'} {' '} {t('ui.reviews')} ({meal.rating_count})
+              {show ? '\u25B2' : '\u25BC'} {' '} {t('ui.reviews')} ({reviews.overall.count || reviews.recent.count})
             </button>
           )}
 
           {show && (
             <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #f3f4f6' }}>
-              {reviews.length === 0 ? (
+              {reviews.recent.count > 0 && (
+                <div style={{ 
+                    padding: '8px 12px', 
+                    background: '#dcfce7', 
+                    borderRadius: 6, 
+                    marginBottom: 8,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8
+                }}>
+                    <span style={{ color: '#166534', fontSize: '13px', fontWeight: 600 }}>
+                        ★ {reviews.recent.avg.toFixed(1)} recent ({reviews.recent.count})
+                    </span>
+                    <span style={{ 
+                        fontSize: '9px', 
+                        padding: '2px 6px', 
+                        borderRadius: 4, 
+                        background: '#16a34a', 
+                        color: '#fff' 
+                    }}>
+                        recent
+                    </span>
+                </div>
+              )}
+
+              {reviews.overall.count > 0 && reviews.overall.count > reviews.recent.count && (
+                <div style={{ 
+                    padding: '8px 12px', 
+                    background: '#f3f4f6', 
+                    borderRadius: 6, 
+                    marginBottom: 8,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8
+                }}>
+                    <span style={{ color: '#6b7280', fontSize: '13px' }}>
+                        ★ {reviews.overall.avg.toFixed(1)} overall ({reviews.overall.count})
+                    </span>
+                    <span style={{ 
+                        fontSize: '9px', 
+                        padding: '2px 6px', 
+                        borderRadius: 4, 
+                        background: '#9ca3af', 
+                        color: '#fff' 
+                    }}>
+                        overall
+                    </span>
+                </div>
+              )}
+
+              {reviews.comments.length === 0 ? (
                 <p style={{ color: '#9ca3af', fontSize: '12px', margin: 0 }}>{t('ui.noReviews')}</p>
               ) : (
-                reviews.map(r => (
+                reviews.comments.map(r => (
                   <div key={r.id} style={{ padding: '4px 0' }}>
                     <span style={{ color: '#6b7280', fontSize: '12px',
                       display: 'flex', alignItems: 'center', gap: '2px', flexWrap: 'wrap' }}>
@@ -874,6 +967,11 @@ function DishCard({ meal }) {
                       {"\u2605".repeat(r.rating)}{"\u2606".repeat(5 - r.rating)}
                       {r.date && (
                         <span style={{ color: '#9ca3af', marginLeft: 4 }}>{formatRelativeDate(r.date, t)}</span>
+                      )}
+                      {r.created_at && (
+                        <span style={{ color: '#16a34a', fontSize: '9px', marginLeft: 4 }}>
+                            (recent)
+                        </span>
                       )}
                     </span>
                     {r.comment && (

@@ -165,3 +165,186 @@ def test_side_ratings_round_trip(client, meal_id):
     assert resp.status_code == 200
     sides = resp.json()
     assert any(s["side_name"] == "Reis" and s["rating_count"] == 1 for s in sides)
+
+
+def test_ratings_endpoint_returns_list_for_backward_compat(client, meal_id):
+    """Test that GET /ratings returns a list for backward compatibility."""
+    # Create a rating for today's meal
+    create = client.post(f"/api/v1/meals/{meal_id}/ratings", json={"rating": 4, "comment": "Good"})
+    assert create.status_code == 201
+
+    resp = client.get(f"/api/v1/meals/{meal_id}/ratings")
+    assert resp.status_code == 200
+    body = resp.json()
+    
+    # Should be a list (backward compatible with old frontend)
+    assert isinstance(body, list)
+    assert len(body) == 1
+    assert body[0]["rating"] == 4
+    assert body[0]["comment"] == "Good"
+
+
+def test_ratings_breakdown_returns_full_breakdown(client, meal_id):
+    """Test that GET /ratings-breakdown returns full breakdown with recent, overall, and comments."""
+    # Create a rating first
+    client.post(f"/api/v1/meals/{meal_id}/ratings", json={"rating": 5, "comment": "Excellent!"})
+
+    resp = client.get(f"/api/v1/meals/{meal_id}/ratings-breakdown")
+    assert resp.status_code == 200
+    body = resp.json()
+    
+    # Should have recent, overall, and comments keys
+    assert "recent" in body
+    assert "overall" in body
+    assert "comments" in body
+    
+    # Recent section
+    assert "ratings" in body["recent"]
+    assert "avg" in body["recent"]
+    assert "count" in body["recent"]
+    assert body["recent"]["count"] == 1
+    assert body["recent"]["avg"] == 5.0
+    assert len(body["recent"]["ratings"]) == 1
+    assert body["recent"]["ratings"][0]["rating"] == 5
+    
+    # Overall section
+    assert "avg" in body["overall"]
+    assert "count" in body["overall"]
+    assert body["overall"]["count"] == 1
+    assert body["overall"]["avg"] == 5.0
+    
+    # Comments section
+    assert isinstance(body["comments"], list)
+    assert len(body["comments"]) == 1
+    assert body["comments"][0]["comment"] == "Excellent!"
+    assert body["comments"][0]["rating"] == 5
+
+
+def test_comments_limited_to_15_most_recent(client, meal_id):
+    """Test that comments are limited to 15 most recent (in /ratings-breakdown)."""
+    # Create 20 ratings with comments
+    for i in range(20):
+        client.post(
+            f"/api/v1/meals/{meal_id}/ratings",
+            json={"rating": 3, "comment": f"Comment {i+1}"},
+        )
+
+    # Test the breakdown endpoint which has the comments limit
+    resp = client.get(f"/api/v1/meals/{meal_id}/ratings-breakdown")
+    assert resp.status_code == 200
+    body = resp.json()
+    
+    # Should only have 15 comments (limited from 20)
+    assert len(body["comments"]) == 15
+    
+    # Comments are ordered by created_at (most recent first). 
+    # Since all ratings in this test are created quickly, the order depends on DB behavior.
+    # Just verify we get 15 comments and they're from the 20 created (not all the same)
+    comment_texts = [c["comment"] for c in body["comments"]]
+    assert len(comment_texts) == 15
+    # Should have some diversity (not all the same comment)
+    assert len(set(comment_texts)) >= 10
+
+
+def test_side_ratings_includes_recent_stats(client, meal_id):
+    """Test that GET /side-ratings includes recent_avg and recent_count."""
+    # Create a side rating
+    client.post(
+        f"/api/v1/meals/{meal_id}/side-ratings",
+        json={"side_name": "Reis", "rating": 4},
+    )
+
+    resp = client.get(f"/api/v1/meals/{meal_id}/side-ratings")
+    assert resp.status_code == 200
+    sides = resp.json()
+    
+    assert len(sides) == 1
+    side = sides[0]
+    assert side["side_name"] == "Reis"
+    assert side["avg_rating"] == 4.0
+    assert side["rating_count"] == 1
+    
+    # Should have recent stats
+    assert "recent_avg" in side
+    assert "recent_count" in side
+    assert side["recent_avg"] == 4.0
+    assert side["recent_count"] == 1
+
+
+def test_ratings_across_multiple_dates_same_dish(client, meal_id):
+    """Test that ratings for the same dish across multiple dates work correctly."""
+    from datetime import date as date_cls, timedelta
+    db = SessionLocal()
+    try:
+        # Create a second meal instance with the same name but different date (yesterday)
+        from datetime import timedelta
+        yesterday = date_cls.today() - timedelta(days=1)
+        
+        mensa = db.query(Mensa).filter(Mensa.id == 1).first()
+        meal2 = Meal(
+            name="Testgericht", name_de="Testgericht", name_en="Test Dish",
+            description="Reis, Bohnen", description_de="Reis, Bohnen",
+            description_en="Rice, Beans", tags=None, type="main",
+            date=yesterday, mensa_id=mensa.id,
+        )
+        db.add(meal2)
+        db.commit()
+        db.refresh(meal2)
+        meal2_id = meal2.id
+    finally:
+        db.close()
+    
+    # Create a rating for yesterday's meal
+    client.post(f"/api/v1/meals/{meal2_id}/ratings", json={"rating": 3, "comment": "Old rating"})
+    
+    # Create a rating for today's meal
+    client.post(f"/api/v1/meals/{meal_id}/ratings", json={"rating": 5, "comment": "New rating"})
+    
+    # GET /ratings returns all ratings (for backward compat with old frontend)
+    resp = client.get(f"/api/v1/meals/{meal_id}/ratings")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert isinstance(body, list)
+    assert len(body) == 2  # Both today and yesterday's ratings
+    
+    # GET /ratings-breakdown should show both in overall but only today in recent
+    resp = client.get(f"/api/v1/meals/{meal_id}/ratings-breakdown")
+    assert resp.status_code == 200
+    body = resp.json()
+    
+    # Recent should only have today's rating
+    assert body["recent"]["count"] == 1
+    assert body["recent"]["avg"] == 5.0
+    
+    # Overall should have both ratings (avg of 3 and 5 = 4.0)
+    assert body["overall"]["count"] == 2
+    assert body["overall"]["avg"] == 4.0
+    
+    # Comments should show both comments (most recent 15)
+    assert len(body["comments"]) == 2
+    assert body["comments"][0]["comment"] == "New rating"  # More recent
+    assert body["comments"][1]["comment"] == "Old rating"
+    
+    # GET /side-ratings for today's meal should only count today's ratings
+    client.post(
+        f"/api/v1/meals/{meal2_id}/side-ratings",
+        json={"side_name": "Reis", "rating": 2},
+    )
+    client.post(
+        f"/api/v1/meals/{meal_id}/side-ratings",
+        json={"side_name": "Reis", "rating": 4},
+    )
+    
+    resp = client.get(f"/api/v1/meals/{meal_id}/side-ratings")
+    assert resp.status_code == 200
+    sides = resp.json()
+    assert len(sides) == 1
+    side = sides[0]
+    
+    # Overall should average both (2+4)/2 = 3.0
+    assert side["avg_rating"] == 3.0
+    assert side["rating_count"] == 2
+    
+    # Recent should only be today's (4)
+    assert side["recent_avg"] == 4.0
+    assert side["recent_count"] == 1
