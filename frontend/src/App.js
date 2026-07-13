@@ -725,7 +725,7 @@ function DishCard({ meal }) {
           )}
 
 </div>
-            <div style={{ textAlign: 'right', marginLeft: 12, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ textAlign: 'right', marginLeft: 12, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
               {/* Recent rating - only show if count > 0 */}
               {reviews.recent.count > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -905,7 +905,7 @@ function DishCard({ meal }) {
           )}
 
           {show && (
-            <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #f3f4f6' }}>
+            <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #f3f4f6', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
               {reviews.recent.count > 0 && (
                 <div style={{ 
                     padding: '8px 12px', 
@@ -975,7 +975,7 @@ function DishCard({ meal }) {
                       )}
                     </span>
                     {r.comment && (
-                      <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#374151' }}>{r.comment}</p>
+                      <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#374151', wordBreak: 'break-word' }}>{r.comment}</p>
                     )}
                     {r.photo_url && (
                       <img
