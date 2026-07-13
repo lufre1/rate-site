@@ -27,7 +27,9 @@
     "photoError": "Upload failed",
     "photoTypeError": "Only JPG, PNG and WebP images are allowed",
     "photoSizeError": "File size exceeds 5MB",
-    "noPhotos": "No photos"
+    "noPhotos": "No photos",
+    "recent": "recent",
+    "overall": "overall"
   },
   "mealTypes": {
     "main": "Main",

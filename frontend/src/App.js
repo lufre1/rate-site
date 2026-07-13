@@ -572,12 +572,12 @@ function SideRatingRow({ mealId, sideName, avgRating, ratingCount, recentAvg = 0
       <span style={{ fontSize: '0.8125rem', color: '#374151', flexShrink: 0 }}>{sideName}</span>
       {recentCount > 0 && (
         <span style={{ fontSize: '10px', color: '#16a34a', flexShrink: 0, background: '#dcfce7', padding: '2px 6px', borderRadius: 4 }}>
-            recent {recentAvg.toFixed(1)} ({recentCount}) {'★'}
+            {t('ui.recent')} {recentAvg.toFixed(1)} ({recentCount}) {'★'}
         </span>
       )}
       {ratingCount > 0 && (
         <span style={{ fontSize: '11px', color: '#9ca3af', flexShrink: 0 }}>
-          {"★".repeat(Math.round(avgRating))} {avgRating} overall ({ratingCount})
+          {"★".repeat(Math.round(avgRating))} {avgRating} {t('ui.overall')} ({ratingCount})
         </span>
       )}
       <StarPicker value={rating} onChange={handleRate} size={16} />
@@ -734,7 +734,7 @@ function DishCard({ meal }) {
                     {"☆".repeat(5 - Math.round(reviews.recent.avg))}
                   </span>
                   <span style={{ color: '#16a34a', fontSize: '0.75rem', fontWeight: 600 }}>
-                    recent {reviews.recent.avg.toFixed(1)} ({reviews.recent.count})
+                    {t('ui.recent')} {reviews.recent.avg.toFixed(1)} ({reviews.recent.count})
                   </span>
                 </div>
               )}
@@ -746,7 +746,7 @@ function DishCard({ meal }) {
                     {"☆".repeat(5 - Math.round(reviews.overall.avg))}
                   </span>
                   <span style={{ color: '#9ca3af', fontSize: '0.75rem', fontWeight: 600 }}>
-                    overall {reviews.overall.avg.toFixed(1)} ({reviews.overall.count})
+                    {t('ui.overall')} {reviews.overall.avg.toFixed(1)} ({reviews.overall.count})
                   </span>
                 </div>
               )}
@@ -758,7 +758,7 @@ function DishCard({ meal }) {
                     {"☆".repeat(5 - Math.round(meal.avg_rating))}
                   </span>
                   <span style={{ color: '#16a34a', fontSize: '0.75rem', fontWeight: 600 }}>
-                    recent {meal.avg_rating.toFixed(1)} ({meal.rating_count})
+                    {t('ui.recent')} {meal.avg_rating.toFixed(1)} ({meal.rating_count})
                   </span>
                 </div>
               )}
@@ -917,7 +917,7 @@ function DishCard({ meal }) {
                     gap: 8
                 }}>
                     <span style={{ color: '#166534', fontSize: '13px', fontWeight: 600 }}>
-                        ★ {reviews.recent.avg.toFixed(1)} recent ({reviews.recent.count})
+                        ★ {reviews.recent.avg.toFixed(1)} {t('ui.recent')} ({reviews.recent.count})
                     </span>
                     <span style={{ 
                         fontSize: '9px', 
@@ -926,7 +926,7 @@ function DishCard({ meal }) {
                         background: '#16a34a', 
                         color: '#fff' 
                     }}>
-                        recent
+                        {t('ui.recent')}
                     </span>
                 </div>
               )}
@@ -942,7 +942,7 @@ function DishCard({ meal }) {
                     gap: 8
                 }}>
                     <span style={{ color: '#6b7280', fontSize: '13px' }}>
-                        ★ {reviews.overall.avg.toFixed(1)} overall ({reviews.overall.count})
+                        ★ {reviews.overall.avg.toFixed(1)} {t('ui.overall')} ({reviews.overall.count})
                     </span>
                     <span style={{ 
                         fontSize: '9px', 
@@ -951,7 +951,7 @@ function DishCard({ meal }) {
                         background: '#9ca3af', 
                         color: '#fff' 
                     }}>
-                        overall
+                        {t('ui.overall')}
                     </span>
                 </div>
               )}
@@ -970,7 +970,7 @@ function DishCard({ meal }) {
                       )}
                       {r.created_at && (
                         <span style={{ color: '#16a34a', fontSize: '9px', marginLeft: 4 }}>
-                            (recent)
+                            ({t('ui.recent')})
                         </span>
                       )}
                     </span>

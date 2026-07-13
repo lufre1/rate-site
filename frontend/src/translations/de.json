@@ -27,7 +27,9 @@
     "photoError": "Fehler beim Hochladen",
     "photoTypeError": "Nur JPG, PNG und WebP Bilder sind erlaubt",
     "photoSizeError": "Dateigröße überschreitet 5MB",
-    "noPhotos": "Keine Fotos"
+    "noPhotos": "Keine Fotos",
+    "recent": "aktuell",
+    "overall": "gesamt"
   },
   "mealTypes": {
     "main": "Hauptgericht",
