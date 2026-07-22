@@ -56,5 +56,16 @@
   "search": {
     "loading": "Searching...",
     "loadingMenu": "Loading..."
+  },
+  "footer": {
+    "impressum": "Impressum (Legal Notice)",
+    "github": "GitHub - Feedback / Report Bug"
+  },
+  "impressum": {
+    "title": "Legal Notice",
+    "name": "Provider",
+    "contact": "Contact",
+    "email": "Email",
+    "disclaimerText": "We assume no liability for the accuracy, completeness, or timeliness of the information provided. All information without warranty."
   }
 }

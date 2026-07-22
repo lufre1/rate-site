@@ -3,6 +3,7 @@ import { initReactI18next, useTranslation } from 'react-i18next';
 import i18n from 'i18next';
 import de from './translations/de.json';
 import en from './translations/en.json';
+import Impressum from './Impressum';
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 const ICON_BASE = 'https://www.studierendenwerk-goettingen.de/fileadmin/templates/images/mensaspeiseplan/png/';
@@ -183,8 +184,9 @@ function App() {
   const [language, setLanguage] = useState('de');
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
-  const [uploading, setUploading] = useState(false);
-  const [imageError, setImageError] = useState('');
+const [uploading, setUploading] = useState(false);
+   const [imageError, setImageError] = useState('');
+   const [showImpressum, setShowImpressum] = useState(false);
 
   // Function to change language
   const changeLanguage = (lng) => {
@@ -429,6 +431,78 @@ function App() {
           })
         )}
       </div>
+
+      <footer style={{
+        background: '#fff',
+        padding: '20px 16px',
+        marginTop: '40px',
+        borderTop: '1px solid #e5e7eb',
+        textAlign: 'center'
+      }}>
+        <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+          <p style={{ fontSize: '0.75rem', color: '#6b7280', margin: '0 0 8px' }}>
+                {showImpressum ? (
+                  <span>
+                    <strong>{t('footer.impressum')}</strong>
+                    <span style={{ margin: '0 8px', color: '#9ca3af' }}>|</span>
+                    <button
+                      onClick={() => setShowImpressum(false)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#3b82f6',
+                        textDecoration: 'none',
+                        cursor: 'pointer',
+                        fontSize: '0.75rem'
+                      }}
+                    >
+                      {t('ui.backHome')}
+                    </button>
+                    <span style={{ margin: '0 8px', color: '#9ca3af' }}>|</span>
+                    <a
+                      href="https://github.com/lufre1/rate-site"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: '#3b82f6', textDecoration: 'none', marginLeft: '4px' }}
+                    >
+                      {t('footer.github')}
+                    </a>
+                  </span>
+                ) : (
+                  <span>
+                    <button
+                      onClick={() => setShowImpressum(true)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#3b82f6',
+                        textDecoration: 'none',
+                        cursor: 'pointer',
+                        fontSize: '0.75rem'
+                      }}
+                    >
+                      {t('footer.impressum')}
+                    </button>
+                    <span style={{ margin: '0 8px', color: '#9ca3af' }}>|</span>
+                    <a
+                      href="https://github.com/lufre1/rate-site"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: '#3b82f6', textDecoration: 'none', marginLeft: '4px' }}
+                    >
+                      {t('footer.github')}
+                    </a>
+                  </span>
+                )}
+              </p>
+        </div>
+      </footer>
+
+      {showImpressum && (
+        <div style={{ padding: '16px' }}>
+          <Impressum onBack={() => setShowImpressum(false)} />
+        </div>
+      )}
     </div>
   );
 }
@@ -766,8 +840,107 @@ function DishCard({ meal }) {
         </div>
       </button>
 
-      {expanded && (
+{expanded && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #f3f4f6' }}>
+          {(reviews.recent.count > 0 || reviews.overall.count > 0) && (
+            <button onClick={() => setShow(!show)} style={{
+              border: 'none', background: 'none', color: '#3b82f6',
+              cursor: 'pointer', fontSize: '12px', padding: '6px 0 0'
+            }}>
+              {show ? '\u25B2' : '\u25BC'} {' '} {t('ui.reviews')} ({reviews.overall.count || reviews.recent.count})
+            </button>
+          )}
+
+          {show && (
+            <div style={{ marginTop: 6, marginBottom: 8, paddingTop: 6, borderTop: '1px solid #f3f4f6', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+              {reviews.recent.count > 0 && (
+                <div style={{ 
+                    padding: '8px 12px', 
+                    background: '#dcfce7', 
+                    borderRadius: 6, 
+                    marginBottom: 8,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8
+                }}>
+                    <span style={{ color: '#166534', fontSize: '13px', fontWeight: 600 }}>
+                        ★ {reviews.recent.avg.toFixed(1)} {t('ui.recent')} ({reviews.recent.count})
+                    </span>
+                    <span style={{ 
+                        fontSize: '9px', 
+                        padding: '2px 6px', 
+                        borderRadius: 4, 
+                        background: '#16a34a', 
+                        color: '#fff' 
+                    }}>
+                        {t('ui.recent')}
+                    </span>
+                </div>
+              )}
+
+              {reviews.overall.count > 0 && reviews.overall.count > reviews.recent.count && (
+                <div style={{ 
+                    padding: '8px 12px', 
+                    background: '#f3f4f6', 
+                    borderRadius: 6, 
+                    marginBottom: 8,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8
+                }}>
+                    <span style={{ color: '#6b7280', fontSize: '13px' }}>
+                        ★ {reviews.overall.avg.toFixed(1)} {t('ui.overall')} ({reviews.overall.count})
+                    </span>
+                    <span style={{ 
+                        fontSize: '9px', 
+                        padding: '2px 6px', 
+                        borderRadius: 4, 
+                        background: '#9ca3af', 
+                        color: '#fff' 
+                    }}>
+                        {t('ui.overall')}
+                    </span>
+                </div>
+              )}
+
+              {reviews.comments.length === 0 ? (
+                <p style={{ color: '#9ca3af', fontSize: '12px', margin: 0 }}>{t('ui.noReviews')}</p>
+              ) : (
+                reviews.comments.map(r => (
+                  <div key={r.id} style={{ padding: '4px 0' }}>
+                    <span style={{ color: '#6b7280', fontSize: '12px',
+                      display: 'flex', alignItems: 'center', gap: '2px', flexWrap: 'wrap' }}>
+                      {r.user_name || 'Anonymous'}
+                      {"\u2605".repeat(r.rating)}{"\u2606".repeat(5 - r.rating)}
+                      {r.date && (
+                        <span style={{ color: '#9ca3af', marginLeft: 4 }}>{formatRelativeDate(r.date, t)}</span>
+                      )}
+                      {r.created_at && (
+                        <span style={{ color: '#16a34a', fontSize: '9px', marginLeft: 4 }}>
+                            ({t('ui.recent')})
+                        </span>
+                      )}
+                    </span>
+                    {r.comment && (
+                      <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#374151', wordBreak: 'break-word' }}>{r.comment}</p>
+                    )}
+                    {r.photo_url && (
+                      <img
+                        src={`${API}${r.photo_url}`}
+                        alt=""
+                        style={{
+                          marginTop: 4, maxWidth: '120px', maxHeight: '120px',
+                          borderRadius: '8px', border: '1px solid #e5e7eb', display: 'block',
+                        }}
+                        onError={(e) => { e.target.style.display = 'none'; }}
+                      />
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
           {submitted ? (
             <p style={{ color: '#16a34a', fontSize: '13px', margin: 0 }}>{t('ui.thanksForRating')}</p>
           ) : (
@@ -858,30 +1031,30 @@ function DishCard({ meal }) {
                  onChange={e => setComment(e.target.value)}
                  rows={1}
                  style={{ flex: 1, padding: '4px 8px', border: '1px solid #d1d5db',
-                   borderRadius: 6, fontSize: '0.8125rem', resize: 'none' }}
+                    borderRadius: 6, fontSize: '0.8125rem', resize: 'none' }}
                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitRating(); } }} />
                <button
                  onClick={submitRating}
                  disabled={rating === 0 || uploading}
                  style={{
-                   padding: '0.75rem 1rem', borderRadius: '0.5rem', border: 'none',
-                   background: rating > 0 && !uploading ? '#3b82f6' : '#d1d5db',
-                   color: rating > 0 && !uploading ? '#fff' : '#9ca3af',
-                   cursor: rating > 0 && !uploading ? 'pointer' : 'not-allowed',
-                   fontSize: '0.875rem', fontWeight: 500, whiteSpace: 'nowrap'
-                 }}>
-                 {uploading ? t('ui.uploading') : t('ui.rate')}
-               </button>
-              </div>
-            </>
-          )}
+                    padding: '0.75rem 1rem', borderRadius: '0.5rem', border: 'none',
+                    background: rating > 0 && !uploading ? '#3b82f6' : '#d1d5db',
+                    color: rating > 0 && !uploading ? '#fff' : '#9ca3af',
+                    cursor: rating > 0 && !uploading ? 'pointer' : 'not-allowed',
+                    fontSize: '0.875rem', fontWeight: 500, whiteSpace: 'nowrap'
+                  }}>
+                  {uploading ? t('ui.uploading') : t('ui.rate')}
+                </button>
+               </div>
+             </>
+           )}
 
-          {sideNames.length > 0 && (
-            <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #f3f4f6' }}>
-              <p style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', margin: '0 0 6px' }}>
-                {t('ui.rateSides')}
-              </p>
-              {sideNames.map(name => (
+           {sideNames.length > 0 && (
+             <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #f3f4f6' }}>
+               <p style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', margin: '0 0 6px' }}>
+                 {t('ui.rateSides')}
+               </p>
+               {sideNames.map(name => (
 <SideRatingRow
     key={name}
     mealId={meal.id}
@@ -891,110 +1064,11 @@ function DishCard({ meal }) {
     recentAvg={sideRatings[name]?.recent_avg || 0}
     recentCount={sideRatings[name]?.recent_count || 0}
 />
-              ))}
-            </div>
-          )}
-
-          {(reviews.recent.count > 0 || reviews.overall.count > 0) && (
-            <button onClick={() => setShow(!show)} style={{
-              border: 'none', background: 'none', color: '#3b82f6',
-              cursor: 'pointer', fontSize: '12px', padding: '6px 0 0', marginTop: 2
-            }}>
-              {show ? '\u25B2' : '\u25BC'} {' '} {t('ui.reviews')} ({reviews.overall.count || reviews.recent.count})
-            </button>
-          )}
-
-          {show && (
-            <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #f3f4f6', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
-              {reviews.recent.count > 0 && (
-                <div style={{ 
-                    padding: '8px 12px', 
-                    background: '#dcfce7', 
-                    borderRadius: 6, 
-                    marginBottom: 8,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8
-                }}>
-                    <span style={{ color: '#166534', fontSize: '13px', fontWeight: 600 }}>
-                        ★ {reviews.recent.avg.toFixed(1)} {t('ui.recent')} ({reviews.recent.count})
-                    </span>
-                    <span style={{ 
-                        fontSize: '9px', 
-                        padding: '2px 6px', 
-                        borderRadius: 4, 
-                        background: '#16a34a', 
-                        color: '#fff' 
-                    }}>
-                        {t('ui.recent')}
-                    </span>
-                </div>
-              )}
-
-              {reviews.overall.count > 0 && reviews.overall.count > reviews.recent.count && (
-                <div style={{ 
-                    padding: '8px 12px', 
-                    background: '#f3f4f6', 
-                    borderRadius: 6, 
-                    marginBottom: 8,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8
-                }}>
-                    <span style={{ color: '#6b7280', fontSize: '13px' }}>
-                        ★ {reviews.overall.avg.toFixed(1)} {t('ui.overall')} ({reviews.overall.count})
-                    </span>
-                    <span style={{ 
-                        fontSize: '9px', 
-                        padding: '2px 6px', 
-                        borderRadius: 4, 
-                        background: '#9ca3af', 
-                        color: '#fff' 
-                    }}>
-                        {t('ui.overall')}
-                    </span>
-                </div>
-              )}
-
-              {reviews.comments.length === 0 ? (
-                <p style={{ color: '#9ca3af', fontSize: '12px', margin: 0 }}>{t('ui.noReviews')}</p>
-              ) : (
-                reviews.comments.map(r => (
-                  <div key={r.id} style={{ padding: '4px 0' }}>
-                    <span style={{ color: '#6b7280', fontSize: '12px',
-                      display: 'flex', alignItems: 'center', gap: '2px', flexWrap: 'wrap' }}>
-                      {r.user_name || 'Anonymous'}
-                      {"\u2605".repeat(r.rating)}{"\u2606".repeat(5 - r.rating)}
-                      {r.date && (
-                        <span style={{ color: '#9ca3af', marginLeft: 4 }}>{formatRelativeDate(r.date, t)}</span>
-                      )}
-                      {r.created_at && (
-                        <span style={{ color: '#16a34a', fontSize: '9px', marginLeft: 4 }}>
-                            ({t('ui.recent')})
-                        </span>
-                      )}
-                    </span>
-                    {r.comment && (
-                      <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#374151', wordBreak: 'break-word' }}>{r.comment}</p>
-                    )}
-                    {r.photo_url && (
-                      <img
-                        src={`${API}${r.photo_url}`}
-                        alt=""
-                        style={{
-                          marginTop: 4, maxWidth: '120px', maxHeight: '120px',
-                          borderRadius: '8px', border: '1px solid #e5e7eb', display: 'block',
-                        }}
-                        onError={(e) => { e.target.style.display = 'none'; }}
-                      />
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-      )}
+               ))}
+             </div>
+           )}
+         </div>
+       )}
     </div>
   );
 }

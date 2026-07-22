@@ -56,5 +56,16 @@
   "search": {
     "loading": "Suche läuft...",
     "loadingMenu": "Lädt..."
+  },
+  "footer": {
+    "impressum": "Impressum",
+    "github": "GitHub - Feedback / Bug melden"
+  },
+  "impressum": {
+    "title": "Impressum",
+    "name": "Anbieter",
+    "contact": "Kontakt",
+    "email": "E-Mail",
+    "disclaimerText": "Wir übernehmen keine Gewähr für die Richtigkeit, Vollständigkeit und Aktualität der bereitgestellten Informationen. Alle Angaben ohne Gewähr."
   }
 }
