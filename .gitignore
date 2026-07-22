@@ -12,3 +12,7 @@ Thumbs.db
 backend/uploads/
 backend/__pycache__/
 backend/*.db
+
+# Python root-level cache
+__pycache__/
+*.pyc
