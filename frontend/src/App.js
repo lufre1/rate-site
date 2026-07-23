@@ -672,7 +672,7 @@ function DishCard({ meal }) {
     overall: { avg: 0, count: 0 },
     comments: []
 });
-  const [show, setShow] = useState(false);
+  const [showRatingForm, setShowRatingForm] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [sideRatings, setSideRatings] = useState({});
   const [uploading, setUploading] = useState(false);
@@ -842,17 +842,7 @@ function DishCard({ meal }) {
 
 {expanded && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #f3f4f6' }}>
-          {(reviews.recent.count > 0 || reviews.overall.count > 0) && (
-            <button onClick={() => setShow(!show)} style={{
-              border: 'none', background: 'none', color: '#3b82f6',
-              cursor: 'pointer', fontSize: '12px', padding: '6px 0 0'
-            }}>
-              {show ? '\u25B2' : '\u25BC'} {' '} {t('ui.reviews')} ({reviews.overall.count || reviews.recent.count})
-            </button>
-          )}
-
-          {show && (
-            <div style={{ marginTop: 6, marginBottom: 8, paddingTop: 6, borderTop: '1px solid #f3f4f6', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+          <div style={{ marginTop: 6, marginBottom: 8, paddingTop: 6, borderTop: '1px solid #f3f4f6', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
               {reviews.recent.count > 0 && (
                 <div style={{ 
                     padding: '8px 12px', 
@@ -939,8 +929,16 @@ function DishCard({ meal }) {
                 ))
               )}
             </div>
-          )}
 
+          <button onClick={() => setShowRatingForm(!showRatingForm)} style={{
+            border: 'none', background: 'none', color: '#3b82f6',
+            cursor: 'pointer', fontSize: '12px', padding: '6px 0'
+          }}>
+            {showRatingForm ? '\u25B2' : '\u25BC'} {t('ui.rate')}
+          </button>
+
+          {showRatingForm && (
+          <>
           {submitted ? (
             <p style={{ color: '#16a34a', fontSize: '13px', margin: 0 }}>{t('ui.thanksForRating')}</p>
           ) : (
@@ -1045,16 +1043,16 @@ function DishCard({ meal }) {
                   }}>
                   {uploading ? t('ui.uploading') : t('ui.rate')}
                 </button>
-               </div>
-             </>
-           )}
+                </div>
+              </>
+            )}
 
-           {sideNames.length > 0 && (
-             <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #f3f4f6' }}>
-               <p style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', margin: '0 0 6px' }}>
-                 {t('ui.rateSides')}
-               </p>
-               {sideNames.map(name => (
+            {sideNames.length > 0 && (
+              <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #f3f4f6' }}>
+                <p style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', margin: '0 0 6px' }}>
+                  {t('ui.rateSides')}
+                </p>
+                {sideNames.map(name => (
 <SideRatingRow
     key={name}
     mealId={meal.id}
@@ -1064,10 +1062,12 @@ function DishCard({ meal }) {
     recentAvg={sideRatings[name]?.recent_avg || 0}
     recentCount={sideRatings[name]?.recent_count || 0}
 />
-               ))}
-             </div>
-           )}
-         </div>
+                ))}
+              </div>
+            )}
+            </>
+          )}
+          </div>
        )}
     </div>
   );

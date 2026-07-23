@@ -258,7 +258,15 @@ def _reconcile(db, mensa_obj, date_obj, keep_names):
 
     Removes leftovers from earlier buggy scrapes (e.g. English-named duplicate
     rows). Rows that already have ratings are preserved to avoid orphaning data.
+    
+    Never deletes rows for today or future dates — this preserves dishes that
+    appear and disappear during the same day while still cleaning up old data.
     """
+    from datetime import date as date_type
+    today = date_type.today()
+    if date_obj >= today:
+        return 0  # never delete current/future rows
+    
     rows = db.query(DBMeal).filter(
         DBMeal.date == date_obj,
         DBMeal.mensa_id == mensa_obj.id,
