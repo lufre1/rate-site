@@ -461,3 +461,6 @@ def test_ratings_across_multiple_dates_same_dish(client, meal_id):
     # Recent should only be today's (4)
     assert side["recent_avg"] == 4.0
     assert side["recent_count"] == 1
+
+
+

@@ -50,7 +50,7 @@ const TYPE_COLORS = {
 };
 
 function formatRelativeDate(dateStr, t) {
-  const days = Math.round((new Date() - new Date(dateStr + 'T00:00:00')) / 86400000);
+  const days = Math.round((new Date() - new Date(dateStr)) / 86400000);
   if (days <= 0) return t('dates.today');
   if (days === 1) return t('dates.yesterday');
   if (days < 7) return t('dates.daysAgo', { count: days });
@@ -60,7 +60,7 @@ function formatRelativeDate(dateStr, t) {
 }
 
 function formatDate(dateStr, lang) {
-  const date = new Date(dateStr + 'T00:00:00');
+  const date = new Date(dateStr);
   const day = String(date.getDate()).padStart(2, '0');
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const year = date.getFullYear();
@@ -842,98 +842,44 @@ function DishCard({ meal }) {
 
 {expanded && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #f3f4f6' }}>
-          <div style={{ marginTop: 6, marginBottom: 8, paddingTop: 6, borderTop: '1px solid #f3f4f6', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
-              {reviews.recent.count > 0 && (
-                <div style={{ 
-                    padding: '8px 12px', 
-                    background: '#dcfce7', 
-                    borderRadius: 6, 
-                    marginBottom: 8,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8
-                }}>
-                    <span style={{ color: '#166534', fontSize: '13px', fontWeight: 600 }}>
-                        ★ {reviews.recent.avg.toFixed(1)} {t('ui.recent')} ({reviews.recent.count})
-                    </span>
-                    <span style={{ 
-                        fontSize: '9px', 
-                        padding: '2px 6px', 
-                        borderRadius: 4, 
-                        background: '#16a34a', 
-                        color: '#fff' 
-                    }}>
-                        {t('ui.recent')}
-                    </span>
-                </div>
-              )}
 
-              {reviews.overall.count > 0 && reviews.overall.count > reviews.recent.count && (
-                <div style={{ 
-                    padding: '8px 12px', 
-                    background: '#f3f4f6', 
-                    borderRadius: 6, 
-                    marginBottom: 8,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8
-                }}>
-                    <span style={{ color: '#6b7280', fontSize: '13px' }}>
-                        ★ {reviews.overall.avg.toFixed(1)} {t('ui.overall')} ({reviews.overall.count})
+          {reviews.comments.length === 0 ? (
+            <p style={{ color: '#9ca3af', fontSize: '12px', margin: '6px 0 0' }}>{t('ui.noReviews')}</p>
+          ) : (
+            reviews.comments.map(r => (
+              <div key={r.id} style={{ padding: '4px 0' }}>
+                <span style={{ color: '#6b7280', fontSize: '12px',
+                  display: 'flex', alignItems: 'center', gap: '2px', flexWrap: 'wrap' }}>
+                  {r.user_name || 'Anonymous'}
+                  {"\u2605".repeat(r.rating)}{"\u2606".repeat(5 - r.rating)}
+{r.created_at && (
+                     <span style={{ color: '#9ca3af', marginLeft: 4 }}>{formatRelativeDate(r.created_at, t)}</span>
+                   )}
+                  {r.created_at && (
+                    <span style={{ color: '#16a34a', fontSize: '9px', marginLeft: 4 }}>
+                        ({t('ui.recent')})
                     </span>
-                    <span style={{ 
-                        fontSize: '9px', 
-                        padding: '2px 6px', 
-                        borderRadius: 4, 
-                        background: '#9ca3af', 
-                        color: '#fff' 
-                    }}>
-                        {t('ui.overall')}
-                    </span>
-                </div>
-              )}
+                  )}
+                </span>
+                {r.comment && (
+                  <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#374151', wordBreak: 'break-word' }}>{r.comment}</p>
+                )}
+                {r.photo_url && (
+                  <img
+                    src={`${API}${r.photo_url}`}
+                    alt=""
+                    style={{
+                      marginTop: 4, maxWidth: '120px', maxHeight: '120px',
+                      borderRadius: '8px', border: '1px solid #e5e7eb', display: 'block',
+                    }}
+                    onError={(e) => { e.target.style.display = 'none'; }}
+                  />
+                )}
+              </div>
+            ))
+          )}
 
-              {reviews.comments.length === 0 ? (
-                <p style={{ color: '#9ca3af', fontSize: '12px', margin: 0 }}>{t('ui.noReviews')}</p>
-              ) : (
-                reviews.comments.map(r => (
-                  <div key={r.id} style={{ padding: '4px 0' }}>
-                    <span style={{ color: '#6b7280', fontSize: '12px',
-                      display: 'flex', alignItems: 'center', gap: '2px', flexWrap: 'wrap' }}>
-                      {r.user_name || 'Anonymous'}
-                      {"\u2605".repeat(r.rating)}{"\u2606".repeat(5 - r.rating)}
-                      {r.date && (
-                        <span style={{ color: '#9ca3af', marginLeft: 4 }}>{formatRelativeDate(r.date, t)}</span>
-                      )}
-                      {r.created_at && (
-                        <span style={{ color: '#16a34a', fontSize: '9px', marginLeft: 4 }}>
-                            ({t('ui.recent')})
-                        </span>
-                      )}
-                    </span>
-                    {r.comment && (
-                      <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#374151', wordBreak: 'break-word' }}>{r.comment}</p>
-                    )}
-                    {r.photo_url && (
-                      <img
-                        src={`${API}${r.photo_url}`}
-                        alt=""
-                        style={{
-                          marginTop: 4, maxWidth: '120px', maxHeight: '120px',
-                          borderRadius: '8px', border: '1px solid #e5e7eb', display: 'block',
-                        }}
-                        onError={(e) => { e.target.style.display = 'none'; }}
-                      />
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-
-          <button onClick={() => setShowRatingForm(!showRatingForm)} style={{
-            border: 'none', background: 'none', color: '#3b82f6',
-            cursor: 'pointer', fontSize: '12px', padding: '6px 0'
-          }}>
+          <button onClick={() => setShowRatingForm(!showRatingForm)} style={{ border: 'none', background: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: '12px', padding: '6px 0' }}>
             {showRatingForm ? '\u25B2' : '\u25BC'} {t('ui.rate')}
           </button>
 

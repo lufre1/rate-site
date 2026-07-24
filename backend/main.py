@@ -4,7 +4,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 import uvicorn
@@ -209,7 +210,7 @@ def on_startup():
 @app.get("/api/v1/meals/search")
 def search_menu(q: str, past: bool = False, lang: str = "de", request: Request = None, db: Session = Depends(get_db)):
     from datetime import date as _date
-    today = _date.today()
+    today = datetime.now(ZoneInfo("Europe/Berlin")).date()
     qf = f"%{q}%"
     
     # Determine language preference
@@ -450,7 +451,7 @@ def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db)):
     if not meal:
         raise HTTPException(status_code=404, detail="Meal not found")
 
-    today = date.today()
+    today = datetime.now(ZoneInfo("Europe/Berlin")).date()
 
     # Find all meal instances with same (name, mensa_id) combination
     all_meals = db.query(DBMeal).filter(
@@ -568,7 +569,7 @@ def get_side_ratings(meal_id: int, db: Session = Depends(get_db)):
     if not meal:
         raise HTTPException(status_code=404, detail="Meal not found")
 
-    today = date.today()
+    today = datetime.now(ZoneInfo("Europe/Berlin")).date()
 
     # Find all meal instances with same (name, mensa_id) combination
     all_meals = db.query(DBMeal).filter(

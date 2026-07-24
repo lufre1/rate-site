@@ -119,3 +119,47 @@ test('a review with an uploaded photo renders the photo thumbnail', async () => 
   const photo = document.querySelector(`img[src="http://localhost:8000${review.photo_url}"]`);
   expect(photo).toBeInTheDocument();
 });
+
+test('comments use created_at instead of meal date for relative date display', async () => {
+  const meal = {
+    id: 4, name: 'Testgericht', description: '', tags: null, type: 'main',
+    mensa: MENSA, date: '2026-07-22', avg_rating: 4, rating_count: 2,
+  };
+  const today = new Date().toISOString().split('T')[0];
+  const review = {
+    id: 300, rating: 5, comment: 'Gut gewuerzt', user_name: 'Ben',
+    date: '2026-07-22', created_at: `${today}T10:30:00`, meal_id: 4, photo_url: null,
+  };
+
+  global.fetch = jest.fn((url) => {
+    if (url.includes('/mensas')) return jsonResponse([MENSA]);
+    if (url.includes('/meals?')) return jsonResponse([meal]);
+    if (url.includes(`/meals/${meal.id}/ratings-breakdown`)) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          recent: { ratings: [review], avg: 5, count: 1 },
+          overall: { avg: 4.5, count: 2 },
+          comments: [{ ...review, date: meal.date }]
+        })
+      });
+    }
+    return jsonResponse([]);
+  });
+
+  render(<App />);
+
+  const dishHeading = await screen.findByText('Testgericht');
+  await userEvent.click(dishHeading);
+
+  const reviewsButton = await screen.findByText(/Bewertungen/i);
+  await userEvent.click(reviewsButton);
+
+  // The comment should show "today" based on created_at, not "yesterday" based on meal.date
+  await screen.findByText('Gut gewuerzt');
+  const commentDate = await screen.findByText((content, node) => {
+    const hasText = (n) => n.textContent === 'Heute' || n.textContent === 'today';
+    return hasText(node);
+  });
+  expect(commentDate).toBeInTheDocument();
+});
