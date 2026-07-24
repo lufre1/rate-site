@@ -679,6 +679,7 @@ function DishCard({ meal }) {
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [imageError, setImageError] = useState('');
+  const [enlargedImage, setEnlargedImage] = useState(null);
 
   const sideNames = useMemo(() => (
     meal.type === 'main' && meal.description
@@ -870,9 +871,10 @@ function DishCard({ meal }) {
                     alt=""
                     style={{
                       marginTop: 4, maxWidth: '120px', maxHeight: '120px',
-                      borderRadius: '8px', border: '1px solid #e5e7eb', display: 'block',
+                      borderRadius: '8px', border: '1px solid #e5e7eb', display: 'block', cursor: 'pointer',
                     }}
                     onError={(e) => { e.target.style.display = 'none'; }}
+                    onClick={(e) => { e.stopPropagation(); setEnlargedImage(`${API}${r.photo_url}`); }}
                   />
                 )}
               </div>
@@ -1008,15 +1010,24 @@ function DishCard({ meal }) {
     recentAvg={sideRatings[name]?.recent_avg || 0}
     recentCount={sideRatings[name]?.recent_count || 0}
 />
-                ))}
+))}
               </div>
             )}
             </>
           )}
           </div>
-       )}
-    </div>
-  );
+        )}
+
+        {enlargedImage && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, cursor: 'pointer' }}
+               onClick={() => setEnlargedImage(null)}>
+            <img src={enlargedImage} alt=""
+                 style={{ maxHeight: '90vh', maxWidth: '90vw', borderRadius: 4 }}
+                 onClick={(e) => e.stopPropagation()} />
+          </div>
+        )}
+     </div>
+   );
 }
 
 export default App;
