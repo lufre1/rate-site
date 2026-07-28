@@ -863,7 +863,7 @@ function DishCard({ meal }) {
                   )}
                 </span>
                 {r.comment && (
-                  <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#374151', wordBreak: 'break-word' }}>{r.comment}</p>
+                  <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#374151', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{r.comment}</p>
                 )}
                 {r.photo_url && (
                   <img
@@ -975,10 +975,10 @@ function DishCard({ meal }) {
               <div style={{ display: 'flex', gap: '8px' }}>
                <textarea placeholder={t('ui.rate')} value={comment}
                  onChange={e => setComment(e.target.value)}
-                 rows={1}
+                 rows={Math.max(1, comment.split('\n').length)}
                  style={{ flex: 1, padding: '4px 8px', border: '1px solid #d1d5db',
                     borderRadius: 6, fontSize: '0.8125rem', resize: 'none' }}
-                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitRating(); } }} />
+                 />
                <button
                  onClick={submitRating}
                  disabled={rating === 0 || uploading}
