@@ -28,6 +28,7 @@
     "photoTypeError": "Nur JPG, PNG und WebP Bilder sind erlaubt",
     "photoSizeError": "Dateigröße überschreitet 5MB",
     "noPhotos": "Keine Fotos",
+    "notAvailable": "Nicht mehr verfügbar",
     "recent": "aktuell",
     "overall": "gesamt"
   },

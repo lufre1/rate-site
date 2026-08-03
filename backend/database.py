@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Date, ForeignKey, Float, Text, text, DateTime, func
+from sqlalchemy import create_engine, Column, Integer, String, Date, ForeignKey, Float, Text, Boolean, text, DateTime, func
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -22,11 +22,11 @@ class Meal(Base):
     __tablename__ = "meals"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
-    name_de = Column(String, index=True)  # German name
-    name_en = Column(String, index=True)  # English name
+    name_de = Column(String, index=True)
+    name_en = Column(String, index=True)
     description = Column(Text, nullable=True)
-    description_de = Column(Text, nullable=True)  # German description
-    description_en = Column(Text, nullable=True)  # English description
+    description_de = Column(Text, nullable=True)
+    description_en = Column(Text, nullable=True)
     tags = Column(Text, nullable=True)
     type = Column(String)
     date = Column(Date, index=True)
@@ -34,6 +34,7 @@ class Meal(Base):
     mensa = relationship("Mensa", back_populates="meals")
     ratings = relationship("Rating", back_populates="meal")
     side_ratings = relationship("SideRating", back_populates="meal")
+    is_available = Column(Boolean, default=True)
 
 class Rating(Base):
     __tablename__ = "ratings"
@@ -123,3 +124,12 @@ def init_db():
             conn.execute(text("ALTER TABLE ratings ADD COLUMN photo_url VARCHAR"))
             conn.commit()
             print("Added photo_url column to ratings table")
+        # Add is_available column if missing
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='meals' AND column_name='is_available'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("ALTER TABLE meals ADD COLUMN is_available BOOLEAN DEFAULT TRUE"))
+            conn.commit()
+            print("Added is_available column to meals table")

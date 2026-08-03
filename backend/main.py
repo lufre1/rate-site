@@ -137,10 +137,11 @@ class MealOut(BaseModel):
     description: Optional[str]
     tags: Optional[str]
     type: str
-    mensa: str  # This should match the 'mensa_name' label in the query
+    mensa: str
     date: date
     avg_rating: float
     rating_count: int
+    is_available: bool
     class Config:
         from_attributes = True
 
@@ -237,6 +238,7 @@ def search_menu(q: str, past: bool = False, lang: str = "de", request: Request =
         DBMeal.type,
         DBMensa.name.label('mensa_name'),
         DBMeal.date,
+        DBMeal.is_available,
         func.coalesce(rating_agg.c.avg_rating, 0).label('avg_rating'),
         func.coalesce(rating_agg.c.rating_count, 0).label('rating_count'),
     ).join(DBMensa, DBMeal.mensa_id == DBMensa.id).outerjoin(
@@ -274,6 +276,7 @@ def search_menu(q: str, past: bool = False, lang: str = "de", request: Request =
             date=r.date,
             avg_rating=round(float(r.avg_rating), 1),
             rating_count=r.rating_count if r.rating_count else 0,
+            is_available=r.is_available,
         ))
 
     return out
@@ -304,6 +307,7 @@ def get_meals(date: date = Query(None), lang: str = "de", request: Request = Non
         DBMeal.type,
         DBMensa.name.label('mensa'),
         DBMeal.date,
+        DBMeal.is_available,
         func.coalesce(rating_agg.c.avg_rating, 0).label('avg_rating'),
         func.coalesce(rating_agg.c.rating_count, 0).label('rating_count'),
     ).join(DBMensa, DBMeal.mensa_id == DBMensa.id).outerjoin(
@@ -341,6 +345,7 @@ def get_meals(date: date = Query(None), lang: str = "de", request: Request = Non
             date=r.date,
             avg_rating=round(float(r.avg_rating), 1),
             rating_count=r.rating_count if r.rating_count else 0,
+            is_available=r.is_available,
         ))
 
     return out

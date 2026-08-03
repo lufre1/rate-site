@@ -786,11 +786,19 @@ function DishCard({ meal }) {
       }}>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 2 }}>
-            <span style={{ fontSize: '1rem', fontWeight: 600, color: '#111827' }}>{displayName}</span>
+            <span style={{ fontSize: '1rem', fontWeight: 600,
+              color: meal.is_available ? '#111827' : '#9ca3af',
+              textDecoration: meal.is_available ? 'none' : 'line-through' }}>{displayName}</span>
             <span style={{ fontSize: '0.6875rem', padding: '2px 6px', borderRadius: 4,
               background: tc.bg, color: tc.color, fontWeight: 500, textTransform: 'uppercase' }}>
               {t('mealTypes.' + meal.type)}
             </span>
+            {meal.is_available === false && (
+              <span style={{ fontSize: '0.6875rem', padding: '2px 6px', borderRadius: 4,
+                background: '#fee2e2', color: '#dc2626', fontWeight: 500, textTransform: 'uppercase' }}>
+                {t('ui.notAvailable')}
+              </span>
+            )}
             <IconTags tags={tags} />
           </div>
           {displayDescription && typeof displayDescription === 'string' && (

@@ -230,6 +230,7 @@ def _upsert_meal(db, mensa_obj, date_obj, de_dish, en_dish):
         exists.description_de = description
         exists.tags = tags
         exists.type = de_dish['type']
+        exists.is_available = True
         # Only overwrite English fields when we actually have a value, so a
         # temporarily-missing English page doesn't wipe a good translation.
         if name_en:
@@ -249,37 +250,37 @@ def _upsert_meal(db, mensa_obj, date_obj, de_dish, en_dish):
         type=de_dish['type'],
         date=date_obj,
         mensa_id=mensa_obj.id,
+        is_available=True,
     ))
     return 'new'
 
 
 def _reconcile(db, mensa_obj, date_obj, keep_names):
-    """Delete stale rows for this date+mensa not in the current German name set.
+    """Mark stale rows as unavailable for this date+mensa not in the current German name set.
 
-    Removes leftovers from earlier buggy scrapes (e.g. English-named duplicate
-    rows). Rows that already have ratings are preserved to avoid orphaning data.
-    
-    Never deletes any rows — dishes stay in the DB forever. This preserves
-    dishes that disappear from the canteen's site (e.g., go out of stock) so
-    users can still rate them later.
+    Rows that already have ratings are preserved to avoid orphaning data, but
+    marked as unavailable since they no longer appear on the official site.
+
+    Returns count of dishes marked as unavailable.
     """
-    return 0  # never delete any rows — users need to rate dishes they've eaten
-    
     rows = db.query(DBMeal).filter(
         DBMeal.date == date_obj,
         DBMeal.mensa_id == mensa_obj.id,
     ).all()
-    removed = 0
+    unavailable_count = 0
     for row in rows:
         if row.name in keep_names:
             continue
         has_rating = db.query(DBRating).filter(DBRating.meal_id == row.id).first()
         has_side = db.query(DBSideRating).filter(DBSideRating.meal_id == row.id).first()
         if has_rating or has_side:
-            continue
-        db.delete(row)
-        removed += 1
-    return removed
+            if row.is_available:
+                row.is_available = False
+                db.add(row)
+                unavailable_count += 1
+        else:
+            db.delete(row)
+    return unavailable_count
 
 
 def scrape_today():
