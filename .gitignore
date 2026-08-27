@@ -3,6 +3,8 @@ frontend/build/
 frontend/coverage/
 .env
 .env.*.local
+.env.dev
+docker-compose.dev.yml
 .DS_Store
 Thumbs.db
 .vscode/

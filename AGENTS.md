@@ -67,6 +67,11 @@ Same fallback applies to descriptions.
 
 **Note**: The frontend's `nginx.conf` strips `/api/` prefix before proxying to backend (see `location ~ ^/api/(.*)` on line 9).
 
+## Deployment Policy
+
+- When developing a feature, **always test it on the dev/test instance first** — never push to prod.
+- **Always ask the user to push to prod**; never deploy to production yourself.
+
 ## Common Pitfalls
 
 1. **Duplicate rows**: After DB reset, call `scrape_menus()` to regenerate. Stale rows with ratings are preserved.
