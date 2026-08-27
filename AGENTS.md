@@ -3,6 +3,7 @@
 ## Architecture
 
 - **Frontend**: React (Create React App, Nginx serve), **Backend**: FastAPI (Python 3.11), **DB**: PostgreSQL 15
+- **No router**: views are toggled with boolean state in `App.js` (`showImpressum`, `showAccount`). Shared helpers (`API`, token storage, `StarPicker`, `formatRelativeDate`) live in `frontend/src/shared.js` so `Account.js` doesn't import from its own parent
 - **All API routes under `/api/v1/`** — frontend calls `http://localhost:8000` by default, but in prod through nginx on `/api/v1`
 - **API URL from env**: `REACT_APP_API_URL` (set at build time in `frontend/Dockerfile:4`)
 - **Language support**: Each meal stores `name_de`, `name_en`, `description_de`, `description_en`; API returns `lang` parameter (default `de`)
@@ -11,7 +12,7 @@
 
 - **Meal deduplication**: `(date, mensa_id, name)` must be unique. `scrape_menus()` deletes stale rows but preserves rows with existing ratings
 - **German/English merge**: Scraper pairs DE/EN rows positionally. Missing EN doesn't wipe existing EN data
-- **Autofilled funny usernames**: `generate_funny_name()` in `main.py:106` — every rating has a generated `user_name`; don't expect user accounts
+- **Rating identity**: every rating goes through `rating_identity()` in `main.py`. Signed in -> the real username and a `user_id`; anonymous -> a `generate_funny_name()` string and `user_id = NULL`. All three creation routes (`ratings`, `ratings-with-photo`, `side-ratings`) use it — change it there, not per-route
 - **Side ratings aggregation**: `side-ratings` are **global per side name** across all meals in a mensa, not per-meal; API returns aggregated stats
 
 ## Key Commands
@@ -42,6 +43,7 @@ docker compose exec backend python -c "from scraper import scrape_menus; scrape_
   - `test_db_integrity.py` — validates DB schema, no duplicates, matches official site
   - `test_api_language.py` — validates API multilingual output, no duplicates
   - `test_for_unused_items.py` — verifies backend code is actually in use
+  - `test_auth.py` — register/login/session round-trip, anonymous rating still works, cross-user edit/delete is refused
   - `validate-translations.py` — validates translation files structure
 
 ## Scraper Behavior
@@ -50,6 +52,18 @@ docker compose exec backend python -c "from scraper import scrape_menus; scrape_
 - Two-stage URL fallback: `alle.html` → per-mensas (`ALIAS_MAP` in `scraper.py:43`)
 - Skips: `last minute`, `pastabuffet`, `Selbstbedienung` rows; filters to 4 mensas only
 - **Description cleanup**: Removes "oder"/"or" separators between ingredients; normalizes whitespace
+
+## Accounts (Non-Obvious)
+
+- **Optional by design**: login is never required. `ratings.user_id` / `side_ratings.user_id` are nullable, so anonymous rating works exactly as before and every pre-accounts row stays valid
+- **No auth dependencies**: passwords use stdlib `hashlib.scrypt` (`backend/auth.py`), tokens use `secrets.token_urlsafe`. No passlib/bcrypt/JWT library — don't add one
+- **Bearer tokens, not cookies**: sent as `Authorization: Bearer <token>`, held in `localStorage`. This is what lets the CORS config stay `allow_origins=["*"]` / `allow_credentials=False`. Switching to cookies means rewriting CORS
+- **Tokens never expire** — `auth_tokens` rows live until logout. See the `ponytail:` note in `auth.py`
+- **`auth.optional_user`** returns the user or `None` (rating routes); **`auth.current_user`** 401s (`/me*`, ownership routes)
+- **Ownership**: `owned_rating()` in `main.py` treats `user_id IS NULL` as owned by nobody, so anonymous rows can't be edited via the authenticated routes. The legacy `PATCH /ratings/{id}/comment` predates accounts and stays open for anonymous rows only
+- **Favourites are derived, not stored**: there is no favourites table. The UI calls `GET /api/v1/me/ratings?min_rating=4&sort=rating`
+- **`get_db` lives in `database.py`** (not `main.py`) so `auth.py` can share it without a circular import
+- **Login is not a username oracle**: unknown-user and wrong-password both return the same 401 body. Keep it that way
 
 ## Language Resolution (main.py:56)
 

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, Query, HTTPException, Request, File, Form, UploadFile, Response
+from fastapi import FastAPI, Depends, Query, HTTPException, Request, File, Form, UploadFile, Response, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -16,7 +16,8 @@ import shutil
 import uuid
 from datetime import datetime
 
-from database import SessionLocal, Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, init_db
+from database import Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, User as DBUser, AuthToken as DBAuthToken, init_db, get_db
+import auth
 from scraper import scrape_menus, scrape_today
 
 app = FastAPI(
@@ -26,6 +27,7 @@ app = FastAPI(
         {"name": "Mensas", "description": "Operations on mensas"},
         {"name": "Meals", "description": "Operations on meals"},
         {"name": "Ratings", "description": "Operations on ratings"},
+        {"name": "Auth", "description": "Accounts and sessions"},
     ]
 )
 
@@ -36,13 +38,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 # Upload directory
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
@@ -131,6 +126,18 @@ def generate_funny_name() -> str:
     return f"{adj} {noun} {name}"
 
 
+def rating_identity(user: Optional[DBUser]):
+    """(user_name, user_id) to stamp on a new rating.
+
+    Signed in -> the real username. Anonymous -> a generated funny name, exactly
+    as before accounts existed. Every rating-creation route goes through here so
+    main dishes and side dishes can't drift apart.
+    """
+    if user:
+        return user.username, user.id
+    return generate_funny_name(), None
+
+
 class MealOut(BaseModel):
     id: int
     name: str
@@ -184,6 +191,34 @@ class PhotoOut(BaseModel):
     user_name: Optional[str]
     class Config:
         from_attributes = True
+
+class CredentialsInput(BaseModel):
+    username: str
+    password: str
+
+class TokenOut(BaseModel):
+    token: str
+    username: str
+
+class MeOut(BaseModel):
+    username: str
+    rating_count: int
+    created_at: Optional[datetime] = None
+
+class MyRatingOut(BaseModel):
+    id: int
+    meal_id: int
+    rating: int
+    comment: Optional[str] = None
+    photo_url: Optional[str] = None
+    meal_name: str
+    mensa: str
+    date: date
+    created_at: Optional[datetime] = None
+
+class RatingUpdate(BaseModel):
+    rating: Optional[int] = Field(None, ge=1, le=5)
+    comment: Optional[str] = None
 
 class SideRatingOut(BaseModel):
     side_name: str
@@ -352,17 +387,19 @@ def get_meals(date: date = Query(None), lang: str = "de", request: Request = Non
     return out
 
 @app.post("/api/v1/meals/{meal_id}/ratings", status_code=201, tags=["Ratings"])
-def create_rating(meal_id: int, data: RatingInput, db: Session = Depends(get_db)):
+def create_rating(meal_id: int, data: RatingInput, db: Session = Depends(get_db), user: Optional[DBUser] = Depends(auth.optional_user)):
     # Check if meal exists
     meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
     if not meal:
         raise HTTPException(status_code=404, detail="Meal not found")
 
+    user_name, user_id = rating_identity(user)
     rating = DBRating(
         meal_id=meal_id,
         rating=data.rating,
         comment=data.comment,
-        user_name=generate_funny_name(),
+        user_name=user_name,
+        user_id=user_id,
     )
     db.add(rating)
     db.commit()
@@ -371,7 +408,7 @@ def create_rating(meal_id: int, data: RatingInput, db: Session = Depends(get_db)
 
 
 @app.post("/api/v1/meals/{meal_id}/ratings-with-photo", status_code=201, tags=["Ratings"])
-def create_rating_with_photo(meal_id: int, rating: int = Form(..., ge=1, le=5), comment: Optional[str] = Form(None), photo: Optional[UploadFile] = File(None), db: Session = Depends(get_db)):
+def create_rating_with_photo(meal_id: int, rating: int = Form(..., ge=1, le=5), comment: Optional[str] = Form(None), photo: Optional[UploadFile] = File(None), db: Session = Depends(get_db), user: Optional[DBUser] = Depends(auth.optional_user)):
     """Create a rating with optional photo upload"""
     # Check if meal exists
     meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
@@ -413,11 +450,13 @@ def create_rating_with_photo(meal_id: int, rating: int = Form(..., ge=1, le=5), 
         
         photo_url = f"/uploads/{new_filename}"
 
+    user_name, user_id = rating_identity(user)
     rating_obj = DBRating(
         meal_id=meal_id,
         rating=rating,
         comment=comment,
-        user_name=generate_funny_name(),
+        user_name=user_name,
+        user_id=user_id,
         photo_url=photo_url,
     )
     db.add(rating_obj)
@@ -551,19 +590,21 @@ def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db)):
     }
 
 @app.post("/api/v1/meals/{meal_id}/side-ratings", status_code=201, tags=["Ratings"])
-def create_side_rating(meal_id: int, data: SideRatingInput, db: Session = Depends(get_db)):
+def create_side_rating(meal_id: int, data: SideRatingInput, db: Session = Depends(get_db), user: Optional[DBUser] = Depends(auth.optional_user)):
     meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
     if not meal:
         raise HTTPException(status_code=404, detail="Meal not found")
     if not data.side_name.strip():
         raise HTTPException(status_code=400, detail="side_name must not be empty")
 
+    user_name, user_id = rating_identity(user)
     side_rating = DBSideRating(
         meal_id=meal_id,
         side_name=data.side_name,
         rating=data.rating,
         comment=data.comment,
-        user_name=generate_funny_name(),
+        user_name=user_name,
+        user_id=user_id,
     )
     db.add(side_rating)
     db.commit()
@@ -640,11 +681,17 @@ def get_rating(rating_id: int, db: Session = Depends(get_db)):
 
 
 @app.patch("/api/v1/ratings/{rating_id}/comment", response_model=RatingOut, tags=["Ratings"])
-def update_rating_comment(rating_id: int, data: dict, db: Session = Depends(get_db)):
-    """Set or update the comment on an existing rating."""
+def update_rating_comment(rating_id: int, data: dict, db: Session = Depends(get_db), user: Optional[DBUser] = Depends(auth.optional_user)):
+    """Set or update the comment on an existing rating.
+
+    Predates accounts and stays open for anonymous rows (nobody owns them), but a
+    rating that belongs to an account may only be edited by that account.
+    """
     rating = db.query(DBRating).filter(DBRating.id == rating_id).first()
     if not rating:
         raise HTTPException(status_code=404, detail="Rating not found")
+    if rating.user_id is not None and (user is None or user.id != rating.user_id):
+        raise HTTPException(status_code=403, detail="Not your rating")
     comment = data.get("comment")
     if not isinstance(comment, str):
         raise HTTPException(status_code=400, detail="comment must be a string")
@@ -680,6 +727,147 @@ def serve_photo(filename: str):
         content_type = "image/webp"
     
     return FileResponse(file_path, media_type=content_type)
+
+# ---------------------------------------------------------------- Accounts
+
+@app.post("/api/v1/auth/register", response_model=TokenOut, status_code=201, tags=["Auth"])
+def register(data: CredentialsInput, db: Session = Depends(get_db)):
+    username = data.username.strip()
+    auth.validate_credentials(username, data.password)
+    if db.query(DBUser).filter(func.lower(DBUser.username) == username.lower()).first():
+        raise HTTPException(status_code=409, detail="Username already taken")
+
+    user = DBUser(username=username, password_hash=auth.hash_password(data.password))
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return TokenOut(token=auth.issue_token(db, user), username=user.username)
+
+
+@app.post("/api/v1/auth/login", response_model=TokenOut, tags=["Auth"])
+def login(data: CredentialsInput, db: Session = Depends(get_db)):
+    username = data.username.strip()
+    user = db.query(DBUser).filter(func.lower(DBUser.username) == username.lower()).first()
+    # Same message and same code for "no such user" and "wrong password" so this
+    # endpoint can't be used to enumerate which usernames exist.
+    if not user or not auth.verify_password(data.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    return TokenOut(token=auth.issue_token(db, user), username=user.username)
+
+
+@app.post("/api/v1/auth/logout", status_code=204, tags=["Auth"])
+def logout(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    token = auth.token_from_header(authorization)
+    if token:
+        db.query(DBAuthToken).filter(DBAuthToken.token == token).delete()
+        db.commit()
+    return Response(status_code=204)
+
+
+@app.get("/api/v1/me", response_model=MeOut, tags=["Auth"])
+def get_me(user: DBUser = Depends(auth.current_user), db: Session = Depends(get_db)):
+    count = db.query(func.count(DBRating.id)).filter(DBRating.user_id == user.id).scalar()
+    return MeOut(username=user.username, rating_count=count or 0, created_at=user.created_at)
+
+
+@app.get("/api/v1/me/ratings", response_model=List[MyRatingOut], tags=["Auth"])
+def get_my_ratings(
+    min_rating: int = Query(1, ge=1, le=5),
+    sort: str = Query("date", pattern="^(date|rating)$"),
+    lang: str = "de",
+    user: DBUser = Depends(auth.current_user),
+    db: Session = Depends(get_db),
+):
+    """The caller's own ratings.
+
+    Also backs the "favourites" view -- that is just this endpoint called with
+    ?min_rating=4&sort=rating, so there is no separate favourites table to keep
+    in sync with what people actually rated.
+    """
+    if lang not in ("de", "en"):
+        lang = "de"
+
+    rows = db.query(DBRating, DBMeal, DBMensa.name.label("mensa_name")).join(
+        DBMeal, DBRating.meal_id == DBMeal.id
+    ).join(
+        DBMensa, DBMeal.mensa_id == DBMensa.id
+    ).filter(
+        DBRating.user_id == user.id,
+        DBRating.rating >= min_rating,
+    )
+
+    if sort == "rating":
+        rows = rows.order_by(DBRating.rating.desc(), DBMeal.date.desc())
+    else:
+        rows = rows.order_by(DBMeal.date.desc(), DBRating.id.desc())
+
+    out = []
+    for r in rows.all():
+        name, _ = resolve_language(r.Meal, lang)
+        out.append(MyRatingOut(
+            id=r.Rating.id,
+            meal_id=r.Rating.meal_id,
+            rating=r.Rating.rating,
+            comment=r.Rating.comment,
+            photo_url=r.Rating.photo_url,
+            meal_name=name or r.Meal.name,
+            mensa=r.mensa_name,
+            date=r.Meal.date,
+            created_at=r.Rating.created_at,
+        ))
+    return out
+
+
+def owned_rating(rating_id: int, user: DBUser, db: Session) -> DBRating:
+    """Fetch a rating, or fail unless it belongs to this user.
+
+    Anonymous rows (user_id IS NULL) match no account, so they can never be
+    edited or deleted through the authenticated routes.
+    """
+    rating = db.query(DBRating).filter(DBRating.id == rating_id).first()
+    if not rating:
+        raise HTTPException(status_code=404, detail="Rating not found")
+    if rating.user_id is None or rating.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your rating")
+    return rating
+
+
+@app.patch("/api/v1/ratings/{rating_id}", response_model=RatingOut, tags=["Ratings"])
+def update_own_rating(
+    rating_id: int,
+    data: RatingUpdate,
+    user: DBUser = Depends(auth.current_user),
+    db: Session = Depends(get_db),
+):
+    rating = owned_rating(rating_id, user, db)
+    if data.rating is not None:
+        rating.rating = data.rating
+    if data.comment is not None:
+        rating.comment = data.comment
+    db.add(rating)
+    db.commit()
+    db.refresh(rating)
+    return rating
+
+
+@app.delete("/api/v1/ratings/{rating_id}", status_code=204, tags=["Ratings"])
+def delete_own_rating(
+    rating_id: int,
+    user: DBUser = Depends(auth.current_user),
+    db: Session = Depends(get_db),
+):
+    rating = owned_rating(rating_id, user, db)
+    # Drop the attached photo too -- otherwise deleted ratings leave their
+    # uploads on disk forever. basename() so a crafted photo_url can't escape
+    # the upload directory.
+    if rating.photo_url:
+        photo_path = os.path.join(UPLOAD_DIR, os.path.basename(rating.photo_url))
+        if os.path.isfile(photo_path):
+            os.remove(photo_path)
+    db.delete(rating)
+    db.commit()
+    return Response(status_code=204)
+
 
 @app.get("/api/v1/mensas")
 def get_mensas(db: Session = Depends(get_db)):

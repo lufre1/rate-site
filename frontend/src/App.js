@@ -4,8 +4,9 @@ import i18n from 'i18next';
 import de from './translations/de.json';
 import en from './translations/en.json';
 import Impressum from './Impressum';
+import Account from './Account';
+import { API, authHeaders, getToken, clearToken, formatRelativeDate, StarPicker } from './shared';
 
-const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 const ICON_BASE = 'https://www.studierendenwerk-goettingen.de/fileadmin/templates/images/mensaspeiseplan/png/';
 
 // Initialize i18next
@@ -48,16 +49,6 @@ const TYPE_COLORS = {
   side: { bg: '#fef3c7', color: '#92400e' },
   dessert: { bg: '#fce7f3', color: '#9d174d' },
 };
-
-function formatRelativeDate(dateStr, t) {
-  const days = Math.round((new Date() - new Date(dateStr)) / 86400000);
-  if (days <= 0) return t('dates.today');
-  if (days === 1) return t('dates.yesterday');
-  if (days < 7) return t('dates.daysAgo', { count: days });
-  if (days < 30) return t('dates.weeksAgo', { count: Math.round(days / 7) });
-  if (days < 365) return t('dates.monthsAgo', { count: Math.round(days / 30) });
-  return t('dates.yearsAgo', { count: Math.round(days / 365) });
-}
 
 function formatDate(dateStr, lang) {
   const date = new Date(dateStr);
@@ -187,6 +178,18 @@ function App() {
 const [uploading, setUploading] = useState(false);
    const [imageError, setImageError] = useState('');
    const [showImpressum, setShowImpressum] = useState(false);
+  const [user, setUser] = useState(null);
+  const [showAccount, setShowAccount] = useState(false);
+
+  // Restore the session on load. A token the backend no longer recognises
+  // (logged out elsewhere, DB reset) is dropped rather than left to 401 forever.
+  useEffect(() => {
+    if (!getToken()) return;
+    fetch(`${API}/api/v1/me`, { headers: authHeaders() })
+      .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then(data => setUser({ username: data.username }))
+      .catch(() => { clearToken(); setUser(null); });
+  }, []);
 
   // Function to change language
   const changeLanguage = (lng) => {
@@ -305,9 +308,33 @@ const [uploading, setUploading] = useState(false);
           >
             EN
           </button>
+          <button
+            onClick={() => setShowAccount(true)}
+            style={{
+              background: '#e5e7eb',
+              color: '#000',
+              border: 'none',
+              padding: '4px 8px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '0.8rem',
+              marginLeft: '12px'
+            }}
+          >
+            {user ? user.username : t('auth.login')}
+          </button>
         </div>
       </header>
 
+      {showAccount ? (
+        <Account
+          user={user}
+          onAuth={u => setUser(u)}
+          onLogout={() => setUser(null)}
+          onBack={() => setShowAccount(false)}
+          language={language}
+        />
+      ) : (
       <div style={{ maxWidth: '800px', margin: '0 auto', padding: '16px' }}>
 <div style={{ display: 'flex', gap: '0.625rem', marginBottom: '1rem', flexWrap: 'wrap', justifyContent: 'center', width: '100%' }}>
             <select
@@ -431,6 +458,7 @@ const [uploading, setUploading] = useState(false);
           })
         )}
       </div>
+      )}
 
       <footer style={{
         background: '#fff',
@@ -610,21 +638,6 @@ function IconTags({ tags }) {
   );
 }
 
-function StarPicker({ value, onChange, size = 22 }) {
-  return (
-    <div style={{ display: 'flex', gap: 4 }}>
-      {[1, 2, 3, 4, 5].map(i => (
-        <button key={i} onClick={() => onChange(i)} style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          fontSize: size, lineHeight: 1, padding: '12px 6px',
-          minWidth: 48, minHeight: 48,
-          color: i <= value ? '#f59e0b' : '#d1d5db'
-        }}>&#9733;</button>
-      ))}
-    </div>
-  );
-}
-
 function SideRatingRow({ mealId, sideName, avgRating, ratingCount, recentAvg = 0, recentCount = 0 }) {
   const { t } = useTranslation();
   const [rating, setRating] = useState(0);
@@ -636,7 +649,7 @@ function SideRatingRow({ mealId, sideName, avgRating, ratingCount, recentAvg = 0
     setTimeout(() => setJustRated(false), 1500);
     await fetch(`${API}/api/v1/meals/${mealId}/side-ratings`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ side_name: sideName, rating: i, comment: null }),
     });
   };
@@ -733,12 +746,13 @@ function DishCard({ meal }) {
 
         response = await fetch(`${API}/api/v1/meals/${meal.id}/ratings-with-photo`, {
           method: 'POST',
+          headers: authHeaders(),
           body: formData,
         });
       } else {
         response = await fetch(`${API}/api/v1/meals/${meal.id}/ratings`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
           body: JSON.stringify({ rating, comment: comment || null }),
         });
       }
@@ -759,7 +773,6 @@ function DishCard({ meal }) {
         setComment(''); 
         setSelectedImage(null);
         setImagePreview(null);
-        setShow(true); 
       }, 1500);
     }
   };

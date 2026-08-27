@@ -5,7 +5,8 @@ Rate and review meals at Göttingen university mensas (Zentralmensa, CGiN, Mensa
 ## Features
 
 - Browse menus for the next 7 days across 4 mensas
-- Rate dishes with 1–5 star ratings
+- Optional accounts (username + password) — see your own ratings and favourites
+- Rate dishes with 1–5 star ratings (works signed in or anonymously)
 - Submit comments and upload photos (JPG/PNG/WebP, max 5MB)
 - Rate side dishes individually
 - Multilingual support (German/English)

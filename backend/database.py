@@ -12,6 +12,13 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 class Mensa(Base):
     __tablename__ = "mensas"
     id = Column(Integer, primary_key=True, index=True)
@@ -43,6 +50,8 @@ class Rating(Base):
     rating = Column(Integer)
     comment = Column(Text, nullable=True)
     user_name = Column(String, nullable=True)
+    # Nullable: anonymous ratings stay supported, and every pre-accounts row is valid.
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     photo_url = Column(String, nullable=True)
     created_at = Column(DateTime, default=func.now())
     meal = relationship("Meal", back_populates="ratings")
@@ -55,8 +64,23 @@ class SideRating(Base):
     rating = Column(Integer)
     comment = Column(Text, nullable=True)
     user_name = Column(String, nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=func.now())
     meal = relationship("Meal", back_populates="side_ratings")
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    created_at = Column(DateTime, default=func.now())
+
+class AuthToken(Base):
+    # Not "Session" -- that name is already sqlalchemy.orm.Session throughout this codebase.
+    __tablename__ = "auth_tokens"
+    token = Column(String, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    created_at = Column(DateTime, default=func.now())
 
 def init_db():
     Base.metadata.create_all(bind=engine)
@@ -133,3 +157,21 @@ def init_db():
             conn.execute(text("ALTER TABLE meals ADD COLUMN is_available BOOLEAN DEFAULT TRUE"))
             conn.commit()
             print("Added is_available column to meals table")
+        # Add user_id column to ratings if missing (accounts feature)
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='ratings' AND column_name='user_id'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("ALTER TABLE ratings ADD COLUMN user_id INTEGER REFERENCES users(id)"))
+            conn.commit()
+            print("Added user_id column to ratings table")
+        # Add user_id column to side_ratings if missing (accounts feature)
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='side_ratings' AND column_name='user_id'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("ALTER TABLE side_ratings ADD COLUMN user_id INTEGER REFERENCES users(id)"))
+            conn.commit()
+            print("Added user_id column to side_ratings table")

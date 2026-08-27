@@ -68,5 +68,25 @@
     "contact": "Contact",
     "email": "Email",
     "disclaimerText": "We assume no liability for the accuracy, completeness, or timeliness of the information provided. All information without warranty."
+  },
+  "auth": {
+    "account": "Account",
+    "login": "Log in",
+    "register": "Sign up",
+    "logout": "Log out",
+    "username": "Username",
+    "password": "Password",
+    "rules": "3-30 characters (letters, digits, _ or -). Password at least 8 characters.",
+    "failed": "Sign-in failed",
+    "signedInAs": "Signed in as",
+    "myRatings": "My ratings",
+    "favourites": "Favourites",
+    "noRatings": "You haven't rated anything yet.",
+    "noFavourites": "No favourites yet. Rate a dish 4 or 5 stars.",
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirmDelete": "Really delete this rating?"
   }
 }

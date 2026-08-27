@@ -68,5 +68,25 @@
     "contact": "Kontakt",
     "email": "E-Mail",
     "disclaimerText": "Wir übernehmen keine Gewähr für die Richtigkeit, Vollständigkeit und Aktualität der bereitgestellten Informationen. Alle Angaben ohne Gewähr."
+  },
+  "auth": {
+    "account": "Konto",
+    "login": "Anmelden",
+    "register": "Registrieren",
+    "logout": "Abmelden",
+    "username": "Benutzername",
+    "password": "Passwort",
+    "rules": "3-30 Zeichen (Buchstaben, Ziffern, _ oder -). Passwort mindestens 8 Zeichen.",
+    "failed": "Anmeldung fehlgeschlagen",
+    "signedInAs": "Angemeldet als",
+    "myRatings": "Meine Bewertungen",
+    "favourites": "Favoriten",
+    "noRatings": "Du hast noch nichts bewertet.",
+    "noFavourites": "Noch keine Favoriten. Bewerte ein Gericht mit 4 oder 5 Sternen.",
+    "edit": "Bearbeiten",
+    "delete": "Löschen",
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "confirmDelete": "Diese Bewertung wirklich löschen?"
   }
 }
