@@ -437,6 +437,11 @@ def test_ratings_across_multiple_dates_same_dish(client, meal_id):
     assert len(body["comments"]) == 2
     assert body["comments"][0]["comment"] == "New rating"  # More recent
     assert body["comments"][1]["comment"] == "Old rating"
+
+    # Only the comment tied to today's meal is flagged as recent;
+    # yesterday's comment must NOT carry the current/recent flag.
+    assert body["comments"][0]["is_recent"] is True
+    assert body["comments"][1]["is_recent"] is False
     
     # GET /side-ratings for today's meal should only count today's ratings
     client.post(

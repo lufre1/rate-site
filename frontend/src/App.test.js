@@ -163,3 +163,53 @@ test('comments use created_at instead of meal date for relative date display', a
   });
   expect(commentDate).toBeInTheDocument();
 });
+
+test('only today\'s comments get the "recent" badge, not old ones', async () => {
+  // Regression test for: every comment with a created_at was flagged "(recent)",
+  // even old reviews from previous days. Only comments tied to today's meal
+  // instance should carry the recent badge.
+  const meal = {
+    id: 5, name: 'Testgericht', description: '', tags: null, type: 'main',
+    mensa: MENSA, date: '2026-07-22', avg_rating: 4, rating_count: 2,
+  };
+  const oldReview = {
+    id: 400, rating: 4, comment: 'Alte Bewertung', user_name: 'Carl',
+    date: '2026-07-15', created_at: '2026-07-15T10:30:00', meal_id: 5,
+    photo_url: null, is_recent: false,
+  };
+  const todayReview = {
+    id: 401, rating: 5, comment: 'Heutige Bewertung', user_name: 'Dana',
+    date: meal.date, created_at: new Date().toISOString(), meal_id: 5,
+    photo_url: null, is_recent: true,
+  };
+
+  global.fetch = jest.fn((url) => {
+    if (url.includes('/mensas')) return jsonResponse([MENSA]);
+    if (url.includes('/meals?')) return jsonResponse([meal]);
+    if (url.includes(`/meals/${meal.id}/ratings-breakdown`)) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          recent: { ratings: [todayReview], avg: 5, count: 1 },
+          overall: { avg: 4.5, count: 2 },
+          comments: [todayReview, oldReview],
+        }),
+      });
+    }
+    return jsonResponse([]);
+  });
+
+  render(<App />);
+
+  const dishHeading = await screen.findByText('Testgericht');
+  await userEvent.click(dishHeading);
+
+  const reviewsButton = await screen.findByText(/Bewertungen/i);
+  await userEvent.click(reviewsButton);
+
+  await screen.findByText('Heutige Bewertung');
+  await screen.findByText('Alte Bewertung');
+
+  const recentBadges = screen.queryAllByText((content, node) => node.textContent.endsWith('aktuell'));
+  expect(recentBadges.length).toBe(1);
+});

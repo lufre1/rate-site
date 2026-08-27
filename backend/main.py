@@ -172,6 +172,7 @@ class CommentDisplay(BaseModel):
     date: date
     created_at: datetime
     photo_url: Optional[str] = None
+    is_recent: bool = False
 
     class Config:
         from_attributes = True
@@ -542,7 +543,8 @@ def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db)):
                 "user_name": c.user_name,
                 "date": c.date.isoformat(),
                 "created_at": c.created_at.isoformat() if c.created_at else None,
-                "photo_url": c.photo_url
+                "photo_url": c.photo_url,
+                "is_recent": c.date == today,
             }
             for c in comments
         ]

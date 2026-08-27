@@ -861,10 +861,10 @@ function DishCard({ meal }) {
                   display: 'flex', alignItems: 'center', gap: '2px', flexWrap: 'wrap' }}>
                   {r.user_name || 'Anonymous'}
                   {"\u2605".repeat(r.rating)}{"\u2606".repeat(5 - r.rating)}
-{r.created_at && (
+                  {r.created_at && (
                      <span style={{ color: '#9ca3af', marginLeft: 4 }}>{formatRelativeDate(r.created_at, t)}</span>
                    )}
-                  {r.created_at && (
+                  {r.is_recent && (
                     <span style={{ color: '#16a34a', fontSize: '9px', marginLeft: 4 }}>
                         ({t('ui.recent')})
                     </span>
