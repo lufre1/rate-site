@@ -99,33 +99,17 @@ function parseDate(displayDate, lang) {
   }
 }
 
-// Generate the next 7 days with display names
-function getNext7Days(lang) {
-  const dates = [];
-  const today = new Date();
-  const weekdayOptions = { weekday: 'short' };
-  
-  for (let i = 0; i < 7; i++) {
-    const date = new Date(today);
-    date.setDate(today.getDate() + i);
-    
-    const iso = date.toISOString().slice(0, 10);
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
-    
-    const weekday = date.toLocaleDateString(lang === 'en' ? 'en-GB' : 'de-DE', weekdayOptions);
-    
-    let display;
-    if (lang === 'de') {
-      display = `${weekday} ${day}.${month}.${year}`;
-    } else {
-      display = `${weekday} ${month}/${day}/${year}`;
-    }
-    
-    dates.push({ iso, display });
-  }
-  return dates;
+// Generate min/max date strings for input[type="date"]
+function getMinDate() {
+  const d = new Date();
+  d.setDate(d.getDate() - 7);
+  return d.toISOString().slice(0, 10);
+}
+
+function getMaxDate() {
+  const d = new Date();
+  d.setDate(d.getDate() + 7);
+  return d.toISOString().slice(0, 10);
 }
 
 function IconLegend() {
@@ -340,15 +324,21 @@ const [uploading, setUploading] = useState(false);
       ) : (
       <div style={{ maxWidth: '800px', margin: '0 auto', padding: '16px' }}>
 <div style={{ display: 'flex', gap: '0.625rem', marginBottom: '1rem', flexWrap: 'wrap', justifyContent: 'center', width: '100%' }}>
-            <select
+            <input
+              type="date"
               value={date}
               onChange={e => { setFilter('all'); setDate(e.target.value); }}
-              style={{ padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%' }}
-            >
-              {getNext7Days(language).map(d => (
-                <option key={d.iso} value={d.iso}>{d.display}</option>
-              ))}
-            </select>
+              min={getMinDate()}
+              max={getMaxDate()}
+              style={{
+                padding: '0.5rem',
+                borderRadius: '0.5rem',
+                border: '1px solid #d1d5db',
+                fontSize: '0.875rem',
+                width: '100%',
+                fontFamily: 'inherit'
+              }}
+            />
             <select
               value={filter}
               onChange={e => setFilter(e.target.value)}
