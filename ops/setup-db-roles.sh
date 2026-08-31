@@ -22,8 +22,7 @@ APP_PASSWORD="${1:-}"
 [ -n "$APP_PASSWORD" ] || die "usage: $0 <password-for-$APP_ROLE>"
 case "$APP_ROLE" in *[!a-zA-Z0-9_]*) die "APP_ROLE must be alphanumeric/underscore" ;; esac
 
-docker inspect -f '{{.State.Running}}' "$DB_CONTAINER" 2>/dev/null | grep -q true \
-    || die "database container '$DB_CONTAINER' is not running"
+assert_env_consistent
 
 log "granting $APP_ROLE DML-only access to $DB_NAME (owner: $DB_USER)"
 

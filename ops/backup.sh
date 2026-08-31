@@ -22,8 +22,9 @@ UP_DIR="$BACKUP_ROOT/uploads"
 WEEKLY_DIR="$BACKUP_ROOT/weekly"
 mkdir -p "$DB_DIR" "$UP_DIR" "$WEEKLY_DIR"
 
-docker inspect -f '{{.State.Running}}' "$DB_CONTAINER" 2>/dev/null | grep -q true \
-    || die "database container '$DB_CONTAINER' is not running -- no backup taken"
+# Aborts unless the container's compose project AND its database both match
+# the selected RATE_ENV. See ops/lib.sh.
+assert_env_consistent
 
 # ---------------------------------------------------------------- database
 DUMP="$DB_DIR/${DB_NAME}_${STAMP}.dump"
@@ -44,7 +45,9 @@ log "database OK: $(basename "$DUMP") ${SIZE}B, $TABLES tables"
 
 # ---------------------------------------------------------------- uploads
 TAR="$UP_DIR/uploads_${STAMP}.tar.gz"
-if [ -d "$UPLOADS_DIR" ]; then
+if [ -z "$UPLOADS_DIR" ]; then
+    log "uploads backup skipped ($RATE_ENV keeps uploads in a docker volume)"
+elif [ -d "$UPLOADS_DIR" ]; then
     # Photos are append-mostly, so re-compressing ~76MB every night just to
     # store an identical copy wastes disk that grows with the photo count.
     # Fingerprint the directory and hardlink to the previous tarball when

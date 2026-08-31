@@ -7,7 +7,7 @@
 - **All API routes under `/api/v1/`** — frontend calls `http://localhost:8000` by default, but in prod through nginx on `/api/v1`
 - **API URL from env**: `REACT_APP_API_URL` (set at build time in `frontend/Dockerfile:4`)
 - **Language support**: Each meal stores `name_de`, `name_en`, `description_de`, `description_en`; API returns `lang` parameter (default `de`)
-- **Dev instance**: http://141.5.100.246:8080/ — all development updates applied here first.
+- **Dev instance**: http://141.5.100.246:8080/ — all development updates applied here first. Start it with `./ops/dev-up.sh`. Dev has its own database (`mensa_dev`), its own uploads volume and its own proxy config; see "How dev and prod are kept apart".
 
 ## Database Schema Details (Non-Obvious)
 
@@ -34,8 +34,12 @@ docker compose -p rate-site-test -f docker-compose.test.yml run --rm tests
 docker compose -p rate-site-test -f docker-compose.test.yml run --rm tests \
     python -m pytest tests/test_db_integrity.py -v
 
-# Backups
+# Start / refresh DEV on port 8080
+./ops/dev-up.sh                # add --build after code changes
+
+# Backups -- default to PROD; RATE_ENV=dev switches the whole environment
 ./ops/backup.sh                # manual backup (cron runs this at 03:15 UTC)
+RATE_ENV=dev ./ops/backup.sh   # dev, into /home/cloud/backups/dev
 ./ops/check-backups.sh         # is the newest dump recent and sane?
 ./ops/restore.sh               # restore newest dump, asks for confirmation
 cat /home/cloud/backups/STATUS # one-line result of the last backup
@@ -117,26 +121,71 @@ Use exactly these invocations — mixing them is what made the prod proxy squat
 dev's port 8080 on 2026-08-31:
 
 ```bash
-# PROD (port 80) -- prefer ./ops/pre-deploy.sh, which wraps this with a backup
-docker compose -p rate-site -f docker-compose.yml up -d --force-recreate --remove-orphans
+./ops/pre-deploy.sh    # PROD  (port 80)  -- backs up first, then deploys
+./ops/dev-up.sh        # DEV   (port 8080)
+```
 
-# DEV (port 8080)
+Both wrappers hardcode the correct flags. The raw equivalents:
+
+```bash
+docker compose -p rate-site -f docker-compose.yml up -d --force-recreate --remove-orphans
 docker compose -p rate-site-dev --env-file .env.dev \
     -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 ```
 
-Passing `-f docker-compose.dev.yml` **without** `-p rate-site-dev` applies the
-dev override to the prod project. Check with:
-`docker inspect rate-site-backend-1 --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}'`
-
 **Never `docker compose down -v`** — `-v` deletes the `postgres_data` volume.
+
+## How dev and prod are kept apart
+
+Merging the dev override into the prod project (forgetting `-p`) is what made the
+prod proxy publish 8080 on 2026-08-31. That is now prevented by mechanism, not
+by remembering:
+
+- **`docker-compose.dev.yml` pins `name: rate-site-dev`.** A `name:` in the last
+  `-f` file wins, so even a `-p`-less invocation lands on the dev project. An
+  explicit `-p` still overrides, as it should.
+- **`!override` on `ports`, `env_file` and `volumes`.** Compose *appends* these
+  keys by default, which is the actual mechanism behind all three old bugs:
+  dev's port was added to prod's; `.env.dev` was read after `.env` so it could
+  only shadow prod keys (prod's owner credential was reaching the dev db
+  container); and dev's uploads mount was added to the shared bind mount.
+- **Dev has its own database name, `mensa_dev`.** Both were `mensa_db`, so
+  `ops/restore.sh`'s type-the-name confirmation asked for the same string in
+  either environment and could not discriminate.
+- **Dev has its own uploads volume** (`rate-site-dev_dev_uploads`). Previously
+  both stacks bind-mounted `./backend/uploads`, and `main.py:999` deletes photos
+  with `os.remove()` — so a delete in dev removed a real production photo while
+  prod's database row survived, leaving a silently broken image.
+- **Dev has its own proxy config**, `nginx-proxy.dev.conf`. One shared file meant
+  editing it to try something in dev changed prod's config on the next reload.
+- **`.dockerignore` excludes `backend/uploads/`.** `COPY backend/ .` was baking
+  the 50 real user photos into every image, and Docker seeds a fresh named
+  volume from the image — which is how dev's new uploads volume came up holding
+  copies of production photos.
+- **`ops/lib.sh` selects an environment** via `RATE_ENV` (default `prod`), and
+  `assert_env_consistent()` aborts unless the target container's compose project
+  *and* its database both match. A stray `DB_CONTAINER` cannot be talked past.
+- **`restart: unless-stopped`** on all services. The 2026-08-31 dev outage was a
+  host reboot into a new kernel; nothing had a restart policy, so both stacks
+  stayed down.
+
+Verify at any time:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml config | head -1   # -> name: rate-site-dev
+docker inspect rate-site-backend-1 --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}'
+docker ps --format '{{.Names}}\t{{.Ports}}'   # prod :80 only, dev :8080 only
+```
 
 ## Backups
 
 Added 2026-08-31, after the production database was dropped with no backup in
 existence. Scripts live in `ops/`, config in `ops/lib.sh`.
 
-- **Schedule** (user crontab): `backup.sh` 03:15 UTC daily, `check-backups.sh` 09:00.
+- **Environments**: all `ops/` scripts default to prod. `RATE_ENV=dev` switches
+  container, env file and backup root together. Dev dumps go to
+  `/home/cloud/backups/dev`; dev's uploads live in a docker volume and are not
+  backed up (they are disposable).
+- **Schedule** (user crontab): `backup.sh` 03:15 UTC daily, `check-backups.sh` 09:00. Prod only.
 - **What is kept**: `pg_dump -Fc` of `mensa_db` plus a tarball of
   `backend/uploads/` — `ratings.photo_url` points into it, so a DB-only restore
   is half a restore. 14 dailies, Sunday copies kept 8 weeks, in `/home/cloud/backups`.

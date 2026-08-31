@@ -25,10 +25,10 @@ done
 [ -n "$DUMP" ] || die "no dump given and none found in $BACKUP_ROOT/db"
 [ -f "$DUMP" ] || die "no such dump: $DUMP"
 
-docker inspect -f '{{.State.Running}}' "$DB_CONTAINER" 2>/dev/null | grep -q true \
-    || die "database container '$DB_CONTAINER' is not running"
+assert_env_consistent
 
 echo "About to restore into:"
+echo "    environment: $RATE_ENV"
 echo "    container : $DB_CONTAINER"
 echo "    database  : $DB_NAME"
 echo "    from dump : $DUMP ($(stat -c %s "$DUMP")B, $(date -r "$DUMP" -u +%Y-%m-%dT%H:%M:%SZ))"

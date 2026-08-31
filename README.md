@@ -89,6 +89,9 @@ docker compose -p rate-site-test -f docker-compose.test.yml run --rm tests \
 # Deploy to prod (backs up first)
 ./ops/pre-deploy.sh
 
+# Start/refresh the dev instance on port 8080
+./ops/dev-up.sh
+
 # Manual menu scrape
 docker compose exec backend python -c "from scraper import scrape_menus; scrape_menus()"
 ```
@@ -98,7 +101,16 @@ docker compose exec backend python -c "from scraper import scrape_menus; scrape_
 Nightly `pg_dump` + uploads tarball to `/home/cloud/backups` via cron
 (`ops/backup.sh`), 14 dailies and 8 weekly copies, with a row-count tripwire
 that alarms if a table suddenly empties. Restore with `ops/restore.sh`.
+All `ops/` scripts default to prod; `RATE_ENV=dev` switches environment.
 See the Backups section in `AGENTS.md`.
+
+### Dev vs prod
+
+Prod is compose project `rate-site` on port 80; dev is `rate-site-dev` on 8080.
+They share no database, no uploads directory and no proxy config, and
+`docker-compose.dev.yml` pins its own project `name:` so the dev override cannot
+be applied to prod by accident. See "How dev and prod are kept apart" in
+`AGENTS.md`.
 
 ## Configuration
 

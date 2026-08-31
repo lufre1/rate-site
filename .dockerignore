@@ -1,0 +1,27 @@
+# Keep user content and secrets out of build contexts and images.
+#
+# backend/Dockerfile does `COPY backend/ .`, which was pulling backend/uploads/
+# -- 50 real user photos, ~76MB -- into every image. Docker then seeds any
+# fresh named volume mounted at /app/uploads from the image, which is how the
+# dev stack ended up holding copies of production photos.
+backend/uploads/
+
+# Secrets are never needed at build time.
+.env
+.env.*
+!.env.example
+
+# Build/VCS noise.
+.git/
+.gitignore
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/node_modules/
+frontend/build/
+*.db
+*.sqlite*
+
+# Ops and docs are not part of any image.
+ops/
+*.md
