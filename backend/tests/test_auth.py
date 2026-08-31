@@ -3,8 +3,8 @@
 Covers the register/login/session round-trip, that anonymous rating still works
 untouched, and that one user cannot edit or delete another user's rating.
 
-Runs entirely against an isolated SQLite database (no live server, no Postgres)
--- see conftest.py for the DATABASE_URL default.
+Runs against a private SQLite database created fresh for each test by the
+`sqlite_db` fixture in conftest.py -- never a shared or ambient database.
 """
 from datetime import date as date_cls
 
@@ -12,22 +12,19 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
-from database import Base, engine, SessionLocal, Mensa, Meal
+from database import SessionLocal, Mensa, Meal
 
 GOOD_PW = "correct-horse-battery"
 
 
 @pytest.fixture()
-def client(monkeypatch, tmp_path):
+def client(monkeypatch, tmp_path, sqlite_db):
     """TestClient on a throwaway schema. Same shape as tests/test_api_ratings.py.
 
     Not used as a context manager, so the on_startup hook (Postgres-only ALTERs,
     the live scraper, the scheduler) never fires.
     """
     monkeypatch.setattr(main, "UPLOAD_DIR", str(tmp_path))
-
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
 
     def override_get_db():
         db = SessionLocal()
@@ -43,11 +40,10 @@ def client(monkeypatch, tmp_path):
         yield TestClient(main.app)
     finally:
         main.app.dependency_overrides.clear()
-        Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture()
-def meal_id():
+def meal_id(sqlite_db):
     db = SessionLocal()
     try:
         mensa = Mensa(name="Zentralmensa")
@@ -212,3 +208,107 @@ def test_anonymous_ratings_are_not_owned_by_anyone(client, meal_id):
     # ...but the pre-accounts comment route still works, as it always did.
     assert client.patch(f"/api/v1/ratings/{rating_id}/comment",
                         json={"comment": "late comment"}).status_code == 200
+
+
+# --------------------------------------------------------------- display name
+
+def test_get_display_name_in_me_response(client):
+    register(client, "alice")
+    login = client.post("/api/v1/auth/login", json={"username": "alice", "password": GOOD_PW})
+    assert login.status_code == 200
+    token = login.json()["token"]
+    me = client.get("/api/v1/me", headers=bearer(token))
+    assert me.status_code == 200
+    assert me.json()["username"] == "alice"
+    assert me.json()["display_name"] is None
+
+
+def test_set_display_name(client):
+    register(client, "bob")
+    login = client.post("/api/v1/auth/login", json={"username": "bob", "password": GOOD_PW})
+    token = login.json()["token"]
+
+    resp = client.patch("/api/v1/me/display-name", json={"display_name": "Bobster"},
+                        headers=bearer(token))
+    assert resp.status_code == 200
+    assert resp.json()["display_name"] == "Bobster"
+
+    me = client.get("/api/v1/me", headers=bearer(token))
+    assert me.json()["display_name"] == "Bobster"
+
+
+def test_clear_display_name(client):
+    register(client, "carol")
+    login = client.post("/api/v1/auth/login", json={"username": "carol", "password": GOOD_PW})
+    token = login.json()["token"]
+
+    client.patch("/api/v1/me/display-name", json={"display_name": "Carol Fan"},
+                 headers=bearer(token))
+    me = client.get("/api/v1/me", headers=bearer(token))
+    assert me.json()["display_name"] == "Carol Fan"
+
+    resp = client.patch("/api/v1/me/display-name", json={"display_name": None},
+                        headers=bearer(token))
+    assert resp.status_code == 200
+    assert resp.json()["display_name"] is None
+
+    me = client.get("/api/v1/me", headers=bearer(token))
+    assert me.json()["display_name"] is None
+
+
+def test_display_name_on_ratings(client, meal_id):
+    token = register(client, "dave").json()["token"]
+
+    client.patch("/api/v1/me/display-name", json={"display_name": "Dave Fan"},
+                 headers=bearer(token))
+
+    resp = client.post(f"/api/v1/meals/{meal_id}/ratings",
+                       json={"rating": 5, "comment": "great"}, headers=bearer(token))
+    assert resp.status_code == 201
+    assert resp.json()["user_name"] == "Dave Fan"
+
+    client.patch("/api/v1/me/display-name", json={"display_name": None},
+                 headers=bearer(token))
+
+    resp2 = client.post(f"/api/v1/meals/{meal_id}/ratings",
+                        json={"rating": 4}, headers=bearer(token))
+    assert resp2.json()["user_name"] == "dave"
+
+
+def test_display_name_on_side_ratings(client, meal_id):
+    token = register(client, "erin").json()["token"]
+
+    client.patch("/api/v1/me/display-name", json={"display_name": "Erin Eats"},
+                 headers=bearer(token))
+
+    resp = client.post(f"/api/v1/meals/{meal_id}/side-ratings",
+                       json={"side_name": "Reis", "rating": 3}, headers=bearer(token))
+    assert resp.status_code == 201
+    assert resp.json()["user_name"] == "Erin Eats"
+
+
+def test_display_name_validation(client):
+    register(client, "frank")
+    login = client.post("/api/v1/auth/login", json={"username": "frank", "password": GOOD_PW})
+    token = login.json()["token"]
+
+    # Too long
+    resp = client.patch("/api/v1/me/display-name",
+                        json={"display_name": "a" * 31}, headers=bearer(token))
+    assert resp.status_code == 400
+
+    # Invalid characters
+    resp = client.patch("/api/v1/me/display-name",
+                        json={"display_name": "has@special"}, headers=bearer(token))
+    assert resp.status_code == 400
+
+    # Empty string treated as null
+    resp = client.patch("/api/v1/me/display-name",
+                        json={"display_name": ""}, headers=bearer(token))
+    assert resp.status_code == 200
+    assert resp.json()["display_name"] is None
+
+
+def test_display_name_requires_auth(client):
+    resp = client.patch("/api/v1/me/display-name", json={"display_name": "test"})
+    assert resp.status_code == 401

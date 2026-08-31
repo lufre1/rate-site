@@ -5,7 +5,7 @@ import de from './translations/de.json';
 import en from './translations/en.json';
 import Impressum from './Impressum';
 import Account from './Account';
-import { API, authHeaders, getToken, clearToken, formatRelativeDate, StarPicker } from './shared';
+import { API, authHeaders, getToken, clearToken, formatRelativeDate, StarPicker, getVoterId, voteHeaders } from './shared';
 
 const ICON_BASE = 'https://www.studierendenwerk-goettingen.de/fileadmin/templates/images/mensaspeiseplan/png/';
 
@@ -187,7 +187,7 @@ const [uploading, setUploading] = useState(false);
     if (!getToken()) return;
     fetch(`${API}/api/v1/me`, { headers: authHeaders() })
       .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then(data => setUser({ username: data.username }))
+      .then(data => setUser({ username: data.username, display_name: data.display_name }))
       .catch(() => { clearToken(); setUser(null); });
   }, []);
 
@@ -226,7 +226,10 @@ const [uploading, setUploading] = useState(false);
     setLoading(true);
     fetch(`${API}/api/v1/meals?date=${date}&lang=${language}`)
       .then(r => r.json())
-      .then(data => { setMenu(Array.isArray(data) ? data : []); setLoading(false); })
+      .then(data => {
+        setMenu(Array.isArray(data) ? data : []);
+        setLoading(false);
+      })
       .catch(() => { setLoading(false); });
   }, [date, language]);
 
@@ -321,7 +324,7 @@ const [uploading, setUploading] = useState(false);
               marginLeft: '12px'
             }}
           >
-            {user ? user.username : t('auth.login')}
+            {user ? (user.display_name || user.username) : t('auth.login')}
           </button>
         </div>
       </header>
@@ -446,7 +449,7 @@ const [uploading, setUploading] = useState(false);
               : items;
             return (
               <React.Fragment key={key}>
-                <h2 style={{ color: '#374151', fontSize: '18px', marginTop: 24, marginBottom: 8,
+                <h2 id={`beilage-${mensa}`} style={{ color: '#374151', fontSize: '18px', marginTop: 24, marginBottom: 8,
                   borderBottom: '3px solid #3b82f6', paddingBottom: 8 }}>
                   {mensa} - {t('mealTypes.' + type) || type}
                 </h2>
@@ -642,6 +645,8 @@ function SideRatingRow({ mealId, sideName, avgRating, ratingCount, recentAvg = 0
   const { t } = useTranslation();
   const [rating, setRating] = useState(0);
   const [justRated, setJustRated] = useState(false);
+  const [comment, setComment] = useState('');
+  const [showComment, setShowComment] = useState(false);
 
   const handleRate = async (i) => {
     setRating(i);
@@ -650,7 +655,7 @@ function SideRatingRow({ mealId, sideName, avgRating, ratingCount, recentAvg = 0
     await fetch(`${API}/api/v1/meals/${mealId}/side-ratings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ side_name: sideName, rating: i, comment: null }),
+      body: JSON.stringify({ side_name: sideName, rating: i, comment: comment || null }),
     });
   };
 
@@ -671,6 +676,22 @@ function SideRatingRow({ mealId, sideName, avgRating, ratingCount, recentAvg = 0
       {justRated && (
         <span style={{ fontSize: '11px', color: '#16a34a' }}>{t('ui.thanksForRating')}</span>
       )}
+      {showComment && (
+        <input
+          type="text"
+          placeholder={t('ui.sideComment') || 'Kommentar'}
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          style={{ padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: '0.8125rem', width: '120px' }}
+        />
+      )}
+      <button
+        onClick={() => setShowComment(!showComment)}
+        style={{ border: 'none', background: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '12px', padding: '4px' }}
+        title={comment ? t('ui.removeComment') : t('ui.addComment')}
+      >
+        {comment ? '✏️' : '💬'}
+      </button>
     </div>
   );
 }
@@ -687,18 +708,11 @@ function DishCard({ meal }) {
 });
   const [showRatingForm, setShowRatingForm] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [sideRatings, setSideRatings] = useState({});
   const [uploading, setUploading] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [imageError, setImageError] = useState('');
   const [enlargedImage, setEnlargedImage] = useState(null);
-
-  const sideNames = useMemo(() => (
-    meal.type === 'main' && meal.description
-      ? meal.description.split(',').map(s => s.trim()).filter(Boolean)
-      : []
-  ), [meal.type, meal.description]);
 
 // Fetch ratings-breakdown on mount (not just when expanded)
   useEffect(() => {
@@ -715,19 +729,6 @@ function DishCard({ meal }) {
             .catch(() => {});
     }
   }, [meal.id]);
-
-  useEffect(() => {
-    if (expanded && sideNames.length > 0) {
-      fetch(`${API}/api/v1/meals/${meal.id}/side-ratings`)
-        .then(r => r.json())
-        .then(data => {
-          const map = {};
-          (Array.isArray(data) ? data : []).forEach(s => { map[s.side_name] = s; });
-          setSideRatings(map);
-        })
-        .catch(() => {});
-    }
-  }, [expanded, meal.id, sideNames]);
 
   const submitRating = async () => {
     if (rating === 0) return;
@@ -774,6 +775,33 @@ function DishCard({ meal }) {
         setSelectedImage(null);
         setImagePreview(null);
       }, 1500);
+    }
+  };
+
+  const handleVote = async (ratingId, direction) => {
+    try {
+      const voterId = getVoterId();
+      if (!voterId) return;
+      
+      const response = await fetch(`${API}/api/v1/ratings/${ratingId}/vote`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Voter-Id': voterId, ...authHeaders() },
+        body: JSON.stringify({ direction }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setReviews(prev => ({
+          ...prev,
+          comments: prev.comments.map(c => 
+            c.id === ratingId 
+              ? { ...c, score: data.score, vote_direction: data.direction }
+              : c
+          )
+        }));
+      }
+    } catch (e) {
+      // Silent fail - voting is optional
     }
   };
 
@@ -883,10 +911,36 @@ function DishCard({ meal }) {
                     </span>
                   )}
                 </span>
-                {r.comment && (
-                  <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#374151', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{r.comment}</p>
-                )}
-                {r.photo_url && (
+{r.comment && (
+                   <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#374151', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{r.comment}</p>
+                 )}
+                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                   <button
+                     onClick={() => handleVote(r.id, 1)}
+                     style={{
+                       background: 'none', border: 'none', cursor: 'pointer',
+                       fontSize: '12px', color: r.vote_direction === 1 ? '#16a34a' : '#9ca3af',
+                       display: 'flex', alignItems: 'center', gap: 2, padding: '4px 8px',
+                       minWidth: 48, minHeight: 48
+                     }}
+                     title={t('ui.upvote')}
+                   >
+                     ▲ {r.score > 0 ? `+${r.score}` : r.score}
+                   </button>
+                   <button
+                     onClick={() => handleVote(r.id, -1)}
+                     style={{
+                       background: 'none', border: 'none', cursor: 'pointer',
+                       fontSize: '12px', color: r.vote_direction === -1 ? '#dc2626' : '#9ca3af',
+                       display: 'flex', alignItems: 'center', gap: 2, padding: '4px 8px',
+                       minWidth: 48, minHeight: 48
+                     }}
+                     title={t('ui.downvote')}
+                   >
+                     ▼
+                   </button>
+                 </div>
+                 {r.photo_url && (
                   <img
                     src={`${API}${r.photo_url}`}
                     alt=""
@@ -1016,24 +1070,6 @@ function DishCard({ meal }) {
               </>
             )}
 
-            {sideNames.length > 0 && (
-              <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #f3f4f6' }}>
-                <p style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', margin: '0 0 6px' }}>
-                  {t('ui.rateSides')}
-                </p>
-                {sideNames.map(name => (
-<SideRatingRow
-    key={name}
-    mealId={meal.id}
-    sideName={name}
-    avgRating={sideRatings[name]?.avg_rating || 0}
-    ratingCount={sideRatings[name]?.rating_count || 0}
-    recentAvg={sideRatings[name]?.recent_avg || 0}
-    recentCount={sideRatings[name]?.recent_count || 0}
-/>
-))}
-              </div>
-            )}
             </>
           )}
           </div>

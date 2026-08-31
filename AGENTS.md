@@ -7,6 +7,7 @@
 - **All API routes under `/api/v1/`** — frontend calls `http://localhost:8000` by default, but in prod through nginx on `/api/v1`
 - **API URL from env**: `REACT_APP_API_URL` (set at build time in `frontend/Dockerfile:4`)
 - **Language support**: Each meal stores `name_de`, `name_en`, `description_de`, `description_en`; API returns `lang` parameter (default `de`)
+- **Dev instance**: http://141.5.100.246:8080/ — all development updates applied here first.
 
 ## Database Schema Details (Non-Obvious)
 
@@ -17,15 +18,27 @@
 
 ## Key Commands
 
+> **Never run pytest inside the `backend` container.** The suite drops and
+> recreates tables against whatever `DATABASE_URL` is in scope, and in that
+> container it is production. This destroyed the prod database on 2026-08-31.
+> `conftest.py` now aborts if you try, but use the test stack below.
+
 ```bash
-# Full stack rebuild & start
-docker compose down && docker compose up -d --build
+# Deploy to PROD (takes a backup first, then recreates the stack)
+./ops/pre-deploy.sh            # add --build to rebuild images
 
-# Run backend tests (parse-only, no DB needed)
-docker compose exec backend python -m pytest tests/
+# Run the whole test suite -- own compose project, own throwaway Postgres
+docker compose -p rate-site-test -f docker-compose.test.yml run --rm tests
 
-# Run DB integration tests (needs Postgres)
-docker compose exec backend python -m pytest tests/test_db_integrity.py -v
+# Run one test file
+docker compose -p rate-site-test -f docker-compose.test.yml run --rm tests \
+    python -m pytest tests/test_db_integrity.py -v
+
+# Backups
+./ops/backup.sh                # manual backup (cron runs this at 03:15 UTC)
+./ops/check-backups.sh         # is the newest dump recent and sane?
+./ops/restore.sh               # restore newest dump, asks for confirmation
+cat /home/cloud/backups/STATUS # one-line result of the last backup
 
 # Update menu data manually (e.g. after DB reset)
 docker compose exec backend python -c "from scraper import scrape_menus; scrape_menus()"
@@ -35,8 +48,20 @@ docker compose exec backend python -c "from scraper import scrape_menus; scrape_
 
 ## Testing
 
-- **Backend unit tests**: Parse-only, no DB required (`os.environ.setdefault("DATABASE_URL", "sqlite:///./test_parse_only.db")` in `conftest.py:18`)
-- **Backend integration tests**: Require running backend (`API_BASE_URL`) or Postgres (`DATABASE_URL` with `postgres` in URL)
+- **Where tests run**: always `docker-compose.test.yml`. It uses its own compose
+  project, a Postgres named `mensa_test` on tmpfs, and no `.env`, so the prod
+  `DATABASE_URL` is never in scope.
+- **The safety rail**: `conftest.py` assigns `DATABASE_URL` itself (it never
+  inherits one) and calls `assert_disposable()`, which accepts only SQLite or a
+  database name ending in `_test`. Anything else aborts at import, before any
+  connection is opened. Point `TEST_DATABASE_URL` at a `*_test` database to run
+  integration tests; leave it unset and each run gets a private temp SQLite file.
+- **Backend unit tests**: `test_auth.py` / `test_api_ratings.py` take a fresh
+  per-test SQLite database from the `sqlite_db` fixture. They no longer call
+  `drop_all` — isolation comes from the database being new, not from wiping a
+  shared one. Do not reintroduce that pattern.
+- **Backend integration tests**: need a running backend (`API_BASE_URL`) or the
+  `mensa_test` Postgres from the test stack.
 - **Frontend unit tests**: Run via `npm test` (default CRA Jest config, looks for `*.test.js`, `*.test.jsx`, `translations.test.js`)
 - **Test files**:
   - `test_scraper_alignment.py` — validates DE/EN row alignment, no duplicates, mensa-name consistency
@@ -85,6 +110,51 @@ Same fallback applies to descriptions.
 
 - When developing a feature, **always test it on the dev/test instance first** — never push to prod.
 - **Always ask the user to push to prod**; never deploy to production yourself.
+- **Dev instance URL**: http://141.5.100.246:8080/ — all updates must be applied here first during development.
+- **Carefully update the docker container** on the dev instance, not the prod container, during development.
+
+Use exactly these invocations — mixing them is what made the prod proxy squat
+dev's port 8080 on 2026-08-31:
+
+```bash
+# PROD (port 80) -- prefer ./ops/pre-deploy.sh, which wraps this with a backup
+docker compose -p rate-site -f docker-compose.yml up -d --force-recreate --remove-orphans
+
+# DEV (port 8080)
+docker compose -p rate-site-dev --env-file .env.dev \
+    -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
+
+Passing `-f docker-compose.dev.yml` **without** `-p rate-site-dev` applies the
+dev override to the prod project. Check with:
+`docker inspect rate-site-backend-1 --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}'`
+
+**Never `docker compose down -v`** — `-v` deletes the `postgres_data` volume.
+
+## Backups
+
+Added 2026-08-31, after the production database was dropped with no backup in
+existence. Scripts live in `ops/`, config in `ops/lib.sh`.
+
+- **Schedule** (user crontab): `backup.sh` 03:15 UTC daily, `check-backups.sh` 09:00.
+- **What is kept**: `pg_dump -Fc` of `mensa_db` plus a tarball of
+  `backend/uploads/` — `ratings.photo_url` points into it, so a DB-only restore
+  is half a restore. 14 dailies, Sunday copies kept 8 weeks, in `/home/cloud/backups`.
+- **Written safely**: dumped to `.part` and renamed only after `pg_restore --list`
+  confirms it parses and contains tables. Unchanged uploads are hardlinked to the
+  previous tarball instead of re-archived.
+- **Row-count tripwire**: each dump records row counts for `ratings`,
+  `side_ratings`, `users`, `comment_votes`. If a table loses >50% of its rows
+  since the last backup, the script still keeps the dump (a post-incident
+  snapshot is worth having) but exits 3 and writes `ALARM` to
+  `/home/cloud/backups/STATUS`. **This is the check that would have caught the
+  2026-08-31 incident** — a dump of a wiped database is a perfectly valid dump,
+  and size alone cannot tell it apart from a small healthy one.
+- **No MTA on this host**, so cron mail goes nowhere. `STATUS`, `backup.log` and
+  `check.log` in `/home/cloud/backups` are the actual record — check them.
+- **Restore drill**: `ops/restore.sh <dump> --force` with `DB_CONTAINER` /
+  `DB_NAME` pointed at the test stack. Repeat after any schema change; an
+  untested backup is not a backup.
 
 ## Common Pitfalls
 
@@ -94,6 +164,12 @@ Same fallback applies to descriptions.
 4. **Frontend build**: `REACT_APP_API_URL` must be set at build time via Docker arg (default `http://localhost:8000`).
 5. **Database health**: Backend waits for `pg_isready` (see `docker-compose.yml:11-16`); wait ~5-10s after `docker compose up` before API is ready.
 6. **Frontend dev**: `npm start` needs `REACT_APP_API_URL` set; defaults to `http://localhost:8000`.
+7. **Running tests in the prod container destroys the database.** See "Key
+   Commands". The rail in `conftest.py` blocks it now; do not weaken it, and
+   never restore `os.environ.setdefault("DATABASE_URL", ...)` — `setdefault`
+   yields to the ambient value, which is exactly how prod got dropped.
+8. **Backups are local-only** (`/home/cloud/backups`, same disk as the DB).
+   They cover a bad command, not the loss of the VM.
 
 ## Mobile Behavior
 

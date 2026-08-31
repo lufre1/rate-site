@@ -15,7 +15,12 @@
     "noReviews": "No reviews yet",
     "rate": "Rate",
     "thanksForRating": "Thank you for rating!",
-    "rateSides": "Rate this dish's sides",
+    "sidesForThisDish": "Sides served with this dish",
+    "allSides": "All sides",
+    "sideComment": "Comment",
+    "addComment": "Add comment",
+    "removeComment": "Remove comment",
+    "close": "Close",
     "reviews": "Reviews",
     "futureOnly": "(future only)",
     "foundResults": "Found {{count}} results for \"{{query}}\"",
@@ -30,7 +35,9 @@
     "noPhotos": "No photos",
     "notAvailable": "No longer available",
     "recent": "recent",
-    "overall": "overall"
+    "overall": "overall",
+    "upvote": "Upvote",
+    "downvote": "Downvote"
   },
   "mealTypes": {
     "main": "Main",
@@ -87,6 +94,11 @@
     "delete": "Delete",
     "save": "Save",
     "cancel": "Cancel",
-    "confirmDelete": "Really delete this rating?"
+    "clear": "Clear",
+    "confirmDelete": "Really delete this rating?",
+    "displayName": "Display name",
+    "displayNameHint": "Optional: Name shown publicly",
+    "displayNameLong": "Display name must be at most 30 characters",
+    "displayNameInvalid": "Display name must contain only letters, digits, spaces, underscore, or hyphen"
   }
 }

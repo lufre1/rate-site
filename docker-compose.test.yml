@@ -1,0 +1,49 @@
+# Isolated test stack -- the only sanctioned way to run the suite.
+#
+# Nothing here can reach production:
+#   * its own compose project (rate-site-test), so it never adopts prod containers
+#   * its own database named `mensa_test` -- the `_test` suffix is what
+#     backend/tests/conftest.py's safety rail requires before it allows any DDL
+#   * a tmpfs data dir, so the database cannot outlive the run
+#   * NO env_file: .env -- the prod DATABASE_URL is never in scope here
+#   * a tmpfs over /app/uploads, so the real user photos are not even visible
+#
+# Run with:
+#   docker compose -p rate-site-test -f docker-compose.test.yml run --rm tests
+name: rate-site-test
+
+services:
+  db-test:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: mensa_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d mensa_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  tests:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      # conftest.py reads TEST_DATABASE_URL. DATABASE_URL is deliberately unset:
+      # the suite must never inherit one.
+      TEST_DATABASE_URL: postgresql://test:test@db-test:5432/mensa_test
+      UPLOAD_DIR: /tmp/test-uploads
+      TZ: Europe/Berlin
+    volumes:
+      # Live code, so a test run needs no rebuild.
+      - ./backend:/app
+    tmpfs:
+      - /app/uploads
+      - /tmp/test-uploads
+    depends_on:
+      db-test:
+        condition: service_healthy
+    command: ["python", "-m", "pytest", "tests/", "-v", "-o", "cache_dir=/tmp/pytest_cache"]

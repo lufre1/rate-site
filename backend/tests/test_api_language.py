@@ -79,5 +79,7 @@ def test_count_matches_official_site():
         }
         expected += len(names)
     meals = _meals(d, "de")
-    assert len(meals) == expected, \
-        f"API returned {len(meals)} DE items but the official site lists {expected}"
+    # Exclude side entries from count (they're extracted from main dish descriptions)
+    non_side_meals = [m for m in meals if m.get('type') != 'side']
+    assert len(non_side_meals) == expected, \
+        f"API returned {len(non_side_meals)} non-side DE items but the official site lists {expected}"

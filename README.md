@@ -71,19 +71,34 @@ rate-site/
 
 ## Development
 
+> **Never run pytest inside the `backend` container** — the suite drops and
+> recreates tables against whatever `DATABASE_URL` is in scope, which there is
+> production. Use the isolated test stack below.
+
 ```bash
 # Run backend lint
 docker compose exec backend python -m ruff check .
 
-# Run tests (parse-only, no DB)
-docker compose exec backend python -m pytest tests/
+# Run the test suite (own compose project + throwaway Postgres on tmpfs)
+docker compose -p rate-site-test -f docker-compose.test.yml run --rm tests
 
 # Run DB integration tests
-docker compose exec backend pytest tests/test_db_integrity.py -v
+docker compose -p rate-site-test -f docker-compose.test.yml run --rm tests \
+    python -m pytest tests/test_db_integrity.py -v
+
+# Deploy to prod (backs up first)
+./ops/pre-deploy.sh
 
 # Manual menu scrape
 docker compose exec backend python -c "from scraper import scrape_menus; scrape_menus()"
 ```
+
+### Backups
+
+Nightly `pg_dump` + uploads tarball to `/home/cloud/backups` via cron
+(`ops/backup.sh`), 14 dailies and 8 weekly copies, with a row-count tripwire
+that alarms if a table suddenly empties. Restore with `ops/restore.sh`.
+See the Backups section in `AGENTS.md`.
 
 ## Configuration
 

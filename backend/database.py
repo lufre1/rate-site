@@ -8,7 +8,22 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL environment variable is required")
 
+# Schema changes run as the table OWNER; the request path deliberately does not.
+# In production DATABASE_URL is the `mensa_app` role, which holds DML rights only
+# (no ownership, no DDL), so a stray Base.metadata.drop_all() cannot drop
+# anything -- Postgres refuses with "must be owner of table". That is enforcement
+# rather than convention, and it is the last line of defence behind the test
+# safety rail in backend/tests/conftest.py. See ops/setup-db-roles.sh.
+#
+# Falls back to DATABASE_URL when unset, so dev/test/SQLite keep working with a
+# single URL and one privileged role.
+MIGRATION_DATABASE_URL = os.getenv("MIGRATION_DATABASE_URL") or DATABASE_URL
+
 engine = create_engine(DATABASE_URL)
+migration_engine = (
+    engine if MIGRATION_DATABASE_URL == DATABASE_URL
+    else create_engine(MIGRATION_DATABASE_URL)
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -72,6 +87,7 @@ class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True, nullable=False)
+    display_name = Column(String, nullable=True)
     password_hash = Column(String, nullable=False)
     created_at = Column(DateTime, default=func.now())
 
@@ -82,9 +98,19 @@ class AuthToken(Base):
     user_id = Column(Integer, ForeignKey("users.id"), index=True)
     created_at = Column(DateTime, default=func.now())
 
+class CommentVote(Base):
+    __tablename__ = "comment_votes"
+    id = Column(Integer, primary_key=True, index=True)
+    rating_id = Column(Integer, ForeignKey("ratings.id"), index=True)
+    voter_id = Column(String, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    direction = Column(Integer)
+    created_at = Column(DateTime, default=func.now())
+
 def init_db():
-    Base.metadata.create_all(bind=engine)
-    with engine.connect() as conn:
+    """Create/upgrade the schema. Runs as the owner (see MIGRATION_DATABASE_URL)."""
+    Base.metadata.create_all(bind=migration_engine)
+    with migration_engine.connect() as conn:
         # Add description column if missing
         result = conn.execute(text(
             "SELECT column_name FROM information_schema.columns "
@@ -175,3 +201,30 @@ def init_db():
             conn.execute(text("ALTER TABLE side_ratings ADD COLUMN user_id INTEGER REFERENCES users(id)"))
             conn.commit()
             print("Added user_id column to side_ratings table")
+        # Add display_name column to users if missing
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='users' AND column_name='display_name'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("ALTER TABLE users ADD COLUMN display_name VARCHAR"))
+            conn.commit()
+            print("Added display_name column to users table")
+        # Create comment_votes table if not exists
+        result = conn.execute(text(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name='comment_votes'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("""
+                CREATE TABLE comment_votes (
+                    id SERIAL PRIMARY KEY,
+                    rating_id INTEGER REFERENCES ratings(id),
+                    voter_id VARCHAR NOT NULL,
+                    user_id INTEGER REFERENCES users(id),
+                    direction INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.commit()
+            print("Created comment_votes table")

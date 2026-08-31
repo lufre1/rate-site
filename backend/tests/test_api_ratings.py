@@ -10,8 +10,8 @@ Covers bugs found during manual QA of the mensa rating UI:
   the frontend hook bug was also fixed).
 - GET /photos returns a non-empty date for each photo.
 
-Runs entirely against an isolated SQLite database (no live server, no
-Postgres needed) -- see conftest.py for the DATABASE_URL default.
+Runs against a private SQLite database created fresh for each test by the
+`sqlite_db` fixture in conftest.py -- never a shared or ambient database.
 """
 import base64
 import os
@@ -21,7 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
-from database import Base, engine, SessionLocal, Mensa, Meal
+from database import SessionLocal, Mensa, Meal
 
 # 2x2 red pixel PNG, reused from test_photo_upload.py.
 PNG_BASE64 = (
@@ -31,7 +31,7 @@ PNG_BASE64 = (
 
 
 @pytest.fixture()
-def client(monkeypatch, tmp_path):
+def client(monkeypatch, tmp_path, sqlite_db):
     """A TestClient wired to a throwaway SQLite schema and upload dir.
 
     Deliberately does NOT enter the app as a context manager, so the
@@ -39,9 +39,6 @@ def client(monkeypatch, tmp_path):
     scraper run, the background scheduler) never fires.
     """
     monkeypatch.setattr(main, "UPLOAD_DIR", str(tmp_path))
-
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
 
     def override_get_db():
         db = SessionLocal()
@@ -55,7 +52,6 @@ def client(monkeypatch, tmp_path):
         yield TestClient(main.app)
     finally:
         main.app.dependency_overrides.clear()
-        Base.metadata.drop_all(bind=engine)
 
 
 @pytest.fixture()

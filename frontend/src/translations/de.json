@@ -15,7 +15,12 @@
     "noReviews": "Noch keine Bewertungen",
     "rate": "Bewerten",
     "thanksForRating": "Danke für deine Bewertung!",
-    "rateSides": "Bewerte die Beilagen dieses Gerichts",
+    "sidesForThisDish": "Beilagen zu diesem Gericht",
+    "allSides": "Alle Beilagen",
+    "sideComment": "Kommentar",
+    "addComment": "Kommentar hinzufügen",
+    "removeComment": "Kommentar entfernen",
+    "close": "Schließen",
     "reviews": "Bewertungen",
     "futureOnly": "(nur zukünftige)",
     "foundResults": "{{count}} Ergebnisse für \"{{query}}\" gefunden",
@@ -30,7 +35,9 @@
     "noPhotos": "Keine Fotos",
     "notAvailable": "Nicht mehr verfügbar",
     "recent": "aktuell",
-    "overall": "gesamt"
+    "overall": "gesamt",
+    "upvote": "Upvote",
+    "downvote": "Downvote"
   },
   "mealTypes": {
     "main": "Hauptgericht",
@@ -87,6 +94,11 @@
     "delete": "Löschen",
     "save": "Speichern",
     "cancel": "Abbrechen",
-    "confirmDelete": "Diese Bewertung wirklich löschen?"
+    "clear": "Löschen",
+    "confirmDelete": "Diese Bewertung wirklich löschen?",
+    "displayName": "Anzeigename",
+    "displayNameHint": "Optional: Name, der öffentlich angezeigt wird",
+    "displayNameLong": "Anzeigename darf höchstens 30 Zeichen haben",
+    "displayNameInvalid": "Anzeigename darf nur Buchstaben, Ziffern, Leerzeichen, _ oder - enthalten"
   }
 }

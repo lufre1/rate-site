@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { API, authHeaders, setToken, clearToken, formatRelativeDate, StarPicker } from './shared';
+import { API, authHeaders, setToken, clearToken, formatRelativeDate, StarPicker, setDisplayName, clearDisplayName, getDisplayName } from './shared';
 
 const btn = (bg, color) => ({
   padding: '8px 16px', background: bg, color, border: 'none',
@@ -34,7 +34,8 @@ function AuthForm({ onAuth }) {
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data.detail || t('auth.failed'));
       setToken(data.token);
-      onAuth({ username: data.username });
+      const displayName = getDisplayName();
+      onAuth({ username: data.username, display_name: displayName || null });
     } catch (err) {
       setError(err.message || t('auth.failed'));
     } finally {
@@ -152,8 +153,12 @@ function RatingRow({ entry, onChanged }) {
   );
 }
 
-function Profile({ user, onLogout, language }) {
+function Profile({ user, onLogout, language, onUpdate }) {
   const { t } = useTranslation();
+  const [displayName, setDisplayNameLocal] = useState(user.display_name || '');
+  const [displayError, setDisplayError] = useState('');
+  const [displayBusy, setDisplayBusy] = useState(false);
+
   // "favourites" is not a separate store -- it is the same endpoint filtered to
   // the dishes this user actually rated 4 or 5.
   const [tab, setTab] = useState('mine');
@@ -171,6 +176,36 @@ function Profile({ user, onLogout, language }) {
 
   useEffect(() => { load(); }, [load]);
 
+  const saveDisplayName = async () => {
+    setDisplayBusy(true);
+    setDisplayError('');
+    try {
+      const trimmed = displayName.trim();
+      if (trimmed.length > 30) {
+        throw new Error(t('auth.displayNameLong'));
+      }
+      if (trimmed.length > 0 && !/^[A-Za-z0-9 _-]+$/.test(trimmed)) {
+        throw new Error(t('auth.displayNameInvalid'));
+      }
+      const resp = await fetch(`${API}/api/v1/me/display-name`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ display_name: trimmed.length > 0 ? trimmed : null }),
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail || t('auth.failed'));
+      }
+      const data = await resp.json();
+      setDisplayNameLocal(data.display_name || '');
+      if (onUpdate) onUpdate({ username: user.username, display_name: data.display_name });
+    } catch (err) {
+      setDisplayError(err.message);
+    } finally {
+      setDisplayBusy(false);
+    }
+  };
+
   const logout = async () => {
     await fetch(`${API}/api/v1/auth/logout`, { method: 'POST', headers: authHeaders() }).catch(() => {});
     clearToken();
@@ -185,6 +220,31 @@ function Profile({ user, onLogout, language }) {
           {t('auth.signedInAs')} <strong>{user.username}</strong>
         </span>
         <button onClick={logout} style={btn('#e5e7eb', '#374151')}>{t('auth.logout')}</button>
+      </div>
+
+      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8,
+        padding: '16px', marginBottom: 16 }}>
+        <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: '#111827', marginBottom: 8 }}>
+          {t('auth.displayName')}
+        </label>
+        <input style={{ ...input, marginBottom: 8 }} type="text"
+          placeholder={t('auth.displayNameHint')}
+          value={displayName}
+          onChange={e => { setDisplayNameLocal(e.target.value); setDisplayError(''); }}
+          maxLength={30} />
+        {displayError && <p style={{ color: '#dc2626', fontSize: '0.75rem', margin: '0 0 8px' }}>{displayError}</p>}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => saveDisplayName()} disabled={displayBusy}
+            style={{ ...btn(displayBusy ? '#d1d5db' : '#3b82f6', '#fff'), padding: '6px 12px' }}>
+            {displayBusy ? '...' : t('auth.save')}
+          </button>
+          {displayName && (
+            <button onClick={() => { setDisplayNameLocal(''); saveDisplayName(); }}
+              style={{ ...btn('#e5e7eb', '#374151'), padding: '6px 12px' }}>
+              {t('auth.clear')}
+            </button>
+          )}
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -211,6 +271,12 @@ function Profile({ user, onLogout, language }) {
 
 function Account({ user, onAuth, onLogout, onBack, language }) {
   const { t } = useTranslation();
+  const [userState, setUserState] = useState(user);
+
+  const handleProfileUpdate = (updatedUser) => {
+    setUserState(updatedUser);
+    onAuth(updatedUser);
+  };
 
   return (
     <div style={{ maxWidth: '600px', margin: '0 auto', padding: '24px' }}>
@@ -218,7 +284,7 @@ function Account({ user, onAuth, onLogout, onBack, language }) {
         {t('auth.account')}
       </h1>
       {user
-        ? <Profile user={user} onLogout={onLogout} language={language} />
+        ? <Profile user={userState || user} onLogout={onLogout} language={language} onUpdate={handleProfileUpdate} />
         : <AuthForm onAuth={onAuth} />}
       <button onClick={onBack} style={{ ...btn('#3b82f6', '#fff'), marginTop: 24 }}>
         {t('ui.backHome')}

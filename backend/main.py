@@ -14,9 +14,10 @@ import locale
 import os
 import shutil
 import uuid
+import re
 from datetime import datetime
 
-from database import Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, User as DBUser, AuthToken as DBAuthToken, init_db, get_db
+from database import Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, User as DBUser, AuthToken as DBAuthToken, CommentVote as DBCommentVote, init_db, get_db
 import auth
 from scraper import scrape_menus, scrape_today
 
@@ -129,12 +130,12 @@ def generate_funny_name() -> str:
 def rating_identity(user: Optional[DBUser]):
     """(user_name, user_id) to stamp on a new rating.
 
-    Signed in -> the real username. Anonymous -> a generated funny name, exactly
-    as before accounts existed. Every rating-creation route goes through here so
-    main dishes and side dishes can't drift apart.
+    Signed in -> the real username or display_name if set. Anonymous -> a generated
+    funny name, exactly as before accounts existed. Every rating-creation route goes
+    through here so main dishes and side dishes can't drift apart.
     """
     if user:
-        return user.username, user.id
+        return (user.display_name or user.username), user.id
     return generate_funny_name(), None
 
 
@@ -180,6 +181,8 @@ class CommentDisplay(BaseModel):
     created_at: datetime
     photo_url: Optional[str] = None
     is_recent: bool = False
+    score: int = 0
+    vote_direction: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -202,6 +205,7 @@ class TokenOut(BaseModel):
 
 class MeOut(BaseModel):
     username: str
+    display_name: Optional[str] = None
     rating_count: int
     created_at: Optional[datetime] = None
 
@@ -489,7 +493,7 @@ def get_ratings(meal_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/v1/meals/{meal_id}/ratings-breakdown", response_model=dict, tags=["Ratings"])
-def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db)):
+def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db), voter_id: Optional[str] = Header(None, alias="X-Voter-Id")):
     """Get detailed rating breakdown with recent vs overall sections and comments."""
     # Check if meal exists
     meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
@@ -540,6 +544,29 @@ def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db)):
         DBRating.comment.isnot(None)
     ).order_by(DBRating.created_at.desc()).limit(15).all()
 
+    comment_ids = [r.Rating.id for r in comments_query]
+    
+    comment_scores = {}
+    if comment_ids:
+        score_results = db.query(
+            DBCommentVote.rating_id,
+            func.sum(DBCommentVote.direction).label('score')
+        ).filter(
+            DBCommentVote.rating_id.in_(comment_ids)
+        ).group_by(DBCommentVote.rating_id).all()
+        comment_scores = {r.rating_id: r.score if r.score is not None else 0 for r in score_results}
+    
+    viewer_votes = {}
+    if voter_id and comment_ids:
+        vote_results = db.query(
+            DBCommentVote.rating_id,
+            DBCommentVote.direction
+        ).filter(
+            DBCommentVote.rating_id.in_(comment_ids),
+            DBCommentVote.voter_id == voter_id
+        ).all()
+        viewer_votes = {r.rating_id: r.direction for r in vote_results}
+
     comments = [
         CommentDisplay(
             id=r.Rating.id,
@@ -548,7 +575,9 @@ def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db)):
             user_name=r.Rating.user_name,
             date=r.date,
             created_at=r.Rating.created_at,
-            photo_url=r.Rating.photo_url
+            photo_url=r.Rating.photo_url,
+            score=comment_scores.get(r.Rating.id, 0),
+            vote_direction=viewer_votes.get(r.Rating.id)
         )
         for r in comments_query
     ]
@@ -584,6 +613,8 @@ def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db)):
                 "created_at": c.created_at.isoformat() if c.created_at else None,
                 "photo_url": c.photo_url,
                 "is_recent": c.date == today,
+                "score": c.score,
+                "vote_direction": c.vote_direction
             }
             for c in comments
         ]
@@ -713,6 +744,86 @@ def get_photos_for_meal(meal_id: int, db: Session = Depends(get_db)):
     # consistent with how /ratings reports a review's date.
     return [{"id": p.id, "photo_url": p.photo_url, "rating": p.rating, "user_name": p.user_name, "date": meal.date.isoformat()} for p in photos]
 
+
+@app.put("/api/v1/ratings/{rating_id}/vote")
+def vote_on_comment(rating_id: int, data: dict, db: Session = Depends(get_db), voter_id: Optional[str] = Header(None, alias="X-Voter-Id"), authorization: Optional[str] = Header(None)):
+    """Vote on a comment (upvote or downvote). Toggle: same direction removes vote, opposite switches."""
+    if not voter_id:
+        raise HTTPException(status_code=400, detail="X-Voter-Id header required")
+    
+    rating = db.query(DBRating).filter(DBRating.id == rating_id).first()
+    if not rating:
+        raise HTTPException(status_code=404, detail="Rating not found")
+    if not rating.comment:
+        raise HTTPException(status_code=400, detail="Rating has no comment")
+    
+    direction = data.get("direction")
+    if direction not in (1, -1):
+        raise HTTPException(status_code=400, detail="direction must be 1 (up) or -1 (down)")
+    
+    user = auth.optional_user(authorization)
+    
+    existing = db.query(DBCommentVote).filter(
+        DBCommentVote.rating_id == rating_id,
+        DBCommentVote.voter_id == voter_id
+    ).first()
+    
+    if existing:
+        if existing.direction == direction:
+            db.delete(existing)
+            db.commit()
+            return {"direction": None, "score": get_comment_score(rating_id, db)}
+        else:
+            existing.direction = direction
+            db.add(existing)
+            db.commit()
+            db.refresh(existing)
+            return {"direction": direction, "score": get_comment_score(rating_id, db)}
+    else:
+        vote = DBCommentVote(
+            rating_id=rating_id,
+            voter_id=voter_id,
+            user_id=user.id if user else None,
+            direction=direction
+        )
+        db.add(vote)
+        db.commit()
+        db.refresh(vote)
+        return {"direction": direction, "score": get_comment_score(rating_id, db)}
+
+
+@app.get("/api/v1/ratings/{rating_id}/vote")
+def get_vote_status(rating_id: int, db: Session = Depends(get_db), voter_id: Optional[str] = Header(None, alias="X-Voter-Id")):
+    """Get current vote status for a comment, including viewer's vote and total score."""
+    if not voter_id:
+        raise HTTPException(status_code=400, detail="X-Voter-Id header required")
+    
+    rating = db.query(DBRating).filter(DBRating.id == rating_id).first()
+    if not rating:
+        raise HTTPException(status_code=404, detail="Rating not found")
+    if not rating.comment:
+        raise HTTPException(status_code=400, detail="Rating has no comment")
+    
+    score = get_comment_score(rating_id, db)
+    
+    vote = db.query(DBCommentVote).filter(
+        DBCommentVote.rating_id == rating_id,
+        DBCommentVote.voter_id == voter_id
+    ).first()
+    
+    return {
+        "direction": vote.direction if vote else None,
+        "score": score
+    }
+
+
+def get_comment_score(rating_id: int, db: Session) -> int:
+    result = db.query(func.sum(DBCommentVote.direction)).filter(
+        DBCommentVote.rating_id == rating_id
+    ).scalar()
+    return result if result is not None else 0
+
+
 @app.get("/uploads/{filename}")
 def serve_photo(filename: str):
     """Serve uploaded photos"""
@@ -767,7 +878,29 @@ def logout(authorization: Optional[str] = Header(None), db: Session = Depends(ge
 @app.get("/api/v1/me", response_model=MeOut, tags=["Auth"])
 def get_me(user: DBUser = Depends(auth.current_user), db: Session = Depends(get_db)):
     count = db.query(func.count(DBRating.id)).filter(DBRating.user_id == user.id).scalar()
-    return MeOut(username=user.username, rating_count=count or 0, created_at=user.created_at)
+    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at)
+
+
+@app.patch("/api/v1/me/display-name", response_model=MeOut, tags=["Auth"])
+def set_display_name(data: dict, user: DBUser = Depends(auth.current_user), db: Session = Depends(get_db)):
+    """Set or clear the display name for the current user."""
+    display_name = data.get("display_name")
+    if display_name is not None:
+        if not isinstance(display_name, str):
+            raise HTTPException(status_code=400, detail="display_name must be a string or null")
+        display_name = display_name.strip()
+        if len(display_name) == 0:
+            display_name = None
+        elif len(display_name) > 30:
+            raise HTTPException(status_code=400, detail="display_name must be at most 30 characters")
+        elif not re.match(r"^[A-Za-z0-9 _-]+$", display_name):
+            raise HTTPException(status_code=400, detail="display_name must contain only letters, digits, spaces, underscore, or hyphen")
+    user.display_name = display_name
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    count = db.query(func.count(DBRating.id)).filter(DBRating.user_id == user.id).scalar()
+    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at)
 
 
 @app.get("/api/v1/me/ratings", response_model=List[MyRatingOut], tags=["Auth"])

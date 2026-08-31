@@ -22,7 +22,10 @@ services:
     expose:
       - "8000"
     environment:
+      # DML-only role -- see ops/setup-db-roles.sh
       DATABASE_URL: ${DATABASE_URL}
+      # Owner role, used only by init_db() for schema changes
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:-}
       TZ: Europe/Berlin
     volumes:
       - ./backend/uploads:/app/uploads

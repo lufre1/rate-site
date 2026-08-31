@@ -1,8 +1,13 @@
 """DB integration tests: run the scraper, then verify the stored menu.
 
-Requires a Postgres DATABASE_URL (skips otherwise), so run inside docker compose:
-  docker compose up -d db
-  docker compose exec backend python -m pytest tests/test_db_integrity.py -v
+This module DROPS AND RECREATES every table, so it only ever runs against the
+throwaway Postgres in docker-compose.test.yml (database name `mensa_test`):
+
+  docker compose -p rate-site-test -f docker-compose.test.yml run --rm tests \
+      python -m pytest tests/test_db_integrity.py -v
+
+Never run it inside the production backend container. conftest.assert_disposable
+enforces this, and the fixture below re-checks before issuing any DDL.
 """
 import os
 from collections import Counter
@@ -19,8 +24,16 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def db():
-    from database import init_db, SessionLocal
+    from conftest import assert_disposable
+    from database import init_db, SessionLocal, Base, engine
     from scraper import scrape_menus
+
+    # Re-check immediately before the DDL. conftest already vetted DATABASE_URL
+    # at import time; this guards against anything reassigning it since.
+    assert_disposable(str(engine.url))
+
+    # Start from a clean schema so scraper assertions see only this run's rows.
+    Base.metadata.drop_all(bind=engine)
     init_db()
     scrape_menus()  # populate/refresh next 7 days from the live site
     session = SessionLocal()
@@ -85,11 +98,15 @@ def test_db_matches_official_site(db):
             # Nothing missing.
             assert expected.issubset(db_names), \
                 f"{d} {mensa_name}: missing dishes {expected - db_names}"
-            # No unexpected extras — except rows that already carry ratings.
+            # No unexpected extras — except rows that already carry ratings, or are side dishes
+            # (sides are extracted from main dish descriptions and may not appear on official site)
             for extra in db_names - expected:
                 row = db.query(DBMeal).filter(
                     DBMeal.date == d, DBMeal.mensa_id == mensa.id, DBMeal.name == extra
                 ).first()
+                # Allow side dishes without ratings (they're extracted from main dishes)
+                if row.type == 'side':
+                    continue
                 rated = (
                     db.query(DBRating).filter(DBRating.meal_id == row.id).first()
                     or db.query(DBSideRating).filter(DBSideRating.meal_id == row.id).first()

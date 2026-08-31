@@ -269,6 +269,9 @@ def _reconcile(db, mensa_obj, date_obj, keep_names):
     ).all()
     unavailable_count = 0
     for row in rows:
+        # Keep side entries (they're extracted from main dish descriptions)
+        if row.type == 'side':
+            continue
         if row.name in keep_names:
             continue
         has_rating = db.query(DBRating).filter(DBRating.meal_id == row.id).first()
@@ -283,6 +286,56 @@ def _reconcile(db, mensa_obj, date_obj, keep_names):
     return unavailable_count
 
 
+def _extract_and_create_sides(db, mensa_obj, date_obj, description, created_sides):
+    """Extract side names from a main dish description and create side meal entries."""
+    # Split description by comma and extract unique side names
+    sides = set()
+    for part in description.split(','):
+        side_name = part.strip()
+        # Filter out common non-side items (sauces, dressings, etc.)
+        if not side_name:
+            continue
+        # Skip if it looks like a sauce/dressing (contains "sauce", "dressing", "ketchup", etc.)
+        if any(kw in side_name.lower() for kw in ['sauce', 'dressing', 'ketchup', 'remoulade', 'mayo', 'senf', 'mit ', 'mit']):
+            continue
+        # Skip if too short
+        if len(side_name) < 5:
+            continue
+        # Skip if it looks like a topping/dessert component
+        if any(kw in side_name.lower() for kw in ['kompott', 'kompott', 'topping', 'zusätzlich', 'zusätzlich']):
+            continue
+        sides.add(side_name)
+
+    # Track sides created in this call to avoid duplicates within same extraction
+    mensa_key = (mensa_obj.id, date_obj)
+    if mensa_key not in created_sides:
+        created_sides[mensa_key] = set()
+    
+    for side_name in sides:
+        # Check if side entry already exists in DB or was created in this run
+        exists = db.query(DBMeal).filter(
+            DBMeal.name == side_name,
+            DBMeal.date == date_obj,
+            DBMeal.mensa_id == mensa_obj.id,
+        ).first()
+        
+        if not exists and side_name not in created_sides[mensa_key]:
+            db.add(DBMeal(
+                name=side_name,
+                name_de=side_name,
+                name_en=side_name,
+                description=None,
+                description_de=None,
+                description_en=None,
+                tags=None,
+                type='side',
+                date=date_obj,
+                mensa_id=mensa_obj.id,
+                is_available=True,
+            ))
+            created_sides[mensa_key].add(side_name)
+
+
 def scrape_today():
     """Scrape only today's menus. Lightweight — used for the precise lunch-time pre-open updates."""
     db = SessionLocal()
@@ -293,6 +346,9 @@ def scrape_today():
 
         de_tables = _mensa_tables_for_date(date_str, ALL_URL, CACHE_URL)
         en_tables = _mensa_tables_for_date(date_str, ALL_URL_EN, CACHE_URL_EN)
+
+        # Track created sides per mensa to avoid duplicates
+        created_sides = {}
 
         new_count = 0
         updated_count = 0
@@ -335,6 +391,10 @@ def scrape_today():
                 else:
                     updated_count += 1
 
+                # Extract sides from main dish descriptions and create side entries
+                if de_dish['type'] == 'main' and de_dish.get('description'):
+                    _extract_and_create_sides(db, mensa_obj, today, de_dish['description'], created_sides)
+
             _reconcile(db, mensa_obj, today, german_names)
 
         db.commit()
@@ -354,6 +414,9 @@ def scrape_menus():
     valid_names = set(ALIAS_MAP.values())
     try:
         today = date.today()
+        # Track created sides per mensa to avoid duplicates
+        created_sides = {}
+
         new_count = 0
         updated_count = 0
         removed_count = 0
@@ -402,6 +465,10 @@ def scrape_menus():
                         new_count += 1
                     else:
                         updated_count += 1
+
+                    # Extract sides from main dish descriptions and create side entries
+                    if de_dish['type'] == 'main' and de_dish.get('description'):
+                        _extract_and_create_sides(db, mensa_obj, scrape_date, de_dish['description'], created_sides)
 
                 removed_count += _reconcile(db, mensa_obj, scrape_date, german_names)
 
