@@ -761,7 +761,7 @@ def vote_on_comment(rating_id: int, data: dict, db: Session = Depends(get_db), v
     if direction not in (1, -1):
         raise HTTPException(status_code=400, detail="direction must be 1 (up) or -1 (down)")
     
-    user = auth.optional_user(authorization)
+    user = auth._lookup(db, authorization)
     
     existing = db.query(DBCommentVote).filter(
         DBCommentVote.rating_id == rating_id,
