@@ -1003,7 +1003,7 @@ def delete_own_rating(
 
 
 @app.get("/api/v1/stats/overview", response_model=dict, tags=["Stats"])
-def get_dashboard_stats(db: Session = Depends(get_db)):
+def get_dashboard_stats(db: Session = Depends(get_db), lang: str = "de"):
     """Main dashboard statistics"""
     # Total ratings
     total_ratings = db.query(func.count(DBRating.id)).scalar() or 0
@@ -1025,26 +1025,34 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
         func.count(DBRating.id).label('rating_count')
     ).join(
         DBMensa, DBMeal.mensa_id == DBMensa.id
+    ).join(
+        DBRating, DBRating.meal_id == DBMeal.id
     ).group_by(DBMeal.id, DBMensa.name).having(func.count(DBRating.id) >= 5).order_by(
         func.avg(DBRating.rating).desc()
     ).limit(10).all()
     
     top_dishes_list = []
     for dish in top_dishes:
+        if lang == "en":
+            name = dish.name_en or dish.name_de or dish.name
+        else:
+            name = dish.name_de or dish.name
         top_dishes_list.append({
             "id": dish.id,
-            "name": dish.name_en or dish.name_de or dish.name,
+            "name": name,
             "mensa": dish.mensa,
             "avg_rating": round(float(dish.avg_rating), 1),
             "rating_count": dish.rating_count
         })
     
-    # Mensa rankings
+    # Mensa rankings (with at least 5 ratings)
     mensa_stats = db.query(
         DBMensa.name,
         func.count(DBRating.id).label('total_ratings'),
         func.avg(DBRating.rating).label('avg_rating')
-    ).join(DBMeal, DBMeal.mensa_id == DBMensa.id).group_by(DBMensa.name).order_by(
+    ).join(DBMeal, DBMeal.mensa_id == DBMensa.id).join(
+        DBRating, DBRating.meal_id == DBMeal.id
+    ).group_by(DBMensa.name).having(func.count(DBRating.id) >= 5).order_by(
         func.avg(DBRating.rating).desc()
     ).all()
     
@@ -1062,7 +1070,7 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     
     for i, day in enumerate(days):
         count = db.query(func.count(DBRating.id)).filter(
-            func.extract('dow', DBRating.created_at) == i
+            func.extract('dow', DBRating.created_at) == (i + 6) % 7
         ).scalar() or 0
         weekly_trends[day] = count
     

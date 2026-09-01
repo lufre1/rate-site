@@ -47,6 +47,30 @@ ALIAS_MAP = {
     "bistro_hawk": "Bistro HAWK",
 }
 
+# Last Minute boilerplate, in either language. The type cell usually says
+# "Last Minute", but CGiN's English page puts this text in the Grillfest row.
+LAST_MINUTE_RE = re.compile(
+    r'Only while stocks last|Nur solange der Vorrat reicht', re.IGNORECASE
+)
+
+# A price as the menu writes it: "2,60 €".
+PRICE_RE = re.compile(r'(\d+)[,.](\d+)\s*€')
+
+# Multi-item rows (e.g. CGiN "Heute : Grillfest") list every item on its own
+# line with its own price, instead of wrapping one dish in <strong>. This many
+# priced lines is what tells such a row apart from prose that mentions a price.
+MULTI_ITEM_MIN_LINES = 3
+
+# Within a multi-item row, price is what separates a side from a main: the
+# salads and the Fladenbrot go for 1,10-1,15 €, every grill item for 2,60-4,10 €.
+SIDE_PRICE_MAX = 2.00
+
+# Diet words the menu appends to an item, e.g. "Bunter Bauernsalat. Vegan".
+# Word boundaries matter -- "Vegane", "Veganer" and "Veganem" appear mid-name
+# and must not split it.
+DIET_RE = re.compile(r'\b(Vegan|Vegetarisch)\b')
+DIET_TAGS = {'vegan': 'vegan.png', 'vegetarisch': 'vegetarisch.png'}
+
 
 def _normalize(name):
     """Remove parenthesized allergen codes from a name string."""
@@ -72,6 +96,10 @@ def _parse_dish_row(row) -> dict | None:
 
     bez_text = cells[1].get_text()
     if 'Selbstbedienung' in bez_text:
+        return None
+    # The English page sometimes serves the Last Minute blurb in an unrelated
+    # row (CGiN's Grillfest slot), so the type-cell check above misses it.
+    if LAST_MINUTE_RE.search(bez_text):
         return None
 
     # Find the <strong> tag for the dish name
@@ -143,6 +171,83 @@ def _parse_dish_row(row) -> dict | None:
         'type': dish_type,
         'tags': tags if tags else None,
     }
+
+
+def _bez_lines(bez_cell):
+    """Text of a description cell before the trailing <i class="smaller">, split into lines."""
+    parts = []
+    for node in bez_cell.children:
+        if isinstance(node, Tag) and node.name == 'i':
+            break
+        text = node.get_text() if isinstance(node, Tag) else str(node)
+        if text:
+            parts.append(text)
+    return ''.join(parts).splitlines()
+
+
+def _parse_multi_item_row(row) -> list[dict] | None:
+    """Parse a row that lists several priced items instead of wrapping one in <strong>.
+
+    CGiN's "Heute : Grillfest" is the live example: the heading sits in the type
+    cell and the description cell holds one item per line, each with its own
+    price. Each line becomes a dish of its own so it can be rated individually.
+    Returns None if the row is not of that shape.
+    """
+    cells = row.find_all('td')
+    if len(cells) < 2 or cells[1].find('strong'):
+        return None
+
+    lines = [line.strip() for line in _bez_lines(cells[1])]
+    priced = [line for line in lines if PRICE_RE.search(line)]
+    if len(priced) < MULTI_ITEM_MIN_LINES:
+        return None
+
+    dishes = []
+    for line in priced:
+        price_match = PRICE_RE.search(line)
+        price = float(f'{price_match.group(1)}.{price_match.group(2)}')
+        text = PRICE_RE.sub('', line).strip()
+
+        # Split name from description: on the first period if there is one,
+        # otherwise at a trailing diet word ("Bunter Kartoffelsalat Vegan mit ...").
+        if '.' in text:
+            name, _, description = text.partition('.')
+        else:
+            diet = DIET_RE.search(text)
+            if diet and diet.start() > 0:
+                name, description = text[:diet.start()], text[diet.start():]
+            else:
+                name, description = text, ''
+
+        name = _normalize(re.sub(r'\s+', ' ', name)).strip(' ,.')
+        if len(name) < 2:
+            continue
+        description = _normalize(re.sub(r'\s+', ' ', description)).strip(' ,.')
+
+        # The row's own sp_hin images describe the whole block -- CGiN's carries a
+        # single vegan.png that would label the Bratwurst vegan -- so derive the
+        # tag per item from its own text instead.
+        diet = DIET_RE.search(text)
+        tags = [DIET_TAGS[diet.group(1).lower()]] if diet else None
+
+        dishes.append({
+            'name': name,
+            'description': description or None,
+            'type': 'side' if price < SIDE_PRICE_MAX else 'main',
+            'tags': tags,
+            'multi_item': True,
+        })
+
+    return dishes or None
+
+
+def _parse_dish_rows(row) -> list[dict]:
+    """Parse one menu row into the dishes it contains (usually exactly one)."""
+    dishes = _parse_multi_item_row(row)
+    if dishes:
+        return dishes
+    dish = _parse_dish_row(row)
+    return [dish] if dish else []
 
 
 def _mensa_name_of(table):
@@ -373,27 +478,34 @@ def scrape_today():
             seen = set()
 
             for i, de_row in enumerate(de_rows):
-                de_dish = _parse_dish_row(de_row)
-                if not de_dish:
+                de_dishes = _parse_dish_rows(de_row)
+                if not de_dishes:
                     continue
 
-                dedup_key = (de_dish['name'].lower(), (de_dish.get('description') or '').lower())
-                if dedup_key in seen:
-                    continue
-                seen.add(dedup_key)
-                german_names.add(de_dish['name'])
+                # A multi-item row has no English counterpart worth pairing: the English
+                # page serves unrelated Last Minute text in that slot, and _parse_dish_row
+                # rejects it, so leave English empty and let main.py fall back to German.
+                multi = de_dishes[0].get('multi_item')
+                en_dish = None if multi else (_parse_dish_row(en_rows[i]) if i < len(en_rows) else None)
 
-                en_dish = _parse_dish_row(en_rows[i]) if i < len(en_rows) else None
+                for de_dish in de_dishes:
+                    dedup_key = (de_dish['name'].lower(), (de_dish.get('description') or '').lower())
+                    if dedup_key in seen:
+                        continue
+                    seen.add(dedup_key)
+                    german_names.add(de_dish['name'])
 
-                result = _upsert_meal(db, mensa_obj, today, de_dish, en_dish)
-                if result == 'new':
-                    new_count += 1
-                else:
-                    updated_count += 1
+                    result = _upsert_meal(db, mensa_obj, today, de_dish, en_dish)
+                    if result == 'new':
+                        new_count += 1
+                    else:
+                        updated_count += 1
 
-                # Extract sides from main dish descriptions and create side entries
-                if de_dish['type'] == 'main' and de_dish.get('description'):
-                    _extract_and_create_sides(db, mensa_obj, today, de_dish['description'], created_sides)
+                    # Extract sides from main dish descriptions and create side entries.
+                    # Multi-item rows are already split per item, and their text carries
+                    # prices whose decimal comma would shred a comma split.
+                    if not multi and de_dish['type'] == 'main' and de_dish.get('description'):
+                        _extract_and_create_sides(db, mensa_obj, today, de_dish['description'], created_sides)
 
             _reconcile(db, mensa_obj, today, german_names)
 
@@ -448,27 +560,34 @@ def scrape_menus():
                 seen = set()
 
                 for i, de_row in enumerate(de_rows):
-                    de_dish = _parse_dish_row(de_row)
-                    if not de_dish:
+                    de_dishes = _parse_dish_rows(de_row)
+                    if not de_dishes:
                         continue  # German row decides inclusion
 
-                    dedup_key = (de_dish['name'].lower(), (de_dish.get('description') or '').lower())
-                    if dedup_key in seen:
-                        continue
-                    seen.add(dedup_key)
-                    german_names.add(de_dish['name'])
+                    # A multi-item row has no English counterpart worth pairing: the English
+                    # page serves unrelated Last Minute text in that slot, and _parse_dish_row
+                    # rejects it, so leave English empty and let main.py fall back to German.
+                    multi = de_dishes[0].get('multi_item')
+                    en_dish = None if multi else (_parse_dish_row(en_rows[i]) if i < len(en_rows) else None)
 
-                    en_dish = _parse_dish_row(en_rows[i]) if i < len(en_rows) else None
+                    for de_dish in de_dishes:
+                        dedup_key = (de_dish['name'].lower(), (de_dish.get('description') or '').lower())
+                        if dedup_key in seen:
+                            continue
+                        seen.add(dedup_key)
+                        german_names.add(de_dish['name'])
 
-                    result = _upsert_meal(db, mensa_obj, scrape_date, de_dish, en_dish)
-                    if result == 'new':
-                        new_count += 1
-                    else:
-                        updated_count += 1
+                        result = _upsert_meal(db, mensa_obj, scrape_date, de_dish, en_dish)
+                        if result == 'new':
+                            new_count += 1
+                        else:
+                            updated_count += 1
 
-                    # Extract sides from main dish descriptions and create side entries
-                    if de_dish['type'] == 'main' and de_dish.get('description'):
-                        _extract_and_create_sides(db, mensa_obj, scrape_date, de_dish['description'], created_sides)
+                        # Extract sides from main dish descriptions and create side entries.
+                        # Multi-item rows are already split per item, and their text carries
+                        # prices whose decimal comma would shred a comma split.
+                        if not multi and de_dish['type'] == 'main' and de_dish.get('description'):
+                            _extract_and_create_sides(db, mensa_obj, scrape_date, de_dish['description'], created_sides)
 
                 removed_count += _reconcile(db, mensa_obj, scrape_date, german_names)
 

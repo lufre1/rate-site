@@ -2,6 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { API, authHeaders } from './shared';
 
+function renderStars(rating) {
+  const fullStars = Math.floor(rating);
+  const hasHalfStar = rating % 1 >= 0.5;
+  const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+  
+  let stars = '★'.repeat(fullStars);
+  if (hasHalfStar) {
+    stars += '☆';
+  }
+  stars += '☆'.repeat(emptyStars);
+  return stars;
+}
+
 function Stats({ onBack, language }) {
   const { t } = useTranslation();
   const [stats, setStats] = useState(null);
@@ -151,14 +164,14 @@ function Stats({ onBack, language }) {
                     {dish.mensa}
                   </div>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ color: '#f59e0b', fontSize: '1.125rem', fontWeight: '600' }}>
-                    {'★'.repeat(Math.round(dish.avg_rating))} {dish.avg_rating}
-                  </div>
-                  <div style={{ fontSize: '0.875rem', color: '#9ca3af' }}>
-                    {dish.rating_count} {t('stats.ratings')}
-                  </div>
-                </div>
+<div style={{ textAlign: 'right' }}>
+                   <div style={{ color: '#f59e0b', fontSize: '1.125rem', fontWeight: '600' }}>
+                     {renderStars(dish.avg_rating)} {dish.avg_rating}
+                   </div>
+                   <div style={{ fontSize: '0.875rem', color: '#9ca3af' }}>
+                     {dish.rating_count} {t('stats.ratings')}
+                   </div>
+                 </div>
               </div>
             ))}
           </div>
@@ -197,14 +210,14 @@ function Stats({ onBack, language }) {
                     {mensa.name}
                   </div>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ color: '#f59e0b', fontSize: '1.125rem', fontWeight: '600' }}>
-                    {'★'.repeat(Math.round(mensa.avg_rating))} {mensa.avg_rating}
-                  </div>
-                  <div style={{ fontSize: '0.875rem', color: '#9ca3af' }}>
-                    {mensa.total_ratings} {t('stats.ratings')}
-                  </div>
-                </div>
+<div style={{ textAlign: 'right' }}>
+                   <div style={{ color: '#f59e0b', fontSize: '1.125rem', fontWeight: '600' }}>
+                     {renderStars(mensa.avg_rating)} {mensa.avg_rating}
+                   </div>
+                   <div style={{ fontSize: '0.875rem', color: '#9ca3af' }}>
+                     {mensa.total_ratings} {t('stats.ratings')}
+                   </div>
+                 </div>
               </div>
             ))}
           </div>
@@ -233,15 +246,15 @@ function Stats({ onBack, language }) {
                 <div style={{ width: '80px', fontSize: '0.875rem', fontWeight: 500, color: '#374151' }}>
                   {day}
                 </div>
-                <div style={{ flex: 1, height: '8px', background: '#f3f4f6', borderRadius: '4px', overflow: 'hidden' }}>
-                  <div style={{
-                    height: '100%',
-                    background: '#ea580c',
-                    borderRadius: '4px',
-                    width: `${Math.min((count / (Object.values(stats.weekly_trends)[0] || 1)) * 100, 100)}%`,
-                    transition: 'width 0.3s ease'
-                  }} />
-                </div>
+<div style={{ flex: 1, height: '8px', background: '#f3f4f6', borderRadius: '4px', overflow: 'hidden' }}>
+                   <div style={{
+                     height: '100%',
+                     background: '#ea580c',
+                     borderRadius: '4px',
+                     width: `${Math.min((count / (Math.max(...Object.values(stats.weekly_trends)) || 1)) * 100, 100)}%`,
+                     transition: 'width 0.3s ease'
+                   }} />
+                 </div>
                 <div style={{ fontSize: '0.875rem', fontWeight: 600, color: '#ea580c', minWidth: '48px' }}>
                   {count}
                 </div>

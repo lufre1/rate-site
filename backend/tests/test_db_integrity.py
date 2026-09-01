@@ -45,7 +45,7 @@ def _official_de_names(date_obj):
     """{mensa_name: set(dish names)} parsed from the official German site."""
     from scraper import (
         ALL_URL, CACHE_URL, ALIAS_MAP,
-        _mensa_tables_for_date, _dish_rows, _parse_dish_row,
+        _mensa_tables_for_date, _dish_rows, _parse_dish_rows,
     )
     valid = set(ALIAS_MAP.values())
     ds = date_obj.strftime('%Y-%m-%d')
@@ -56,8 +56,10 @@ def _official_de_names(date_obj):
             continue
         names = set()
         for row in _dish_rows(table):
-            dish = _parse_dish_row(row)
-            if dish:
+            # _parse_dish_rows, not _parse_dish_row: a multi-item row such as
+            # CGiN's Grillfest stores one dish per line, and that is what the
+            # DB is expected to hold.
+            for dish in _parse_dish_rows(row):
                 names.add(dish['name'])
         out[name] = names
     return out

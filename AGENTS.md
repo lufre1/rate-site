@@ -81,6 +81,8 @@ docker compose exec backend python -c "from scraper import scrape_menus; scrape_
 - Two-stage URL fallback: `alle.html` → per-mensas (`ALIAS_MAP` in `scraper.py:43`)
 - Skips: `last minute`, `pastabuffet`, `Selbstbedienung` rows; filters to 4 mensas only
 - **Description cleanup**: Removes "oder"/"or" separators between ingredients; normalizes whitespace
+- **Multi-item rows**: a row with no `<strong>` whose description cell holds `MULTI_ITEM_MIN_LINES`+ individually priced lines (CGiN's "Heute : Grillfest") is exploded into one dish per line, so each is rateable on its own. Price classifies the type — under `SIDE_PRICE_MAX` (2,00 €) is a `side`, above it a `main` — and the per-item diet word supplies the tag, because the row's single `sp_hin` image describes the whole block and would label the Bratwurst vegan. Prices are stripped; `_extract_and_create_sides` is skipped for these rows (their decimal commas shred a comma split)
+- **English is dropped for multi-item rows**: the English page serves Last Minute boilerplate in CGiN's Grillfest slot, so `LAST_MINUTE_RE` rejects it by content and the UI falls back to German. The older `last minute` skip only inspects the type cell
 
 ## Accounts (Non-Obvious)
 
