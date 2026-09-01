@@ -74,7 +74,8 @@
     "name": "Provider",
     "contact": "Contact",
     "email": "Email",
-    "disclaimerText": "We assume no liability for the accuracy, completeness, or timeliness of the information provided. All information without warranty."
+    "disclaimerText": "We assume no liability for the accuracy, completeness, or timeliness of the information provided. All information without warranty.",
+    "back": "Back"
   },
   "auth": {
     "account": "Account",
@@ -100,5 +101,17 @@
     "displayNameHint": "Optional: Name shown publicly",
     "displayNameLong": "Display name must be at most 30 characters",
     "displayNameInvalid": "Display name must contain only letters, digits, spaces, underscore, or hyphen"
+  },
+  "stats": {
+    "title": "Statistics",
+    "totalRatings": "Total Ratings",
+    "totalMeals": "Meals",
+    "totalMensas": "Mensas",
+    "topDishes": "Top Rated Dishes",
+    "mensaRankings": "Mensa Rankings",
+    "weeklyTrends": "Weekly Trends",
+    "ratings": "ratings",
+    "noData": "No data available yet",
+    "error": "Error loading statistics"
   }
 }

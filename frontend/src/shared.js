@@ -51,7 +51,8 @@ export function StarPicker({ value, onChange, size = 22 }) {
           background: 'none', border: 'none', cursor: 'pointer',
           fontSize: size, lineHeight: 1, padding: '12px 6px',
           minWidth: 48, minHeight: 48,
-          color: i <= value ? '#f59e0b' : '#d1d5db'
+          color: i <= value ? '#f59e0b' : '#d1d5db',
+          transition: 'transform 0.15s ease-out'
         }}>&#9733;</button>
       ))}
     </div>

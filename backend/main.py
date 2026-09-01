@@ -1002,9 +1002,199 @@ def delete_own_rating(
     return Response(status_code=204)
 
 
+@app.get("/api/v1/stats/overview", response_model=dict, tags=["Stats"])
+def get_dashboard_stats(db: Session = Depends(get_db)):
+    """Main dashboard statistics"""
+    # Total ratings
+    total_ratings = db.query(func.count(DBRating.id)).scalar() or 0
+    
+    # Total meals (unique meal names)
+    total_meals = db.query(func.count(DBMeal.id.distinct())).scalar() or 0
+    
+    # Total mensas
+    total_mensas = db.query(func.count(DBMensa.id)).scalar() or 0
+    
+    # Top rated dishes (with at least 5 ratings)
+    top_dishes = db.query(
+        DBMeal.id,
+        DBMeal.name,
+        DBMeal.name_en,
+        DBMeal.name_de,
+        DBMensa.name.label('mensa'),
+        func.avg(DBRating.rating).label('avg_rating'),
+        func.count(DBRating.id).label('rating_count')
+    ).join(
+        DBMensa, DBMeal.mensa_id == DBMensa.id
+    ).group_by(DBMeal.id, DBMensa.name).having(func.count(DBRating.id) >= 5).order_by(
+        func.avg(DBRating.rating).desc()
+    ).limit(10).all()
+    
+    top_dishes_list = []
+    for dish in top_dishes:
+        top_dishes_list.append({
+            "id": dish.id,
+            "name": dish.name_en or dish.name_de or dish.name,
+            "mensa": dish.mensa,
+            "avg_rating": round(float(dish.avg_rating), 1),
+            "rating_count": dish.rating_count
+        })
+    
+    # Mensa rankings
+    mensa_stats = db.query(
+        DBMensa.name,
+        func.count(DBRating.id).label('total_ratings'),
+        func.avg(DBRating.rating).label('avg_rating')
+    ).join(DBMeal, DBMeal.mensa_id == DBMensa.id).group_by(DBMensa.name).order_by(
+        func.avg(DBRating.rating).desc()
+    ).all()
+    
+    mensa_rankings = []
+    for stat in mensa_stats:
+        mensa_rankings.append({
+            "name": stat.name,
+            "total_ratings": stat.total_ratings,
+            "avg_rating": round(float(stat.avg_rating), 1)
+        })
+    
+    # Weekly trends (ratings by day of week)
+    weekly_trends = {}
+    days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    
+    for i, day in enumerate(days):
+        count = db.query(func.count(DBRating.id)).filter(
+            func.extract('dow', DBRating.created_at) == i
+        ).scalar() or 0
+        weekly_trends[day] = count
+    
+    return {
+        "total_ratings": total_ratings,
+        "total_meals": total_meals,
+        "total_mensas": total_mensas,
+        "top_rated_dishes": top_dishes_list,
+        "mensa_rankings": mensa_rankings,
+        "weekly_trends": weekly_trends
+    }
+
+@app.get("/api/v1/stats/mensas")
+def get_mensa_stats(db: Session = Depends(get_db)):
+    """Per-mensa statistics"""
+    mensa_stats = db.query(
+        DBMensa.name,
+        func.count(DBRating.id).label('total_ratings'),
+        func.avg(DBRating.rating).label('avg_rating'),
+        func.count(DBMeal.id.distinct()).label('total_meals')
+    ).join(DBMeal, DBMeal.mensa_id == DBMensa.id).group_by(DBMensa.name).order_by(
+        func.avg(DBRating.rating).desc()
+    ).all()
+    
+    return [
+        {
+            "name": stat.name,
+            "total_ratings": stat.total_ratings,
+            "avg_rating": round(float(stat.avg_rating), 1),
+            "total_meals": stat.total_meals
+        }
+        for stat in mensa_stats
+    ]
+
+@app.get("/api/v1/stats/top-dishes")
+def get_top_dishes(limit: int = 10, db: Session = Depends(get_db)):
+    """Top rated dishes across all mensas"""
+    top_dishes = db.query(
+        DBMeal.id,
+        DBMeal.name,
+        DBMeal.name_en,
+        DBMeal.name_de,
+        DBMensa.name.label('mensa'),
+        func.avg(DBRating.rating).label('avg_rating'),
+        func.count(DBRating.id).label('rating_count')
+    ).join(
+        DBMensa, DBMeal.mensa_id == DBMensa.id
+    ).group_by(DBMeal.id, DBMensa.name).order_by(
+        func.avg(DBRating.rating).desc()
+    ).limit(limit).all()
+    
+    return [
+        {
+            "id": dish.id,
+            "name": dish.name_en or dish.name_de or dish.name,
+            "mensa": dish.mensa,
+            "avg_rating": round(float(dish.avg_rating), 1),
+            "rating_count": dish.rating_count
+        }
+        for dish in top_dishes
+    ]
+
+@app.get("/api/v1/stats/top-photo")
+def get_top_photo_global(db: Session = Depends(get_db)):
+    """Get photo from rating with most upvotes across all meals"""
+    photo_results = db.query(
+        DBRating.id.label('rating_id'),
+        DBRating.photo_url,
+        DBMeal.name.label('meal_name'),
+        DBMensa.name.label('mensa'),
+        func.sum(DBCommentVote.direction).label('total_score')
+    ).join(
+        DBMeal, DBRating.meal_id == DBMeal.id
+    ).join(
+        DBMensa, DBMeal.mensa_id == DBMensa.id
+    ).outerjoin(
+        DBCommentVote, DBCommentVote.rating_id == DBRating.id
+    ).filter(
+        DBRating.photo_url.isnot(None)
+    ).group_by(DBRating.id, DBRating.photo_url, DBMeal.name, DBMensa.name).all()
+    
+    if not photo_results:
+        return {"photo_url": None, "meal_name": None, "mensa": None}
+    
+    top_photo = max(photo_results, key=lambda x: x.total_score or 0)
+    
+    return {
+        "photo_url": top_photo.photo_url,
+        "meal_name": top_photo.meal_name,
+        "mensa": top_photo.mensa
+    }
+
 @app.get("/api/v1/mensas")
 def get_mensas(db: Session = Depends(get_db)):
     return [m.name for m in db.query(DBMensa).order_by(DBMensa.name).all()]
+
+@app.get("/api/v1/meals/{meal_id}/top-photo")
+def get_top_photo(meal_id: int, db: Session = Depends(get_db)):
+    """Get photo from rating with most upvotes for this meal"""
+    # Find all meal instances with same (name, mensa_id) combination
+    meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
+    if not meal:
+        raise HTTPException(status_code=404, detail="Meal not found")
+    
+    all_meals = db.query(DBMeal).filter(
+        DBMeal.name == meal.name,
+        DBMeal.mensa_id == meal.mensa_id
+    ).all()
+    
+    all_meal_ids = [m.id for m in all_meals]
+    
+    # Get ratings with photos, join with comment_votes to sum scores
+    photo_results = db.query(
+        DBRating.id.label('rating_id'),
+        DBRating.photo_url,
+        func.sum(DBCommentVote.direction).label('total_score')
+    ).join(
+        DBMeal, DBRating.meal_id == DBMeal.id
+    ).outerjoin(
+        DBCommentVote, DBCommentVote.rating_id == DBRating.id
+    ).filter(
+        DBMeal.id.in_(all_meal_ids),
+        DBRating.photo_url.isnot(None)
+    ).group_by(DBRating.id, DBRating.photo_url).all()
+    
+    if not photo_results:
+        return {"photo_url": None}
+    
+    # Find the photo with highest total score
+    top_photo = max(photo_results, key=lambda x: x.total_score or 0)
+    
+    return {"photo_url": top_photo.photo_url}
 
 # Mount static files for photos
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")

@@ -9,10 +9,12 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f3f4f6;
+  background-color: #fff7ed;
   font-size: 1rem; /* Inherit base size */
   overflow-x: hidden; /* Disable horizontal scroll */
   touch-action: manipulation; /* Optimize for touch */
+  line-height: 1.8;
+  letter-spacing: 0.02em;
 }
 
 .container {

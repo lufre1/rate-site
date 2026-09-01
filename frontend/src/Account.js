@@ -4,12 +4,13 @@ import { API, authHeaders, setToken, clearToken, formatRelativeDate, StarPicker,
 
 const btn = (bg, color) => ({
   padding: '8px 16px', background: bg, color, border: 'none',
-  borderRadius: 4, cursor: 'pointer', fontSize: '0.875rem'
+  borderRadius: 8, cursor: 'pointer', fontSize: '0.875rem', fontWeight: 600,
+  transition: 'all 0.2s ease', boxShadow: bg === '#3b82f6' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
 });
 
 const input = {
-  width: '100%', padding: '0.5rem', borderRadius: '0.5rem',
-  border: '1px solid #d1d5db', fontSize: '0.875rem', marginBottom: 8
+  width: '100%', padding: '0.5rem', borderRadius: '8px',
+  border: '1px solid #d1d5db', fontSize: '0.875rem', marginBottom: 8, transition: 'border-color 0.2s ease, box-shadow 0.2s ease'
 };
 
 function AuthForm({ onAuth }) {
@@ -48,7 +49,7 @@ function AuthForm({ onAuth }) {
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         {['login', 'register'].map(m => (
           <button key={m} type="button" onClick={() => { setMode(m); setError(''); }}
-            style={btn(mode === m ? '#3b82f6' : '#e5e7eb', mode === m ? '#fff' : '#374151')}>
+            style={btn(mode === m ? '#ea580c' : '#f3f4f6', mode === m ? '#fff' : '#6b7280')}>
             {t(`auth.${m}`)}
           </button>
         ))}
@@ -63,9 +64,9 @@ function AuthForm({ onAuth }) {
       {mode === 'register' && (
         <p style={{ fontSize: '0.75rem', color: '#6b7280', margin: '0 0 8px' }}>{t('auth.rules')}</p>
       )}
-      {error && <p style={{ color: '#dc2626', fontSize: '0.8125rem', margin: '0 0 8px' }}>{error}</p>}
+      {error && <p style={{ color: '#dc2626', fontSize: '0.8125rem', margin: '0 0 8px', fontWeight: 500 }}>{error}</p>}
       <button type="submit" disabled={busy || !username || !password}
-        style={{ ...btn(busy || !username || !password ? '#d1d5db' : '#3b82f6', '#fff'), width: '100%' }}>
+        style={{ ...btn(busy || !username || !password ? '#f3f4f6' : '#ea580c', busy || !username || !password ? '#9ca3af' : '#fff'), width: '100%', fontWeight: 600 }}>
         {busy ? '...' : t(`auth.${mode}`)}
       </button>
     </form>
@@ -102,8 +103,8 @@ function RatingRow({ entry, onChanged }) {
   };
 
   return (
-    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8,
-      padding: '10px 12px', marginBottom: 8 }}>
+    <div style={{ background: '#fff', border: '1px solid #f3f4f6', borderRadius: 12,
+      padding: '12px 16px', marginBottom: 12, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
         <div>
           <div style={{ fontSize: '0.9375rem', fontWeight: 600, color: '#111827' }}>{entry.meal_name}</div>
@@ -112,7 +113,7 @@ function RatingRow({ entry, onChanged }) {
             {entry.created_at && ` · ${formatRelativeDate(entry.created_at, t)}`}
           </div>
         </div>
-        <span style={{ color: '#f59e0b', fontSize: '0.875rem', whiteSpace: 'nowrap' }}>
+        <span style={{ color: '#f59e0b', fontSize: '0.875rem', whiteSpace: 'nowrap', fontWeight: 600 }}>
           {'★'.repeat(entry.rating)}{'☆'.repeat(5 - entry.rating)}
         </span>
       </div>
@@ -123,9 +124,9 @@ function RatingRow({ entry, onChanged }) {
           <textarea value={comment} onChange={e => setComment(e.target.value)} rows={2}
             style={{ ...input, marginTop: 4, resize: 'vertical' }} />
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={save} disabled={busy} style={btn('#3b82f6', '#fff')}>{t('auth.save')}</button>
+            <button onClick={save} disabled={busy} style={btn('#ea580c', '#fff')}>{t('auth.save')}</button>
             <button onClick={() => { setEditing(false); setRating(entry.rating); setComment(entry.comment || ''); }}
-              style={btn('#e5e7eb', '#374151')}>{t('auth.cancel')}</button>
+              style={btn('#f3f4f6', '#6b7280')}>{t('auth.cancel')}</button>
           </div>
         </div>
       ) : (
@@ -136,16 +137,16 @@ function RatingRow({ entry, onChanged }) {
           )}
           {entry.photo_url && (
             <img src={`${API}${entry.photo_url}`} alt="" style={{ marginTop: 6, maxWidth: 100,
-              maxHeight: 100, borderRadius: 6, border: '1px solid #e5e7eb', display: 'block' }}
+              maxHeight: 100, borderRadius: 8, border: '1px solid #f3f4f6', display: 'block' }}
               onError={e => { e.target.style.display = 'none'; }} />
           )}
           <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
             <button onClick={() => setEditing(true)} disabled={busy}
-              style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer',
-                fontSize: '0.75rem', padding: 0 }}>{t('auth.edit')}</button>
+              style={{ background: 'none', border: 'none', color: '#ea580c', cursor: 'pointer',
+                fontSize: '0.75rem', padding: 0, fontWeight: 600 }}>{t('auth.edit')}</button>
             <button onClick={remove} disabled={busy}
               style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer',
-                fontSize: '0.75rem', padding: 0 }}>{t('auth.delete')}</button>
+                fontSize: '0.75rem', padding: 0, fontWeight: 600 }}>{t('auth.delete')}</button>
           </div>
         </>
       )}
@@ -216,14 +217,14 @@ function Profile({ user, onLogout, language, onUpdate }) {
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-        <span style={{ fontSize: '1rem', color: '#374151' }}>
+        <span style={{ fontSize: '1rem', color: '#374151', fontWeight: 600 }}>
           {t('auth.signedInAs')} <strong>{user.username}</strong>
         </span>
-        <button onClick={logout} style={btn('#e5e7eb', '#374151')}>{t('auth.logout')}</button>
+        <button onClick={logout} style={btn('#f3f4f6', '#6b7280')}>{t('auth.logout')}</button>
       </div>
 
-      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8,
-        padding: '16px', marginBottom: 16 }}>
+      <div style={{ background: '#fff', border: '1px solid #f3f4f6', borderRadius: 12,
+        padding: '20px', marginBottom: 16, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
         <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: '#111827', marginBottom: 8 }}>
           {t('auth.displayName')}
         </label>
@@ -232,15 +233,15 @@ function Profile({ user, onLogout, language, onUpdate }) {
           value={displayName}
           onChange={e => { setDisplayNameLocal(e.target.value); setDisplayError(''); }}
           maxLength={30} />
-        {displayError && <p style={{ color: '#dc2626', fontSize: '0.75rem', margin: '0 0 8px' }}>{displayError}</p>}
+        {displayError && <p style={{ color: '#dc2626', fontSize: '0.75rem', margin: '0 0 8px', fontWeight: 500 }}>{displayError}</p>}
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => saveDisplayName()} disabled={displayBusy}
-            style={{ ...btn(displayBusy ? '#d1d5db' : '#3b82f6', '#fff'), padding: '6px 12px' }}>
+            style={{ ...btn(displayBusy ? '#f3f4f6' : '#ea580c', displayBusy ? '#9ca3af' : '#fff'), padding: '6px 12px', fontWeight: 600 }}>
             {displayBusy ? '...' : t('auth.save')}
           </button>
           {displayName && (
             <button onClick={() => { setDisplayNameLocal(''); saveDisplayName(); }}
-              style={{ ...btn('#e5e7eb', '#374151'), padding: '6px 12px' }}>
+              style={{ ...btn('#f3f4f6', '#6b7280'), padding: '6px 12px' }}>
               {t('auth.clear')}
             </button>
           )}
@@ -250,7 +251,7 @@ function Profile({ user, onLogout, language, onUpdate }) {
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         {[['mine', 'auth.myRatings'], ['favourites', 'auth.favourites']].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
-            style={btn(tab === key ? '#3b82f6' : '#e5e7eb', tab === key ? '#fff' : '#374151')}>
+            style={btn(tab === key ? '#ea580c' : '#f3f4f6', tab === key ? '#fff' : '#6b7280')}>
             {t(label)}
           </button>
         ))}
@@ -280,13 +281,13 @@ function Account({ user, onAuth, onLogout, onBack, language }) {
 
   return (
     <div style={{ maxWidth: '600px', margin: '0 auto', padding: '24px' }}>
-      <h1 style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#1f2937', marginBottom: '24px' }}>
+      <h1 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1f2937', marginBottom: '24px' }}>
         {t('auth.account')}
       </h1>
       {user
         ? <Profile user={userState || user} onLogout={onLogout} language={language} onUpdate={handleProfileUpdate} />
         : <AuthForm onAuth={onAuth} />}
-      <button onClick={onBack} style={{ ...btn('#3b82f6', '#fff'), marginTop: 24 }}>
+      <button onClick={onBack} style={{ ...btn('#ea580c', '#fff'), marginTop: 24, fontWeight: 600 }}>
         {t('ui.backHome')}
       </button>
     </div>

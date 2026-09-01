@@ -74,7 +74,8 @@
     "name": "Anbieter",
     "contact": "Kontakt",
     "email": "E-Mail",
-    "disclaimerText": "Wir übernehmen keine Gewähr für die Richtigkeit, Vollständigkeit und Aktualität der bereitgestellten Informationen. Alle Angaben ohne Gewähr."
+    "disclaimerText": "Wir übernehmen keine Gewähr für die Richtigkeit, Vollständigkeit und Aktualität der bereitgestellten Informationen. Alle Angaben ohne Gewähr.",
+    "back": "Zurück"
   },
   "auth": {
     "account": "Konto",
@@ -100,5 +101,17 @@
     "displayNameHint": "Optional: Name, der öffentlich angezeigt wird",
     "displayNameLong": "Anzeigename darf höchstens 30 Zeichen haben",
     "displayNameInvalid": "Anzeigename darf nur Buchstaben, Ziffern, Leerzeichen, _ oder - enthalten"
+  },
+  "stats": {
+    "title": "Statistiken",
+    "totalRatings": "Gesamtbewertungen",
+    "totalMeals": "Gerichte",
+    "totalMensas": "Mensen",
+    "topDishes": "Beliebteste Gerichte",
+    "mensaRankings": "Mensa-Ranking",
+    "weeklyTrends": "Wochenentwicklung",
+    "ratings": "Bewertungen",
+    "noData": "Noch keine Daten verfügbar",
+    "error": "Fehler beim Laden der Statistiken"
   }
 }
