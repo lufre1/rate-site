@@ -23,6 +23,9 @@ import re
 import json
 import requests
 from bs4 import BeautifulSoup, Tag
+import logging
+
+log = logging.getLogger("scraper")
 from datetime import date, timedelta
 from database import (
     SessionLocal,
@@ -469,7 +472,7 @@ def scrape_today():
             en_rows = _dish_rows(en_table) if en_table is not None else []
 
             if en_table is not None and len(en_rows) != len(de_rows):
-                print(
+                log.info(
                     f'WARNING: DE/EN row count mismatch for "{mensa_name}" on {date_str}: '
                     f'{len(de_rows)} DE vs {len(en_rows)} EN - pairing by index'
                 )
@@ -510,12 +513,14 @@ def scrape_today():
             _reconcile(db, mensa_obj, today, german_names)
 
         db.commit()
-        print(f'scrape_today OK - {new_count} new, {updated_count} updated')
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
+        log.info(f'scrape_today OK - {new_count} new, {updated_count} updated')
+    except Exception:
+        # log.exception writes the message AND the traceback through the logging
+        # handler, so it lands in the docker json log with the rest. The old
+        # traceback.print_exc() went straight to stderr, unformatted and
+        # unattributed, and the message itself was logged at INFO.
         db.rollback()
-        print(f'scrape_today error: {e}')
+        log.exception('scrape_today failed')
     finally:
         db.close()
 
@@ -551,7 +556,7 @@ def scrape_menus():
                 en_rows = _dish_rows(en_table) if en_table is not None else []
 
                 if en_table is not None and len(en_rows) != len(de_rows):
-                    print(
+                    log.info(
                         f'WARNING: DE/EN row count mismatch for "{mensa_name}" on {date_str}: '
                         f'{len(de_rows)} DE vs {len(en_rows)} EN - pairing by index'
                     )
@@ -592,14 +597,12 @@ def scrape_menus():
                 removed_count += _reconcile(db, mensa_obj, scrape_date, german_names)
 
         db.commit()
-        print(
+        log.info(
             f'Scraper OK - scraped {today} + 6 days, '
             f'{new_count} new, {updated_count} updated, {removed_count} stale removed'
         )
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
+    except Exception:
         db.rollback()
-        print(f'Scraper error: {e}')
+        log.exception('scrape_menus failed')
     finally:
         db.close()

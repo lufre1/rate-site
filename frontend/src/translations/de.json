@@ -37,7 +37,16 @@
     "recent": "aktuell",
     "overall": "gesamt",
     "upvote": "Upvote",
-    "downvote": "Downvote"
+    "downvote": "Downvote",
+    "themeSwitch": "Design: {{mode}}",
+    "theme_system": "System",
+    "theme_light": "Hell",
+    "theme_dark": "Dunkel",
+    "starLabel": "{{count}} von 5 Sternen",
+    "showToday": "Heute anzeigen",
+    "navLabel": "Hauptnavigation",
+    "enlargedPhoto": "Vergrößertes Foto",
+    "topPhoto": "Bestbewertetes Foto"
   },
   "mealTypes": {
     "main": "Hauptgericht",

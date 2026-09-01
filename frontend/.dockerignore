@@ -1,0 +1,15 @@
+# The ROOT .dockerignore does NOT apply to this image. docker-compose.yml sets
+# `context: ./frontend` for the frontend service, so Docker reads THIS file and
+# only this file. Without it:
+#   * 337 MB of host node_modules + build/ is shipped to the daemon as build
+#     context on every build, and
+#   * `COPY . .` (after `npm install`) OVERWRITES the node_modules that the
+#     install step just produced with the host's copy.
+# Both were true on 2026-09-01, the day the host hard-locked mid-build.
+node_modules/
+build/
+.git/
+.gitignore
+*.md
+npm-debug.log*
+coverage/

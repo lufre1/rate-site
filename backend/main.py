@@ -17,6 +17,17 @@ import uuid
 import re
 from datetime import datetime
 
+import logging
+import time
+import uuid
+from sqlalchemy.exc import OperationalError
+from starlette.responses import JSONResponse
+
+from logging_config import configure_logging, request_id_var
+
+configure_logging()
+log = logging.getLogger("api")
+
 from database import Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, User as DBUser, AuthToken as DBAuthToken, CommentVote as DBCommentVote, init_db, get_db
 import auth
 from scraper import scrape_menus, scrape_today
@@ -39,6 +50,53 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Every route below is a sync `def`, so it runs on the anyio worker thread pool.
+# ContextVars propagate into those threads, so request_id_var is visible from
+# route code and from anything it calls.
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    rid = request.headers.get("X-Request-Id") or uuid.uuid4().hex[:8]
+    token = request_id_var.set(rid)
+    started = time.monotonic()
+    try:
+        response = await call_next(request)
+        ms = (time.monotonic() - started) * 1000
+        # The container healthcheck hits /api/v1/health every 30s; do not log
+        # 2880 lines a day of it. Slow or failing requests go to WARNING.
+        #
+        # This must happen BEFORE the reset below -- logging after
+        # request_id_var.reset(token) emits `rid=-` on every line, which is
+        # exactly what the first version of this middleware did.
+        if request.url.path != "/api/v1/health":
+            level = (logging.WARNING if (response.status_code >= 500 or ms > 1000)
+                     else logging.INFO)
+            log.log(level, "%s %s -> %d in %.0fms", request.method,
+                    request.url.path, response.status_code, ms)
+        response.headers["X-Request-Id"] = rid
+        return response
+    finally:
+        request_id_var.reset(token)
+
+
+@app.exception_handler(OperationalError)
+async def db_unavailable(request: Request, exc):
+    """Pairs with pool_pre_ping in database.py: a genuinely unreachable database
+    is a 503 the client can retry, not an opaque 500."""
+    log.error("database unavailable on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(status_code=503, content={"detail": "database unavailable"})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception(request: Request, exc: Exception):
+    """Nothing in this file had a single try/except before 2026-09-01, so any
+    unexpected error produced a bare 500 with the traceback going nowhere."""
+    log.exception("unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "internal server error", "request_id": request_id_var.get()},
+    )
+
 
 # Upload directory
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
@@ -247,6 +305,25 @@ def on_startup():
     # Background fallback: full 7-day refresh through the day
     scheduler.add_job(scrape_menus, 'interval', hours=4, misfire_grace_time=3600)
     scheduler.start()
+
+@app.get("/api/v1/health", include_in_schema=False)
+def health():
+    """Liveness only -- deliberately does NOT touch the database.
+
+    The container healthcheck uses this endpoint, so a Postgres blip cannot get
+    the backend killed at the moment when restarting the backend is exactly the
+    thing that cannot help. Readiness lives at /api/v1/health/db.
+    """
+    return {"status": "ok"}
+
+
+@app.get("/api/v1/health/db", include_in_schema=False)
+def health_db(db: Session = Depends(get_db)):
+    """Readiness. ops/check-host.sh reports on this; nothing restarts on it."""
+    from sqlalchemy import text as _text
+    db.execute(_text("SELECT 1"))
+    return {"status": "ok"}
+
 
 @app.get("/api/v1/meals/search")
 def search_menu(q: str, past: bool = False, lang: str = "de", request: Request = None, db: Session = Depends(get_db)):

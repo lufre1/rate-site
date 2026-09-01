@@ -104,6 +104,18 @@ that alarms if a table suddenly empties. Restore with `ops/restore.sh`.
 All `ops/` scripts default to prod; `RATE_ENV=dev` switches environment.
 See the Backups section in `AGENTS.md`.
 
+### Host health
+
+The VM hard-locked twice (2026-08-31, 2026-09-01). Swap, `earlyoom`, a capped
+frontend build and an fsync'ing memory sampler are now in place; see
+"Host memory" and "Crash forensics" in `AGENTS.md`.
+
+```bash
+cat /var/log/rate-site/STATUS      # was the last boot clean? disk? swap?
+./ops/check-host.sh                # disk / swap / guards / API readiness
+./ops/dev-down.sh                  # stop dev to free memory before a big build
+```
+
 ### Dev vs prod
 
 Prod is compose project `rate-site` on port 80; dev is `rate-site-dev` on 8080.

@@ -1,0 +1,27 @@
+[Unit]
+Description=rate-site memory sampler (crash post-mortem)
+Documentation=file:/home/cloud/rate-site/AGENTS.md
+# Start as early as possible and stay alive as deep into shutdown as possible --
+# the interesting samples are the ones nearest the end.
+DefaultDependencies=no
+After=local-fs.target
+Before=shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/cloud/rate-site/ops/memwatch.py
+Restart=always
+RestartSec=2
+# Must not become a victim of the thing it is recording.
+OOMScoreAdjust=-900
+OOMPolicy=continue
+Nice=-5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=0
+LimitMEMLOCK=infinity
+KillSignal=SIGTERM
+TimeoutStopSec=3
+
+[Install]
+WantedBy=multi-user.target

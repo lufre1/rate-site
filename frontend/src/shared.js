@@ -1,6 +1,7 @@
 // Bits used by both App.js and Account.js. Lives here rather than in App.js so
 // Account.js doesn't have to import from its own parent (a cycle).
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 export const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -43,17 +44,85 @@ export function formatRelativeDate(dateStr, t) {
   return t('dates.yearsAgo', { count: Math.round(days / 365) });
 }
 
-export function StarPicker({ value, onChange, size = 22 }) {
+// -- theme -------------------------------------------------------------
+// Three states: 'light' and 'dark' write data-theme on <html> and win over the
+// OS; 'system' removes the attribute and lets prefers-color-scheme decide.
+// The same key is read by the inline script in public/index.html, which
+// applies the theme before first paint to avoid a flash -- keep them in sync.
+
+const THEME_KEY = 'mensa_theme';
+export const THEME_ORDER = ['system', 'light', 'dark'];
+
+export function getTheme() {
+  try {
+    const stored = localStorage.getItem(THEME_KEY);
+    return THEME_ORDER.includes(stored) ? stored : 'system';
+  } catch (e) {
+    return 'system';
+  }
+}
+
+export function applyTheme(theme) {
+  const root = document.documentElement;
+  if (theme === 'light' || theme === 'dark') {
+    root.setAttribute('data-theme', theme);
+  } else {
+    root.removeAttribute('data-theme');
+  }
+}
+
+export function setTheme(theme) {
+  applyTheme(theme);
+  try {
+    if (theme === 'system') {
+      localStorage.removeItem(THEME_KEY);
+    } else {
+      localStorage.setItem(THEME_KEY, theme);
+    }
+  } catch (e) { /* non-fatal: the choice just won't survive a reload */ }
+}
+
+const THEME_ICONS = { system: '🖥️', light: '☀️', dark: '🌙' };
+
+// One button that cycles system -> light -> dark. A three-way control needs
+// three labels, so the accessible name says which mode is active and the
+// visible glyph matches it.
+export function ThemeToggle() {
+  const { t } = useTranslation();
+  const [theme, setThemeState] = React.useState(getTheme);
+
+  const cycle = () => {
+    const next = THEME_ORDER[(THEME_ORDER.indexOf(theme) + 1) % THEME_ORDER.length];
+    setTheme(next);
+    setThemeState(next);
+  };
+
+  const label = t('ui.themeSwitch', { mode: t(`ui.theme_${theme}`) });
+
   return (
-    <div style={{ display: 'flex', gap: 4 }}>
+    <button type="button" className="nav-btn" onClick={cycle}
+      aria-label={label} title={label}>
+      <span aria-hidden="true">{THEME_ICONS[theme]}</span>
+    </button>
+  );
+}
+
+export function StarPicker({ value, onChange, size = 22 }) {
+  const { t } = useTranslation();
+  return (
+    <div className="star-picker">
       {[1, 2, 3, 4, 5].map(i => (
-        <button key={i} onClick={() => onChange(i)} style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          fontSize: size, lineHeight: 1, padding: '12px 6px',
-          minWidth: 48, minHeight: 48,
-          color: i <= value ? '#f59e0b' : '#d1d5db',
-          transition: 'transform 0.15s ease-out'
-        }}>&#9733;</button>
+        <button
+          key={i}
+          type="button"
+          className="star-btn"
+          onClick={() => onChange(i)}
+          aria-pressed={i <= value}
+          aria-label={t('ui.starLabel', { count: i })}
+          style={{ '--star-size': `${size}px` }}
+        >
+          <span aria-hidden="true">&#9733;</span>
+        </button>
       ))}
     </div>
   );

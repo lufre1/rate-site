@@ -1,0 +1,93 @@
+/* Reset, document defaults, typography and the global interaction rules
+   (focus, motion). Component-specific styling lives in components.css. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background-color: var(--surface-page);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--text-md);
+  line-height: var(--leading);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  touch-action: manipulation;
+}
+
+h1, h2, h3 {
+  color: var(--text-strong);
+  line-height: var(--leading-tight);
+  margin: 0;
+}
+
+h1 { font-size: var(--text-xl); font-weight: 700; }
+h2 { font-size: var(--text-lg); font-weight: 700; }
+
+p { margin: 0; }
+
+img { max-width: 100%; }
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+@media (hover: hover) {
+  a:hover { text-decoration: underline; }
+}
+
+/* Inputs do not inherit the document font by default, which is why the old
+   date field looked different from every other control. */
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* One focus rule for every interactive element in the app. There was none
+   before, so keyboard users had nothing to follow. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Only show the ring for keyboard users, not on mouse click. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Visible only to screen readers -- used for form labels the design shows as
+   placeholders, and for live-region announcements. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

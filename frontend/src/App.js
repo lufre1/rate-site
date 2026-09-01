@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { initReactI18next, useTranslation } from 'react-i18next';
 import i18n from 'i18next';
 import de from './translations/de.json';
@@ -6,7 +6,10 @@ import en from './translations/en.json';
 import Impressum from './Impressum';
 import Account from './Account';
 import Stats from './Stats';
-import { API, authHeaders, getToken, clearToken, formatRelativeDate, StarPicker, getVoterId, voteHeaders } from './shared';
+import {
+  API, authHeaders, getToken, clearToken, formatRelativeDate, StarPicker,
+  getVoterId, ThemeToggle,
+} from './shared';
 
 const ICON_BASE = 'https://www.studierendenwerk-goettingen.de/fileadmin/templates/images/mensaspeiseplan/png/';
 
@@ -26,45 +29,13 @@ i18n
   });
 
 const TYPE_ORDER = { main: 0, side: 1, dessert: 2 };
-const TYPE_LABELS = { main: 'Main', side: 'Side', dessert: 'Dessert' };
-const TAG_LABELS = {
-  vegan: 'Vegan',
-  vegetarisch: 'Vegetarisch',
-  fleisch: 'Fleisch',
-  fisch: 'Fisch/Meeresfrüchte',
-  strohschwein: 'Leinekrone Strohschwein',
-  leinetalerrind: 'Leinetaler Bauernrind',
-  NDS: 'Niedersachsenmenü',
-};
-const TAG_COLORS = {
-  vegan: { bg: '#dcfce7', color: '#166534' },
-  vegetarisch: { bg: '#fef9c3', color: '#854d0e' },
-  fleisch: { bg: '#fecaca', color: '#991b1b' },
-  fisch: { bg: '#dbeafe', color: '#1e40af' },
-  strohschwein: { bg: '#fae8d7', color: '#9a3412' },
-  leinetalerrind: { bg: '#fef3c7', color: '#92400e' },
-};
 
-const TYPE_COLORS = {
-  main: { bg: '#ffedd5', color: '#c2410c' },
-  side: { bg: '#fef3c7', color: '#92400e' },
-  dessert: { bg: '#fce7f3', color: '#9d174d' },
-};
-
-// Enhanced color palette - warmer, food-themed
-const HEADER_GRADIENT = 'linear-gradient(135deg, #ea580c, #fb923c)';
-const PRIMARY_COLOR = '#ea580c';
-const PRIMARY_HOVER = '#c2410c';
-const ACCENT_COLOR = '#fb923c';
-const BUTTON_BG = '#ea580c';
-const BUTTON_TEXT = '#fff';
-const BUTTON_DISABLED = '#f3f4f6';
-const BUTTON_DISABLED_TEXT = '#9ca3af';
-const CARD_BORDER = '#f3f4f6';
-const CARD_SHADOW = '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)';
-const CARD_HOVER_SHADOW = '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05)';
-const BADGE_BG = '#fff7ed';
-const BADGE_TEXT = '#c2410c';
+// Only the keys matter -- the labels come from the translation files and the
+// colours from the .badge[data-tag] rules in components.css.
+const TAG_KEYS = [
+  'vegan', 'vegetarisch', 'fleisch', 'fisch',
+  'strohschwein', 'leinetalerrind', 'NDS',
+];
 
 function formatDate(dateStr, lang) {
   const date = new Date(dateStr);
@@ -74,45 +45,6 @@ function formatDate(dateStr, lang) {
   const weekdayOptions = { weekday: 'short' };
   const weekday = date.toLocaleDateString(lang === 'en' ? 'en-GB' : 'de-DE', weekdayOptions);
   return `${weekday} ${day}.${month}.${year}`;
-}
-
-// Convert ISO date (YYYY-MM-DD) to display format based on language
-function getDisplayDate(isoDate, lang) {
-  if (!isoDate) return '';
-  const [year, month, day] = isoDate.split('-');
-  if (!year || !month || !day) return isoDate;
-  if (lang === 'de') {
-    return `${day}.${month}.${year}`;  // DD.MM.YYYY
-  }
-  return `${month}/${day}/${year}`;    // MM/DD/YYYY
-}
-
-// Convert display format back to ISO date (YYYY-MM-DD)
-function parseDate(displayDate, lang) {
-  if (!displayDate) return null;
-  let parts;
-  if (lang === 'de') {
-    parts = displayDate.split('.');
-  } else {
-    parts = displayDate.split('/');
-  }
-  if (parts.length !== 3) return null;
-  
-  const [first, second, third] = parts;
-  // Validate basic format
-  if (!/^\d{1,4}$/.test(first) || !/^\d{1,4}$/.test(second) || !/^\d{1,4}$/.test(third)) {
-    return null;
-  }
-  
-  if (lang === 'de') {
-    // DD.MM.YYYY -> YYYY-MM-DD
-    const [day, month, year] = parts;
-    return `${year.padStart(4, '0')}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-  } else {
-    // MM/DD/YYYY -> YYYY-MM-DD
-    const [month, day, year] = parts;
-    return `${year.padStart(4, '0')}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-  }
 }
 
 // Generate min/max date strings for input[type="date"]
@@ -128,33 +60,55 @@ function getMaxDate() {
   return d.toISOString().slice(0, 10);
 }
 
+const today = () => new Date().toISOString().slice(0, 10);
+
 function IconLegend() {
   const { t } = useTranslation();
   return (
-    <div style={{ 
-      background: '#fff', 
-      borderRadius: 16, 
-      padding: '16px', 
-      marginBottom: '24px', 
-      border: '1px solid #f3f4f6', 
-      display: 'flex', 
-      gap: '16px', 
-      flexWrap: 'wrap', 
-      justifyContent: 'center', 
-      alignItems: 'center',
-      boxShadow: '0 2px 4px rgba(0,0,0,0.05)' 
-    }}>
-      <span style={{ fontSize: '13px', fontWeight: 600, color: '#6b7280', marginRight: '8px' }}>{t('ui.legend')}</span>
-      {Object.entries(TAG_LABELS).map(([tag, label]) => (
-        <div key={tag} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <img 
-            src={`${ICON_BASE}${tag}.png`}
-            alt={tag}
-            style={{ width: '16px', height: '16px', objectFit: 'contain' }} 
-          />
-          <span style={{ fontSize: '12px', color: '#4b5563' }}>{t('tags.' + tag)}</span>
+    <div className="legend">
+      <span className="legend__title">{t('ui.legend')}</span>
+      {TAG_KEYS.map(tag => (
+        <div key={tag} className="legend__item">
+          <img className="legend__icon" src={`${ICON_BASE}${tag}.png`} alt="" />
+          <span>{t('tags.' + tag)}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// -- loading placeholders ----------------------------------------------
+// Shown in place of the old bare "Lade Menü..." line so the page keeps its
+// shape while the request is in flight.
+
+function DishCardSkeleton() {
+  return (
+    <div className="dish" aria-hidden="true">
+      <div className="skeleton skeleton--title" />
+      <div className="skeleton skeleton--sub" />
+      <div className="skeleton skeleton--meta" />
+    </div>
+  );
+}
+
+function DishListSkeleton({ count = 5 }) {
+  return (
+    <div>
+      {Array.from({ length: count }, (_, i) => <DishCardSkeleton key={i} />)}
+    </div>
+  );
+}
+
+function EmptyState({ icon, text, actionLabel, onAction }) {
+  return (
+    <div className="empty">
+      <span className="empty__icon" aria-hidden="true">{icon}</span>
+      <p className="empty__text">{text}</p>
+      {actionLabel && (
+        <button type="button" className="btn btn--primary" onClick={onAction}>
+          {actionLabel}
+        </button>
+      )}
     </div>
   );
 }
@@ -162,25 +116,20 @@ function IconLegend() {
 function App() {
   const { t, i18n } = useTranslation();
   const [menu, setMenu] = useState([]);
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(today);
   const [filter, setFilter] = useState('all');
   const [sortMode, setSortMode] = useState('default');
   const [loading, setLoading] = useState(false);
   const [mensas, setMensas] = useState([]);
-  const [showReviews, setShowReviews] = useState({});
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [includePast, setIncludePast] = useState(false);
   const [language, setLanguage] = useState('de');
-  const [selectedImage, setSelectedImage] = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
-const [uploading, setUploading] = useState(false);
-    const [imageError, setImageError] = useState('');
-    const [showImpressum, setShowImpressum] = useState(false);
-    const [showStats, setShowStats] = useState(false);
-    const [user, setUser] = useState(null);
-    const [showAccount, setShowAccount] = useState(false);
+  const [showImpressum, setShowImpressum] = useState(false);
+  const [showStats, setShowStats] = useState(false);
+  const [user, setUser] = useState(null);
+  const [showAccount, setShowAccount] = useState(false);
 
   // Restore the session on load. A token the backend no longer recognises
   // (logged out elsewhere, DB reset) is dropped rather than left to 401 forever.
@@ -218,10 +167,17 @@ const [uploading, setUploading] = useState(false);
     setSearchQuery('');
     setSearchResults([]);
     setFilter('all');
-    setDate(new Date().toISOString().slice(0, 10));
+    setDate(today());
     setShowStats(false);
     setShowAccount(false);
     setShowImpressum(false);
+  };
+
+  // Only one secondary view is ever open, so opening one closes the others.
+  const openView = (view) => {
+    setShowStats(view === 'stats');
+    setShowAccount(view === 'account');
+    setShowImpressum(view === 'impressum');
   };
 
   useEffect(() => {
@@ -270,219 +226,110 @@ const [uploading, setUploading] = useState(false);
     return (TYPE_ORDER[typeA] || 0) - (TYPE_ORDER[typeB] || 0);
   });
 
-  return (
-    <div style={{ minHeight: '100vh', background: '#fff7ed', fontFamily: '-apple-system, sans-serif' }}>
-      <header style={{ background: HEADER_GRADIENT, padding: '20px', textAlign: 'center', transition: 'background 0.3s ease' }}>
-        <h1
-          role="button"
-          tabIndex={0}
-          onClick={goHome}
-          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goHome(); } }}
-          onMouseEnter={e => { e.currentTarget.style.opacity = '0.9'; }}
-          onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
-          onMouseDown={e => { e.currentTarget.style.transform = 'scale(0.98)'; }}
-          onMouseUp={e => { e.currentTarget.style.transform = 'scale(1)'; }}
-          onTouchStart={e => { e.currentTarget.style.transform = 'scale(0.98)'; }}
-          onTouchEnd={e => { e.currentTarget.style.transform = 'scale(1)'; }}
-          aria-label={t('ui.backHome')}
-          title={t('ui.backHome')}
-          style={{ 
-            margin: 0, 
-            color: '#fff', 
-            fontSize: '1.75rem', 
-            cursor: 'pointer', 
-            display: 'inline-block',
-            fontWeight: 700,
-            transition: 'transform 0.15s ease-out, opacity 0.2s ease'
-          }}
-        >{t('app.title')}</h1>
-        <p style={{ margin: '4px 0 0', color: '#fed7aa', fontSize: '0.875rem', fontWeight: 500 }}>{t('app.subtitle')}</p>
-<div style={{ marginTop: '10px', display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
-          <button 
-            onClick={() => changeLanguage('de')} 
-            style={{ 
-              background: language === 'de' ? '#ea580c' : '#fff', 
-              color: language === 'de' ? '#fff' : '#ea580c',
-              border: 'none', 
-              padding: '6px 12px', 
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              transition: 'all 0.2s ease',
-              boxShadow: language === 'de' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
-            }}
-          >
-            DE
-          </button>
-          <button 
-            onClick={() => changeLanguage('en')} 
-            style={{ 
-              background: language === 'en' ? '#ea580c' : '#fff', 
-              color: language === 'en' ? '#fff' : '#ea580c',
-              border: 'none', 
-              padding: '6px 12px', 
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              transition: 'all 0.2s ease',
-              boxShadow: language === 'en' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
-            }}
-          >
-            EN
-          </button>
-          <button
-            onClick={() => { setShowStats(true); setShowAccount(false); }}
-            style={{
-              background: showStats ? '#ea580c' : '#fff',
-              color: showStats ? '#fff' : '#ea580c',
-              border: 'none',
-              padding: '6px 12px',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              transition: 'all 0.2s ease',
-              boxShadow: showStats ? '0 2px 4px rgba(0,0,0,0.15)' : '0 2px 4px rgba(0,0,0,0.1)'
-            }}
-          >
-            {t('stats.title')}
-          </button>
-          <button
-            onClick={() => { setShowStats(false); setShowAccount(true); }}
-            style={{
-              background: showAccount ? '#ea580c' : '#fff',
-              color: showAccount ? '#fff' : '#ea580c',
-              border: 'none',
-              padding: '6px 12px',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              transition: 'all 0.2s ease',
-              boxShadow: showAccount ? '0 2px 4px rgba(0,0,0,0.15)' : '0 2px 4px rgba(0,0,0,0.1)'
-            }}
-          >
-            {user ? (user.display_name || user.username) : t('auth.login')}
-          </button>
-        </div>
-      </header>
-
-      {showStats ? (
-        <Stats onBack={() => setShowStats(false)} language={language} />
-      ) : showAccount ? (
-        <Account
-          user={user}
-          onAuth={u => setUser(u)}
-          onLogout={() => setUser(null)}
-          onBack={() => setShowAccount(false)}
-          language={language}
+  const menuView = (
+    <>
+      <div className="toolbar">
+        <input
+          type="date"
+          className="field"
+          aria-label={t('ui.showToday')}
+          value={date}
+          onChange={e => { setFilter('all'); setDate(e.target.value); }}
+          min={getMinDate()}
+          max={getMaxDate()}
         />
-      ) : (
-      <div style={{ maxWidth: '800px', margin: '0 auto', padding: '16px' }}>
-<div style={{ display: 'flex', gap: '0.625rem', marginBottom: '1rem', flexWrap: 'wrap', justifyContent: 'center', width: '100%', position: 'sticky', top: 0, background: '#fff', padding: '12px 0', zIndex: 100, boxShadow: '0 2px 4px rgba(0,0,0,0.05)', borderRadius: '12px', marginBottom: '20px' }}>
-            <input
-              type="date"
-              value={date}
-              onChange={e => { setFilter('all'); setDate(e.target.value); }}
-              min={getMinDate()}
-              max={getMaxDate()}
-              style={{
-                padding: '0.5rem',
-                borderRadius: '8px',
-                border: '1px solid #d1d5db',
-                fontSize: '0.875rem',
-                width: '100%',
-                fontFamily: 'inherit',
-                transition: 'border-color 0.2s ease, box-shadow 0.2s ease'
-              }}
+        <select
+          className="field"
+          aria-label={t('ui.allMensas')}
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+        >
+          <option value="all">{t('ui.allMensas')}</option>
+          {mensas.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <select
+          className="field"
+          aria-label={t('ui.sortStandard')}
+          value={sortMode}
+          onChange={e => setSortMode(e.target.value)}
+        >
+          <option value="default">{t('ui.sortStandard')}</option>
+          <option value="alpha">{t('ui.sortAlphabetical')}</option>
+        </select>
+
+        <div className="toolbar__search">
+          <input
+            type="search"
+            className="field"
+            placeholder={t('ui.searchPlaceholder')}
+            aria-label={t('ui.searchPlaceholder')}
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              className="toolbar__clear"
+              onClick={() => setSearchQuery('')}
+              aria-label={t('ui.clearSearch')}
+            >
+              <span aria-hidden="true">&times;</span>
+            </button>
+          )}
+        </div>
+
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={includePast}
+            onChange={e => setIncludePast(e.target.checked)}
+          />
+          {t('ui.includePast')}
+        </label>
+      </div>
+
+      <IconLegend />
+
+      <div aria-live="polite">
+        {searchLoading ? (
+          <DishListSkeleton count={3} />
+        ) : searchResults.length > 0 ? (
+          <>
+            <p className="result-count">
+              {t('ui.foundResults', { count: searchResults.length, query: searchQuery })}
+              {!includePast && ' ' + t('ui.futureOnly')}
+            </p>
+            <SearchResults
+              results={searchResults}
+              onNavigate={navigateTo}
+              formatDate={formatDate}
+              language={language}
             />
-            <select
-              value={filter}
-              onChange={e => setFilter(e.target.value)}
-              style={{ padding: '0.5rem', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%', transition: 'border-color 0.2s ease, box-shadow 0.2s ease' }}
-            >
-              <option value="all">{t('ui.allMensas')}</option>
-              {mensas.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-            <select
-              value={sortMode}
-              onChange={e => setSortMode(e.target.value)}
-              style={{ padding: '0.5rem', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%', transition: 'border-color 0.2s ease, box-shadow 0.2s ease' }}
-            >
-              <option value="default">{t('ui.sortStandard')}</option>
-              <option value="alpha">{t('ui.sortAlphabetical')}</option>
-            </select>
-          </div>
-<div style={{ display: 'flex', gap: '0.625rem', marginBottom: '0.75rem', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', position: 'sticky', top: '80px', background: '#fff', padding: '12px 0', zIndex: 99, boxShadow: '0 2px 4px rgba(0,0,0,0.05)', borderRadius: '12px', marginBottom: '20px' }}>
-            <div style={{ position: 'relative', width: '100%' }}>
-              <input
-                type="text"
-                placeholder={t('ui.searchPlaceholder')}
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '0.875rem', width: '100%', transition: 'border-color 0.2s ease, box-shadow 0.2s ease' }}
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  style={{
-                    position: 'absolute',
-                    right: '0.75rem',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontSize: '1.25rem',
-                    color: '#9ca3af',
-                    padding: '0',
-                    width: '20px',
-                    height: '20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'color 0.2s ease'
-                  }}
-                  aria-label={t('ui.clearSearch')}
-                >
-                  ×
-                </button>
-              )}
-            </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.8125rem', color: '#4b5563', cursor: 'pointer' }}>
-             <input
-               type="checkbox"
-               checked={includePast}
-               onChange={e => setIncludePast(e.target.checked)}
-             />
-             {t('ui.includePast')}
-           </label>
-          </div>
-        <IconLegend />
-        
-{searchLoading ? (
-           <div style={{ textAlign: 'center', padding: 40, color: '#6b7280', fontWeight: 500 }}>{t('search.loading')}</div>
-         ) : searchResults.length > 0 ? (
-           <>
-             <p style={{ color: '#374151', fontSize: '14px', marginBottom: '4px', fontWeight: 600 }}>
-               {t('ui.foundResults', { count: searchResults.length, query: searchQuery })}
-               {!includePast && " " + t('ui.futureOnly')}
-             </p>
-             <SearchResults results={searchResults} onNavigate={navigateTo} TYPE_LABELS={TYPE_LABELS} formatRelativeDate={(d) => formatRelativeDate(d, t)} formatDate={formatDate} language={language} />
-           </>
-         ) : loading ? (
-           <div style={{ textAlign: 'center', padding: 40, color: '#6b7280', fontWeight: 500 }}>{t('search.loadingMenu')}</div>
-         ) : menu.length === 0 ? (
-           <div style={{ textAlign: 'center', padding: 40, color: '#6b7280', fontWeight: 500 }}>
-             <p>{t('ui.noMenu')}</p>
-           </div>
-         ) : filteredMenu.length === 0 ? (
-           <div style={{ textAlign: 'center', padding: 40, color: '#6b7280', fontWeight: 500 }}>
-             <p>{t('ui.noMeals', { filter: filter })}</p>
-           </div>
-         ) : (
+          </>
+        ) : loading ? (
+          <DishListSkeleton count={5} />
+        ) : searchQuery.trim().length >= 2 ? (
+          <EmptyState
+            icon="🔍"
+            text={t('ui.foundResults', { count: 0, query: searchQuery })}
+            actionLabel={t('ui.clearSearch')}
+            onAction={() => setSearchQuery('')}
+          />
+        ) : menu.length === 0 ? (
+          <EmptyState
+            icon="🍽️"
+            text={t('ui.noMenu')}
+            actionLabel={date !== today() ? t('ui.showToday') : null}
+            onAction={() => setDate(today())}
+          />
+        ) : filteredMenu.length === 0 ? (
+          <EmptyState
+            icon="🍽️"
+            text={t('ui.noMeals', { filter })}
+            actionLabel={t('ui.allMensas')}
+            onAction={() => setFilter('all')}
+          />
+        ) : (
           sortedKeys.map(key => {
             const [mensa, type] = key.split('|');
             const rawItems = grouped[key];
@@ -498,11 +345,12 @@ const [uploading, setUploading] = useState(false);
               ? [...items].sort((a, b) => a.name.localeCompare(b.name))
               : items;
             return (
-<React.Fragment key={key}>
-                 <h2 id={`beilage-${mensa}`} style={{ color: '#374151', fontSize: '18px', marginTop: 24, marginBottom: 8,
-                   borderBottom: '3px solid #ea580c', paddingBottom: 8, fontWeight: 700 }}>
-                   {mensa} - {t('mealTypes.' + type) || type}
-                 </h2>
+              <React.Fragment key={key}>
+                {/* One heading per mensa+course, so the id needs both --
+                    keying on the mensa alone produced duplicate ids. */}
+                <h2 className="section-heading" id={`beilage-${mensa}-${type}`}>
+                  {mensa} — {t('mealTypes.' + type) || type}
+                </h2>
                 {sortedItems.map(meal => (
                   <DishCard key={meal.id} meal={meal} />
                 ))}
@@ -511,87 +359,81 @@ const [uploading, setUploading] = useState(false);
           })
         )}
       </div>
-      )}
+    </>
+  );
 
-      <footer style={{
-        background: '#fff',
-        padding: '24px 16px',
-        marginTop: '48px',
-        borderTop: '1px solid #f3f4f6',
-        textAlign: 'center',
-        boxShadow: '0 -2px 4px rgba(0,0,0,0.05)'
-      }}>
-        <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-<p style={{ fontSize: '0.8125rem', color: '#6b7280', margin: '0 0 12px', fontWeight: 500 }}>
-                 {showImpressum ? (
-                   <span>
-                     <strong>{t('footer.impressum')}</strong>
-                     <span style={{ margin: '0 8px', color: '#9ca3af' }}>|</span>
-                     <button
-                       onClick={() => setShowImpressum(false)}
-                       style={{
-                         background: 'none',
-                         border: 'none',
-                         color: '#ea580c',
-                         textDecoration: 'none',
-                         cursor: 'pointer',
-                         fontSize: '0.8125rem',
-                         fontWeight: 600
-                       }}
-                     >
-                       {t('ui.backHome')}
-                     </button>
-                     <span style={{ margin: '0 8px', color: '#9ca3af' }}>|</span>
-                     <a
-                       href="https://github.com/lufre1/rate-site"
-                       target="_blank"
-                       rel="noopener noreferrer"
-                       style={{ color: '#ea580c', textDecoration: 'none', marginLeft: '4px', fontWeight: 500 }}
-                     >
-                       {t('footer.github')}
-                     </a>
-                   </span>
-                 ) : (
-                   <span>
-                     <button
-                       onClick={() => setShowImpressum(true)}
-                       style={{
-                         background: 'none',
-                         border: 'none',
-                         color: '#ea580c',
-                         textDecoration: 'none',
-                         cursor: 'pointer',
-                         fontSize: '0.8125rem',
-                         fontWeight: 600
-                       }}
-                     >
-                       {t('footer.impressum')}
-                     </button>
-                     <span style={{ margin: '0 8px', color: '#9ca3af' }}>|</span>
-                     <a
-                       href="https://github.com/lufre1/rate-site"
-                       target="_blank"
-                       rel="noopener noreferrer"
-                       style={{ color: '#ea580c', textDecoration: 'none', marginLeft: '4px', fontWeight: 500 }}
-                     >
-                       {t('footer.github')}
-                     </a>
-                   </span>
-                 )}
-               </p>
+  return (
+    <div className="app">
+      <header className="site-header">
+        <h1>
+          <button
+            type="button"
+            className="wordmark"
+            onClick={goHome}
+            title={t('ui.backHome')}
+          >
+            {t('app.title')}
+          </button>
+        </h1>
+        <p className="site-header__tagline">{t('app.subtitle')}</p>
+
+        <nav className="site-nav" aria-label={t('ui.navLabel')}>
+          <button type="button" className="nav-btn"
+            aria-pressed={language === 'de'}
+            onClick={() => changeLanguage('de')}>DE</button>
+          <button type="button" className="nav-btn"
+            aria-pressed={language === 'en'}
+            onClick={() => changeLanguage('en')}>EN</button>
+          <button type="button" className="nav-btn"
+            aria-pressed={showStats}
+            onClick={() => openView(showStats ? null : 'stats')}>
+            {t('stats.title')}
+          </button>
+          <button type="button" className="nav-btn"
+            aria-pressed={showAccount}
+            onClick={() => openView(showAccount ? null : 'account')}>
+            {user ? (user.display_name || user.username) : t('auth.login')}
+          </button>
+          <ThemeToggle />
+        </nav>
+      </header>
+
+      <main className="page">
+        {showStats ? (
+          <Stats onBack={goHome} language={language} />
+        ) : showAccount ? (
+          <Account
+            user={user}
+            onAuth={u => setUser(u)}
+            onLogout={() => setUser(null)}
+            onBack={goHome}
+            language={language}
+          />
+        ) : showImpressum ? (
+          <Impressum onBack={goHome} />
+        ) : menuView}
+      </main>
+
+      <footer className="site-footer">
+        <div className="footer-links">
+          <button type="button" className="btn--quiet"
+            aria-pressed={showImpressum}
+            onClick={() => openView(showImpressum ? null : 'impressum')}>
+            {t('footer.impressum')}
+          </button>
+          <span className="footer-sep" aria-hidden="true">|</span>
+          <a href="https://github.com/lufre1/rate-site"
+            target="_blank" rel="noopener noreferrer">
+            {t('footer.github')}
+          </a>
         </div>
       </footer>
-
-      {showImpressum && (
-        <div style={{ padding: '16px' }}>
-          <Impressum onBack={() => setShowImpressum(false)} />
-        </div>
-      )}
     </div>
   );
 }
 
-function SearchResults({ results, onNavigate, TYPE_LABELS, formatRelativeDate, formatDate, language }) {
+function SearchResults({ results, onNavigate, formatDate, language }) {
+  const { t } = useTranslation();
   if (results.length === 0) return null;
   const grouped = {};
   results.forEach(m => {
@@ -608,102 +450,113 @@ function SearchResults({ results, onNavigate, TYPE_LABELS, formatRelativeDate, f
     return mA.localeCompare(mB);
   });
 
-return (
-<div style={{ marginBottom: 24 }}>
-        {sortedKeys.map(key => {
-          const [dateStr, mensa, type] = key.split('|');
-          const items = grouped[key];
-          const dayLabel = formatDate(dateStr, language);
-         return (
-           <div key={key} style={{ marginBottom: 16, borderRadius: 12, overflow: 'hidden' }}>
-             <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: 8, padding: '12px', background: '#fff', borderRadius: 12, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-               <span style={{ color: '#374151', fontSize: '15px', fontWeight: 600 }}>{mensa}</span>
-               <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: 6, background: '#fff7ed', color: '#c2410c', fontWeight: 600 }}>{TYPE_LABELS[type] || type}</span>
-               <span style={{ fontSize: '12px', color: PRIMARY_COLOR, cursor: 'pointer', fontWeight: 500 }}
-                 onClick={() => onNavigate(dateStr, mensa)}>
-                 {dayLabel} →
-               </span>
-               <span style={{ fontSize: '11px', color: '#9ca3af' }}>({items.length})</span>
-             </div>
-             {items.map(meal => (
-               <DishCardSearch key={meal.id} meal={meal} TYPE_COLORS={TYPE_COLORS} onNavigate={onNavigate} />
-             ))}
-           </div>
-         );
-       })}
-     </div>
-  );
-}
-
-function DishCardSearch({ meal, TYPE_COLORS, onNavigate }) {
-  const { t } = useTranslation();
-  const tags = typeof meal.tags === 'string' ? JSON.parse(meal.tags) : (meal.tags || []);
-  const go = () => onNavigate && onNavigate(meal.date, meal.mensa);
-
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={go}
-      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } }}
-      onMouseEnter={e => { e.currentTarget.style.background = '#fff7ed'; e.currentTarget.style.borderColor = '#fb923c'; e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.1)'; }}
-      onMouseLeave={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#f3f4f6'; e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.05)'; }}
-      onMouseDown={e => { e.currentTarget.style.transform = 'scale(0.98)'; }}
-      onMouseUp={e => { e.currentTarget.style.transform = 'scale(1)'; }}
-      onTouchStart={e => { e.currentTarget.style.transform = 'scale(0.98)'; }}
-      onTouchEnd={e => { e.currentTarget.style.transform = 'scale(1)'; }}
-      title={`${meal.mensa} · ${meal.date}`}
-      style={{ 
-        background: '#fff', 
-        borderRadius: 12, 
-        border: '1px solid #f3f4f6', 
-        cursor: 'pointer',
-        padding: '12px 16px', 
-        marginBottom: 8, 
-        display: 'flex', 
-        alignItems: 'flex-start', 
-        gap: '12px',
-        transition: 'all 0.2s ease'
-      }}>
-      <div style={{ flex: 1 }}>
-        <span style={{ fontSize: '14px', fontWeight: 600, color: '#111827' }}>{meal.name}</span>
-      </div>
-      {tags.length > 0 && (
-        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexShrink: 0 }}>
-          {tags.map(tag => (
-            <img
-              key={tag}
-              src={`${ICON_BASE}${tag}`}
-              alt={tag.replace('.png', '')}
-              title={t('tags.' + tag.replace('.png', '')) || tag}
-              style={{ width: '12px', height: '12px', objectFit: 'contain' }}
-              onError={(e) => { e.target.style.display = 'none'; }}
-            />
-          ))}
-        </div>
-      )}
-      {meal.rating_count > 0 && (
-        <span style={{ fontSize: '11px', color: '#f59e0b', flexShrink: 0, fontWeight: 600 }}>
-          {"★".repeat(Math.round(meal.avg_rating))} {meal.avg_rating} ({meal.rating_count})
-        </span>
-      )}
+    <div>
+      {sortedKeys.map(key => {
+        const [dateStr, mensa, type] = key.split('|');
+        const items = grouped[key];
+        const dayLabel = formatDate(dateStr, language);
+        return (
+          <div key={key} className="result-group">
+            <div className="result-group__head">
+              <span className="result-group__mensa">{mensa}</span>
+              <span className="badge" data-type={type}>{t('mealTypes.' + type) || type}</span>
+              <button type="button" className="btn--quiet"
+                onClick={() => onNavigate(dateStr, mensa)}>
+                {dayLabel} &rarr;
+              </button>
+              <span className="result-group__count">({items.length})</span>
+            </div>
+            {items.map(meal => (
+              <DishCardSearch key={meal.id} meal={meal} onNavigate={onNavigate} />
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
+function DishCardSearch({ meal, onNavigate }) {
+  const { t } = useTranslation();
+  const tags = typeof meal.tags === 'string' ? JSON.parse(meal.tags) : (meal.tags || []);
+
+  return (
+    <button
+      type="button"
+      className="result"
+      onClick={() => onNavigate && onNavigate(meal.date, meal.mensa)}
+      title={`${meal.mensa} · ${meal.date}`}
+    >
+      <span className="result__name">{meal.name}</span>
+      {tags.length > 0 && (
+        <span className="result__tags">
+          {tags.map(tag => (
+            <img
+              key={tag}
+              className="tag-icon tag-icon--sm"
+              src={`${ICON_BASE}${tag}`}
+              alt=""
+              title={t('tags.' + tag.replace('.png', '')) || tag}
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+          ))}
+        </span>
+      )}
+      {meal.rating_count > 0 && (
+        <span className="result__rating">
+          {'★'.repeat(Math.round(meal.avg_rating))} {meal.avg_rating} ({meal.rating_count})
+        </span>
+      )}
+    </button>
+  );
+}
+
 function IconTags({ tags }) {
+  const { t } = useTranslation();
   if (!tags || tags.length === 0) return null;
   return (
-    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+    <span className="tag-icons">
       {tags.map(tag => (
         <img
           key={tag}
+          className="tag-icon"
           src={`${ICON_BASE}${tag}`}
-          alt={tag.replace('.png', '')}
-          style={{ width: '16px', height: '16px', objectFit: 'contain' }}
+          alt={t('tags.' + tag.replace('.png', '')) || tag}
           onError={(e) => { e.target.style.display = 'none'; }}
         />
       ))}
+    </span>
+  );
+}
+
+// One "★★★☆☆  <label> 4.2 (12)" line. Used for the recent and overall averages.
+function RatingLine({ avg, count, label, tone }) {
+  const rounded = Math.round(avg);
+  return (
+    <div className="rating-line">
+      <span className="stars" aria-hidden="true">
+        {'★'.repeat(rounded)}{'☆'.repeat(Math.max(0, 5 - rounded))}
+      </span>
+      <span className="rating-line__label" data-tone={tone}>
+        {label} {avg.toFixed(1)} ({count})
+      </span>
+    </div>
+  );
+}
+
+function Lightbox({ src, alt, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className="lightbox" role="dialog" aria-modal="true" aria-label={alt}
+      onClick={onClose}>
+      <img className="lightbox__img" src={src} alt={alt}
+        onClick={(e) => e.stopPropagation()} />
     </div>
   );
 }
@@ -727,37 +580,41 @@ function SideRatingRow({ mealId, sideName, avgRating, ratingCount, recentAvg = 0
   };
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-      <span style={{ fontSize: '0.8125rem', color: '#374151', flexShrink: 0, fontWeight: 500 }}>{sideName}</span>
+    <div className="side-row">
+      <span className="side-row__name">{sideName}</span>
       {recentCount > 0 && (
-        <span style={{ fontSize: '10px', color: '#16a34a', flexShrink: 0, background: '#dcfce7', padding: '2px 6px', borderRadius: 6, fontWeight: 600 }}>
-            {t('ui.recent')} {recentAvg.toFixed(1)} ({recentCount}) {'★'}
+        <span className="badge badge--positive">
+          {t('ui.recent')} {recentAvg.toFixed(1)} ({recentCount}) ★
         </span>
       )}
       {ratingCount > 0 && (
-        <span style={{ fontSize: '11px', color: '#9ca3af', flexShrink: 0, fontWeight: 500 }}>
-          {"★".repeat(Math.round(avgRating))} {avgRating} {t('ui.overall')} ({ratingCount})
+        <span className="hint-text">
+          {'★'.repeat(Math.round(avgRating))} {avgRating} {t('ui.overall')} ({ratingCount})
         </span>
       )}
       <StarPicker value={rating} onChange={handleRate} size={16} />
-      {justRated && (
-        <span style={{ fontSize: '11px', color: '#16a34a', fontWeight: 500 }}>{t('ui.thanksForRating')}</span>
-      )}
+      <span aria-live="polite">
+        {justRated && <span className="badge badge--positive">{t('ui.thanksForRating')}</span>}
+      </span>
       {showComment && (
         <input
           type="text"
-          placeholder={t('ui.sideComment') || 'Kommentar'}
+          className="field"
+          placeholder={t('ui.sideComment')}
+          aria-label={t('ui.sideComment')}
           value={comment}
           onChange={(e) => setComment(e.target.value)}
-          style={{ padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.8125rem', width: '120px', transition: 'border-color 0.2s ease, box-shadow 0.2s ease' }}
         />
       )}
       <button
+        type="button"
+        className="btn--quiet"
         onClick={() => setShowComment(!showComment)}
-        style={{ border: 'none', background: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '12px', padding: '4px', transition: 'color 0.2s ease' }}
+        aria-expanded={showComment}
         title={comment ? t('ui.removeComment') : t('ui.addComment')}
       >
-        {comment ? '✏️' : '💬'}
+        <span aria-hidden="true">{comment ? '✏️' : '💬'}</span>
+        <span className="sr-only">{comment ? t('ui.removeComment') : t('ui.addComment')}</span>
       </button>
     </div>
   );
@@ -772,7 +629,7 @@ function DishCard({ meal }) {
     recent: { ratings: [], avg: 0, count: 0 },
     overall: { avg: 0, count: 0 },
     comments: []
-});
+  });
   const [showRatingForm, setShowRatingForm] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -781,36 +638,27 @@ function DishCard({ meal }) {
   const [imageError, setImageError] = useState('');
   const [enlargedImage, setEnlargedImage] = useState(null);
   const [topPhoto, setTopPhoto] = useState(null);
-  const [loadingTopPhoto, setLoadingTopPhoto] = useState(false);
 
-// Fetch ratings-breakdown on mount (not just when expanded)
+  // Fetch ratings-breakdown on mount (not just when expanded)
   useEffect(() => {
-    if (reviews.overall.count === 0) {
-        fetch(`${API}/api/v1/meals/${meal.id}/ratings-breakdown`)
-            .then(r => r.json())
-            .then(data => {
-                setReviews({
-                    recent: data.recent || { ratings: [], avg: 0, count: 0 },
-                    overall: data.overall || { avg: 0, count: 0 },
-                    comments: data.comments || []
-                });
-            })
-            .catch(() => {});
-    }
-  }, [meal.id]);
-
-// Fetch top photo on mount
-  useEffect(() => {
-    setLoadingTopPhoto(true);
-    fetch(`${API}/api/v1/meals/${meal.id}/top-photo`)
+    fetch(`${API}/api/v1/meals/${meal.id}/ratings-breakdown`)
       .then(r => r.json())
       .then(data => {
-        setTopPhoto(data.photo_url);
-        setLoadingTopPhoto(false);
+        setReviews({
+          recent: data.recent || { ratings: [], avg: 0, count: 0 },
+          overall: data.overall || { avg: 0, count: 0 },
+          comments: data.comments || []
+        });
       })
-      .catch(() => {
-        setLoadingTopPhoto(false);
-      });
+      .catch(() => {});
+  }, [meal.id]);
+
+  // Fetch top photo on mount
+  useEffect(() => {
+    fetch(`${API}/api/v1/meals/${meal.id}/top-photo`)
+      .then(r => r.json())
+      .then(data => { setTopPhoto(data.photo_url); })
+      .catch(() => {});
   }, [meal.id]);
 
   const submitRating = async () => {
@@ -848,13 +696,13 @@ function DishCard({ meal }) {
 
       setSubmitted(true);
     } catch (err) {
-      setImageError(err.message || t('ui.photoError') || 'Upload failed');
+      setImageError(err.message || t('ui.photoError'));
     } finally {
       setUploading(false);
-      setTimeout(() => { 
-        setSubmitted(false); 
-        setRating(0); 
-        setComment(''); 
+      setTimeout(() => {
+        setSubmitted(false);
+        setRating(0);
+        setComment('');
         setSelectedImage(null);
         setImagePreview(null);
       }, 1500);
@@ -865,19 +713,19 @@ function DishCard({ meal }) {
     try {
       const voterId = getVoterId();
       if (!voterId) return;
-      
+
       const response = await fetch(`${API}/api/v1/ratings/${ratingId}/vote`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'X-Voter-Id': voterId, ...authHeaders() },
         body: JSON.stringify({ direction }),
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         setReviews(prev => ({
           ...prev,
-          comments: prev.comments.map(c => 
-            c.id === ratingId 
+          comments: prev.comments.map(c =>
+            c.id === ratingId
               ? { ...c, score: data.score, vote_direction: data.direction }
               : c
           )
@@ -888,7 +736,24 @@ function DishCard({ meal }) {
     }
   };
 
-  const tc = TYPE_COLORS[meal.type] || TYPE_COLORS.main;
+  const pickImage = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      setImageError(t('ui.photoTypeError'));
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setImageError(t('ui.photoSizeError'));
+      return;
+    }
+    setSelectedImage(file);
+    const reader = new FileReader();
+    reader.onloadend = () => { setImagePreview(reader.result); };
+    reader.readAsDataURL(file);
+  };
+
   let tags = [];
   try {
     tags = typeof meal.tags === 'string' ? JSON.parse(meal.tags) : (meal.tags || []);
@@ -899,312 +764,181 @@ function DishCard({ meal }) {
   // The API already returns name/description in the selected language.
   const displayName = meal.name;
   const displayDescription = meal.description || '';
+  const noBreakdown = reviews.overall.count === 0 && reviews.recent.count === 0;
 
   return (
-    <div style={{ 
-      background: '#fff', 
-      borderRadius: 16, 
-      border: '1px solid #f3f4f6',
-      boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
-      padding: '16px 20px', 
-      marginBottom: 12,
-      transition: 'all 0.2s ease'
-    }}>
-      <button onClick={() => setExpanded(e => !e)} aria-expanded={expanded} style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-        width: '100%', background: 'none', border: 'none', padding: 0,
-        textAlign: 'left', cursor: 'pointer', font: 'inherit',
-        transition: 'transform 0.15s ease-out'
-      }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-            <span style={{ fontSize: '1rem', fontWeight: 700,
-              color: meal.is_available ? '#111827' : '#9ca3af',
-              textDecoration: meal.is_available ? 'none' : 'line-through',
-              transition: 'color 0.2s ease' }}>{displayName}</span>
-            <span style={{ fontSize: '0.6875rem', padding: '4px 10px', borderRadius: 8,
-              background: tc.bg, color: tc.color, fontWeight: 600, textTransform: 'uppercase', transition: 'all 0.2s ease' }}>
+    <div className="dish">
+      <button type="button" className="dish__toggle"
+        onClick={() => setExpanded(e => !e)} aria-expanded={expanded}>
+        <span className="dish__main">
+          <span className="dish__titlerow">
+            <span className="dish__name" data-unavailable={meal.is_available === false}>
+              {displayName}
+            </span>
+            <span className="badge badge--upper" data-type={meal.type}>
               {t('mealTypes.' + meal.type)}
             </span>
             {meal.is_available === false && (
-              <span style={{ fontSize: '0.6875rem', padding: '4px 10px', borderRadius: 8,
-                background: '#fee2e2', color: '#dc2626', fontWeight: 600, textTransform: 'uppercase' }}>
-                {t('ui.notAvailable')}
-              </span>
+              <span className="badge badge--upper badge--danger">{t('ui.notAvailable')}</span>
             )}
             <IconTags tags={tags} />
-          </div>
+          </span>
           {displayDescription && typeof displayDescription === 'string' && (
-            <p style={{ margin: '8px 0 0', color: '#6b7280', fontSize: '0.875rem', lineHeight: 1.6 }}>
-              {displayDescription.replace(/, +/g, ', ')}
-            </p>
+            <span className="dish__desc">{displayDescription.replace(/, +/g, ', ')}</span>
           )}
-          {topPhoto && (
-            <div style={{ marginTop: 8 }}>
-              <img
-                src={`${API}${topPhoto}`}
-                alt="Top rated photo"
-                style={{
-                  maxWidth: '100%',
-                  maxHeight: '200px',
-                  borderRadius: '12px',
-                  border: '1px solid #f3f4f6',
-                  display: 'block',
-                  cursor: 'pointer',
-                  objectFit: 'cover'
-                }}
-                onClick={(e) => { e.stopPropagation(); setEnlargedImage(`${API}${topPhoto}`); }}
-              />
-              <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#9ca3af', textAlign: 'center' }}>
-                Top rated photo (most upvotes)
-              </p>
-            </div>
-          )}
+        </span>
 
-</div>
-            <div style={{ textAlign: 'right', marginLeft: 12, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-              {/* Recent rating - only show if count > 0 */}
-              {reviews.recent.count > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ color: '#f59e0b', fontSize: '0.875rem', fontWeight: 600 }}>
-                    {"★".repeat(Math.round(reviews.recent.avg))}
-                    {"☆".repeat(5 - Math.round(reviews.recent.avg))}
-                  </span>
-                  <span style={{ color: '#16a34a', fontSize: '0.75rem', fontWeight: 600 }}>
-                    {t('ui.recent')} {reviews.recent.avg.toFixed(1)} ({reviews.recent.count})
-                  </span>
-                </div>
-              )}
-              {/* Overall rating - only show if count > 0 */}
-              {reviews.overall.count > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ color: '#f59e0b', fontSize: '0.875rem', fontWeight: 600 }}>
-                    {"★".repeat(Math.round(reviews.overall.avg))}
-                    {"☆".repeat(5 - Math.round(reviews.overall.avg))}
-                  </span>
-                  <span style={{ color: '#9ca3af', fontSize: '0.75rem', fontWeight: 600 }}>
-                    {t('ui.overall')} {reviews.overall.avg.toFixed(1)} ({reviews.overall.count})
-                  </span>
-                </div>
-              )}
-              {/* Fallback to meal.avg_rating if no detailed breakdown available */}
-              {reviews.overall.count === 0 && reviews.recent.count === 0 && meal.rating_count > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ color: '#f59e0b', fontSize: '0.875rem', fontWeight: 600 }}>
-                    {"★".repeat(Math.round(meal.avg_rating))}
-                    {"☆".repeat(5 - Math.round(meal.avg_rating))}
-                  </span>
-                  <span style={{ color: '#16a34a', fontSize: '0.75rem', fontWeight: 600 }}>
-                    {t('ui.recent')} {meal.avg_rating.toFixed(1)} ({meal.rating_count})
-                  </span>
-                </div>
-              )}
-              <span style={{ color: '#9ca3af', fontSize: '12px', fontWeight: 600 }}>{expanded ? '\u25B2' : '\u25BC'}</span>
-        </div>
+        <span className="dish__meta">
+          {reviews.recent.count > 0 && (
+            <RatingLine avg={reviews.recent.avg} count={reviews.recent.count}
+              label={t('ui.recent')} tone="recent" />
+          )}
+          {reviews.overall.count > 0 && (
+            <RatingLine avg={reviews.overall.avg} count={reviews.overall.count}
+              label={t('ui.overall')} />
+          )}
+          {/* Fallback to meal.avg_rating if no detailed breakdown available */}
+          {noBreakdown && meal.rating_count > 0 && (
+            <RatingLine avg={meal.avg_rating} count={meal.rating_count}
+              label={t('ui.recent')} tone="recent" />
+          )}
+          <span className="dish__chevron" aria-hidden="true">{expanded ? '▲' : '▼'}</span>
+        </span>
       </button>
 
-{expanded && (
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f3f4f6' }}>
+      {/* Outside the toggle: a button inside a button is invalid markup, and as
+          a bare <img onClick> this was unreachable by keyboard. */}
+      {topPhoto && (
+        <>
+          <button type="button" className="dish__photo-btn"
+            onClick={() => setEnlargedImage(`${API}${topPhoto}`)}>
+            <img className="dish__photo" src={`${API}${topPhoto}`} alt={t('ui.topPhoto')} />
+          </button>
+          <p className="dish__photo-caption">{t('ui.topPhoto')}</p>
+        </>
+      )}
 
+      {expanded && (
+        <div className="dish__body">
           {reviews.comments.length === 0 ? (
-            <p style={{ color: '#9ca3af', fontSize: '12px', margin: '8px 0 0', fontWeight: 500 }}>{t('ui.noReviews')}</p>
+            <p className="muted-text">{t('ui.noReviews')}</p>
           ) : (
             reviews.comments.map(r => (
-              <div key={r.id} style={{ padding: '4px 0' }}>
-<span style={{ color: '#6b7280', fontSize: '12px',
-                  display: 'flex', alignItems: 'center', gap: '2px', flexWrap: 'wrap', fontWeight: 500 }}>
-                  {r.user_name || 'Anonymous'}
-                  {"\u2605".repeat(r.rating)}{"\u2606".repeat(5 - r.rating)}
-                  {r.created_at && (
-                     <span style={{ color: '#9ca3af', marginLeft: 4 }}>{formatRelativeDate(r.created_at, t)}</span>
-                   )}
-                   {r.is_recent && (
-                     <span style={{ color: '#16a34a', fontSize: '9px', marginLeft: 4, fontWeight: 600 }}>
-                         ({t('ui.recent')})
-                     </span>
-                   )}
-                 </span>
-{r.comment && (
-                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#374151', wordBreak: 'break-word', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{r.comment}</p>
+              <div key={r.id} className="review">
+                <div className="review__head">
+                  <span className="review__author">{r.user_name || 'Anonymous'}</span>
+                  <span className="stars" aria-hidden="true">
+                    {'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}
+                  </span>
+                  <span className="sr-only">{t('ui.starLabel', { count: r.rating })}</span>
+                  {r.created_at && <span>{formatRelativeDate(r.created_at, t)}</span>}
+                  {r.is_recent && (
+                    <span className="badge badge--positive">({t('ui.recent')})</span>
                   )}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
-                    <button
-                      onClick={() => handleVote(r.id, 1)}
-                      style={{
-                        background: 'none', border: 'none', cursor: 'pointer',
-                        fontSize: '12px', color: r.vote_direction === 1 ? '#16a34a' : '#9ca3af',
-                        display: 'flex', alignItems: 'center', gap: 2, padding: '8px 12px',
-                        minWidth: 48, minHeight: 48, borderRadius: 6, transition: 'all 0.2s ease',
-                        fontWeight: 600
-                      }}
-                      title={t('ui.upvote')}
-                    >
-                      ▲ {r.score > 0 ? `+${r.score}` : r.score}
-                    </button>
-                    <button
-                      onClick={() => handleVote(r.id, -1)}
-                      style={{
-                        background: 'none', border: 'none', cursor: 'pointer',
-                        fontSize: '12px', color: r.vote_direction === -1 ? '#dc2626' : '#9ca3af',
-                        display: 'flex', alignItems: 'center', gap: 2, padding: '8px 12px',
-                        minWidth: 48, minHeight: 48, borderRadius: 6, transition: 'all 0.2s ease',
-                        fontWeight: 600
-                      }}
-                      title={t('ui.downvote')}
-                    >
-                      ▼
-                    </button>
-                  </div>
-                  {r.photo_url && (
-                   <img
-                     src={`${API}${r.photo_url}`}
-                     alt=""
-                     style={{
-                       marginTop: 4, maxWidth: '120px', maxHeight: '120px',
-                       borderRadius: '8px', border: '1px solid #f3f4f6', display: 'block', cursor: 'pointer',
-                       transition: 'transform 0.2s ease'
-                     }}
-                     onError={(e) => { e.target.style.display = 'none'; }}
-                     onClick={(e) => { e.stopPropagation(); setEnlargedImage(`${API}${r.photo_url}`); }}
-                   />
-                 )}
+                </div>
+                {r.comment && <p className="review__text">{r.comment}</p>}
+                <div className="review__votes">
+                  <button type="button" className="vote-btn" data-dir="up"
+                    aria-pressed={r.vote_direction === 1}
+                    onClick={() => handleVote(r.id, 1)}
+                    title={t('ui.upvote')} aria-label={t('ui.upvote')}>
+                    <span aria-hidden="true">▲</span>
+                    {r.score > 0 ? `+${r.score}` : r.score}
+                  </button>
+                  <button type="button" className="vote-btn" data-dir="down"
+                    aria-pressed={r.vote_direction === -1}
+                    onClick={() => handleVote(r.id, -1)}
+                    title={t('ui.downvote')} aria-label={t('ui.downvote')}>
+                    <span aria-hidden="true">▼</span>
+                  </button>
+                </div>
+                {r.photo_url && (
+                  <button type="button" className="review__photo-btn"
+                    onClick={() => setEnlargedImage(`${API}${r.photo_url}`)}>
+                    <img className="review__photo" src={`${API}${r.photo_url}`}
+                      alt={t('ui.enlargedPhoto')}
+                      onError={(e) => { e.target.style.display = 'none'; }} />
+                  </button>
+                )}
               </div>
             ))
           )}
 
-<button onClick={() => setShowRatingForm(!showRatingForm)} style={{ border: 'none', background: 'none', color: PRIMARY_COLOR, cursor: 'pointer', fontSize: '12px', padding: '8px 0', fontWeight: 600 }}>
-            {showRatingForm ? '\u25B2' : '\u25BC'} {t('ui.rate')}
+          <button type="button" className="btn--quiet"
+            onClick={() => setShowRatingForm(!showRatingForm)}
+            aria-expanded={showRatingForm}>
+            <span aria-hidden="true">{showRatingForm ? '▲' : '▼'}</span> {t('ui.rate')}
           </button>
 
           {showRatingForm && (
-          <>
-          {submitted ? (
-            <p style={{ color: '#16a34a', fontSize: '13px', margin: 0, fontWeight: 600 }}>{t('ui.thanksForRating')}</p>
-          ) : (
-            <>
-              <div style={{ marginBottom: 8 }}>
-                <StarPicker value={rating} onChange={setRating} size={22} />
-              </div>
-              {/* Photo upload section */}
-              {imageError && (
-                <p style={{ color: '#dc2626', fontSize: '12px', margin: '4px 0', fontWeight: 500 }}>{imageError}</p>
-              )}
+            <div className="rating-form" aria-live="polite">
+              {submitted ? (
+                <p className="badge badge--positive">{t('ui.thanksForRating')}</p>
+              ) : (
+                <>
+                  <StarPicker value={rating} onChange={setRating} size={22} />
 
-              <div style={{ marginBottom: 12 }}>
-                {imagePreview ? (
-                  <div style={{ position: 'relative', display: 'inline-block' }}>
-                    <img 
-                      src={imagePreview} 
-                      alt="Preview" 
-                      style={{ maxWidth: '150px', maxHeight: '150px', borderRadius: '12px', border: '1px solid #f3f4f6' }}
+                  {imageError && <p className="error-text">{imageError}</p>}
+
+                  <div className="rating-form__photo">
+                    {imagePreview ? (
+                      <div className="preview">
+                        <img className="preview__img" src={imagePreview} alt="" />
+                        <button
+                          type="button"
+                          className="preview__remove"
+                          onClick={() => { setSelectedImage(null); setImagePreview(null); setImageError(''); }}
+                          title={t('ui.removePhoto')}
+                          aria-label={t('ui.removePhoto')}
+                        >
+                          <span aria-hidden="true">&times;</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="dropzone">
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/jpg,image/png,image/webp"
+                          onChange={pickImage}
+                          className="sr-only"
+                        />
+                        <span className="dropzone__title">{t('ui.uploadPhoto')}</span>
+                        <span className="dropzone__hint">JPG, PNG, WebP (max 5MB)</span>
+                      </label>
+                    )}
+                  </div>
+
+                  <div className="rating-form__row">
+                    <textarea
+                      className="field field--textarea"
+                      placeholder={t('ui.rate')}
+                      aria-label={t('ui.rate')}
+                      value={comment}
+                      onChange={e => setComment(e.target.value)}
+                      rows={Math.max(2, comment.split('\n').length)}
                     />
                     <button
-                      onClick={() => { setSelectedImage(null); setImagePreview(null); setImageError(''); }}
-                      style={{
-                        position: 'absolute',
-                        top: '-8px',
-                        right: '-8px',
-                        background: '#dc2626',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: '50%',
-                        width: '24px',
-                        height: '24px',
-                        fontSize: '12px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        transition: 'transform 0.15s ease-out'
-                      }}
-                      title={t('ui.removePhoto')}
+                      type="button"
+                      className="btn btn--primary"
+                      onClick={submitRating}
+                      disabled={rating === 0 || uploading}
                     >
-                      ×
+                      {uploading ? t('ui.uploading') : t('ui.rate')}
                     </button>
                   </div>
-                ) : (
-                  <label style={{
-                    display: 'block',
-                    padding: '16px',
-                    border: '2px dashed #d1d5db',
-                    borderRadius: '12px',
-                    textAlign: 'center',
-                    cursor: 'pointer',
-                    background: '#fff7ed',
-                    transition: 'all 0.2s ease'
-                  }}>
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/jpg,image/png,image/webp"
-                      onChange={(e) => {
-                        const file = e.target.files[0];
-                        if (!file) return;
-                        const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-                        if (!validTypes.includes(file.type)) {
-                          setImageError(t('ui.photoTypeError') || 'Only JPG, PNG, and WebP images are allowed');
-                          return;
-                        }
-                        if (file.size > 5 * 1024 * 1024) {
-                          setImageError(t('ui.photoSizeError') || 'File size exceeds 5MB');
-                          return;
-                        }
-                        setSelectedImage(file);
-                        const reader = new FileReader();
-                        reader.onloadend = () => { setImagePreview(reader.result); };
-                        reader.readAsDataURL(file);
-                      }}
-                      style={{ display: 'none' }}
-                    />
-                    <span style={{ color: PRIMARY_COLOR, fontSize: '13px', fontWeight: 600 }}>
-                      {t('ui.uploadPhoto')}
-                    </span>
-                    <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#6b7280' }}>
-                      JPG, PNG, WebP (max 5MB)
-                    </p>
-                  </label>
-                )}
-              </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
-              <div style={{ display: 'flex', gap: '8px' }}>
-               <textarea placeholder={t('ui.rate')} value={comment}
-                  onChange={e => setComment(e.target.value)}
-                  rows={Math.max(1, comment.split('\n').length)}
-                  style={{ flex: 1, padding: '8px 12px', border: '1px solid #d1d5db',
-                     borderRadius: 8, fontSize: '0.875rem', resize: 'none', transition: 'border-color 0.2s ease, box-shadow 0.2s ease' }}
-                  />
-               <button
-                  onClick={submitRating}
-                  disabled={rating === 0 || uploading}
-                  style={{
-                     padding: '0.75rem 1rem', borderRadius: '8px', border: 'none',
-                     background: rating > 0 && !uploading ? PRIMARY_COLOR : BUTTON_DISABLED,
-                     color: rating > 0 && !uploading ? BUTTON_TEXT : BUTTON_DISABLED_TEXT,
-                     cursor: rating > 0 && !uploading ? 'pointer' : 'not-allowed',
-                     fontSize: '0.875rem', fontWeight: 600, whiteSpace: 'nowrap',
-                     transition: 'all 0.2s ease',
-                     boxShadow: rating > 0 && !uploading ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
-                   }}>
-                   {uploading ? t('ui.uploading') : t('ui.rate')}
-                 </button>
-                 </div>
-               </>
-             )}
-
-             </>
-           )}
-          </div>
-        )}
-
-        {enlargedImage && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, cursor: 'pointer', transition: 'background 0.3s ease' }}
-               onClick={() => setEnlargedImage(null)}>
-            <img src={enlargedImage} alt=""
-                 style={{ maxHeight: '90vh', maxWidth: '90vw', borderRadius: 8, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}
-                 onClick={(e) => e.stopPropagation()} />
-          </div>
-        )}
-     </div>
-   );
+      {enlargedImage && (
+        <Lightbox src={enlargedImage} alt={t('ui.enlargedPhoto')}
+          onClose={() => setEnlargedImage(null)} />
+      )}
+    </div>
+  );
 }
 
 export default App;

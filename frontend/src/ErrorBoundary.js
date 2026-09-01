@@ -20,21 +20,11 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{
-          minHeight: '100vh', display: 'flex', flexDirection: 'column',
-          alignItems: 'center', justifyContent: 'center', gap: 12,
-          fontFamily: '-apple-system, sans-serif', padding: 20, textAlign: 'center',
-        }}>
-          <p style={{ fontSize: '1rem', color: '#374151' }}>
-            Something went wrong. Please reload the page.
-          </p>
-          <button
-            onClick={() => window.location.reload()}
-            style={{
-              padding: '0.5rem 1rem', borderRadius: '0.5rem', border: 'none',
-              background: '#3b82f6', color: '#fff', cursor: 'pointer', fontSize: '0.875rem',
-            }}
-          >
+        <div className="fatal" role="alert">
+          <span className="empty__icon" aria-hidden="true">😵</span>
+          <p className="empty__text">Something went wrong. Please reload the page.</p>
+          <button type="button" className="btn btn--primary"
+            onClick={() => window.location.reload()}>
             Reload
           </button>
         </div>

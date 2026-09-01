@@ -12,6 +12,14 @@ set -euo pipefail
 BUILD=""
 [ "${1:-}" = "--build" ] && BUILD="--build"
 
+show_host_status
+# Before backup.sh: no point spending minutes on a dump for a build that will
+# then be refused for lack of memory.
+# Spelled as an `if` rather than `[ -n "$BUILD" ] && require_build_headroom`
+# purely for clarity: under `set -e` the && form is safe (bash exempts the
+# left-hand side of an AND list), but the `if` says what it means.
+if [ -n "$BUILD" ]; then require_build_headroom; fi
+
 log "pre-deploy backup"
 "$(dirname "$(readlink -f "$0")")/backup.sh"
 

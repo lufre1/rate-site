@@ -37,7 +37,16 @@
     "recent": "recent",
     "overall": "overall",
     "upvote": "Upvote",
-    "downvote": "Downvote"
+    "downvote": "Downvote",
+    "themeSwitch": "Theme: {{mode}}",
+    "theme_system": "System",
+    "theme_light": "Light",
+    "theme_dark": "Dark",
+    "starLabel": "{{count}} out of 5 stars",
+    "showToday": "Show today",
+    "navLabel": "Main navigation",
+    "enlargedPhoto": "Enlarged photo",
+    "topPhoto": "Top rated photo"
   },
   "mealTypes": {
     "main": "Main",

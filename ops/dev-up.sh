@@ -20,6 +20,12 @@ export RATE_ENV
 BUILD=""
 [ "${1:-}" = "--build" ] && BUILD="--build"
 
+show_host_status
+# Spelled as an `if` rather than `[ -n "$BUILD" ] && require_build_headroom`
+# purely for clarity: under `set -e` the && form is safe (bash exempts the
+# left-hand side of an AND list), but the `if` says what it means.
+if [ -n "$BUILD" ]; then require_build_headroom; fi
+
 PORT="$(grep -E '^PROXY_PORT=' "$RATE_SITE_DIR/.env.dev" | cut -d= -f2-)"
 PORT="${PORT:-8080}"
 
@@ -30,9 +36,14 @@ docker compose -p rate-site-dev --env-file .env.dev \
     up -d --remove-orphans $BUILD
 
 log "waiting for the dev API"
+# The sleep is load-bearing: without it this loop fired all 30 curls inside a
+# second and declared failure while the backend was still starting. The backend
+# blocks on scrape_menus() during startup (up to 14 HTTP fetches at a 10s
+# timeout), so give it a real minute.
 for _ in $(seq 1 30); do
     code="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT/api/v1/mensas" || true)"
     [ "$code" = "200" ] && break
+    sleep 2
 done
 [ "${code:-}" = "200" ] || die "dev API did not come up on port $PORT (last status: ${code:-none})"
 log "dev API OK on http://localhost:$PORT"

@@ -1,0 +1,23 @@
+# Installed to /etc/logrotate.d/rate-site
+/var/log/rate-site/*.log {
+    # REQUIRED. /var/log/rate-site is 2775 root:cloud so the cron scripts (which
+    # run as `cloud`) can write there, and logrotate refuses group-writable
+    # parents unless told whose identity to use:
+    #   error: skipping ... because parent directory has insecure permissions
+    # Without this line rotation silently never happens and the log grows forever.
+    su root cloud
+    daily
+    rotate 14
+    maxsize 20M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 root cloud
+    sharedscripts
+    postrotate
+        # memwatch holds an O_APPEND fd, so a plain rename would leave it
+        # writing into the rotated inode forever. Its SIGHUP handler reopens.
+        /bin/systemctl kill -s HUP rate-site-memwatch.service 2>/dev/null || true
+    endscript
+}

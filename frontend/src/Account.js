@@ -1,17 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { API, authHeaders, setToken, clearToken, formatRelativeDate, StarPicker, setDisplayName, clearDisplayName, getDisplayName } from './shared';
-
-const btn = (bg, color) => ({
-  padding: '8px 16px', background: bg, color, border: 'none',
-  borderRadius: 8, cursor: 'pointer', fontSize: '0.875rem', fontWeight: 600,
-  transition: 'all 0.2s ease', boxShadow: bg === '#3b82f6' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
-});
-
-const input = {
-  width: '100%', padding: '0.5rem', borderRadius: '8px',
-  border: '1px solid #d1d5db', fontSize: '0.875rem', marginBottom: 8, transition: 'border-color 0.2s ease, box-shadow 0.2s ease'
-};
+import {
+  API, authHeaders, setToken, clearToken, formatRelativeDate, StarPicker,
+  getDisplayName,
+} from './shared';
 
 function AuthForm({ onAuth }) {
   const { t } = useTranslation();
@@ -46,28 +38,34 @@ function AuthForm({ onAuth }) {
 
   return (
     <form onSubmit={submit}>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <div className="tabs">
         {['login', 'register'].map(m => (
-          <button key={m} type="button" onClick={() => { setMode(m); setError(''); }}
-            style={btn(mode === m ? '#ea580c' : '#f3f4f6', mode === m ? '#fff' : '#6b7280')}>
+          <button key={m} type="button" className="btn btn--ghost"
+            aria-pressed={mode === m}
+            onClick={() => { setMode(m); setError(''); }}>
             {t(`auth.${m}`)}
           </button>
         ))}
       </div>
-      <input style={input} type="text" autoComplete="username"
-        placeholder={t('auth.username')} value={username}
-        onChange={e => setUsername(e.target.value)} />
-      <input style={input} type="password"
-        autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-        placeholder={t('auth.password')} value={password}
-        onChange={e => setPassword(e.target.value)} />
-      {mode === 'register' && (
-        <p style={{ fontSize: '0.75rem', color: '#6b7280', margin: '0 0 8px' }}>{t('auth.rules')}</p>
-      )}
-      {error && <p style={{ color: '#dc2626', fontSize: '0.8125rem', margin: '0 0 8px', fontWeight: 500 }}>{error}</p>}
-      <button type="submit" disabled={busy || !username || !password}
-        style={{ ...btn(busy || !username || !password ? '#f3f4f6' : '#ea580c', busy || !username || !password ? '#9ca3af' : '#fff'), width: '100%', fontWeight: 600 }}>
-        {busy ? '...' : t(`auth.${mode}`)}
+
+      <div className="stack-2">
+        <input className="field" type="text" autoComplete="username"
+          placeholder={t('auth.username')} aria-label={t('auth.username')}
+          value={username} onChange={e => setUsername(e.target.value)} />
+        <input className="field" type="password"
+          autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+          placeholder={t('auth.password')} aria-label={t('auth.password')}
+          value={password} onChange={e => setPassword(e.target.value)} />
+      </div>
+
+      {mode === 'register' && <p className="hint-text">{t('auth.rules')}</p>}
+      <p aria-live="polite">
+        {error && <span className="error-text">{error}</span>}
+      </p>
+
+      <button type="submit" className="btn btn--primary btn--block"
+        disabled={busy || !username || !password}>
+        {busy ? '…' : t(`auth.${mode}`)}
       </button>
     </form>
   );
@@ -103,50 +101,47 @@ function RatingRow({ entry, onChanged }) {
   };
 
   return (
-    <div style={{ background: '#fff', border: '1px solid #f3f4f6', borderRadius: 12,
-      padding: '12px 16px', marginBottom: 12, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+    <div className="entry">
+      <div className="entry__head">
         <div>
-          <div style={{ fontSize: '0.9375rem', fontWeight: 600, color: '#111827' }}>{entry.meal_name}</div>
-          <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+          <div className="entry__name">{entry.meal_name}</div>
+          <div className="entry__sub">
             {entry.mensa}
             {entry.created_at && ` · ${formatRelativeDate(entry.created_at, t)}`}
           </div>
         </div>
-        <span style={{ color: '#f59e0b', fontSize: '0.875rem', whiteSpace: 'nowrap', fontWeight: 600 }}>
+        <span className="stars" aria-label={t('ui.starLabel', { count: entry.rating })}>
           {'★'.repeat(entry.rating)}{'☆'.repeat(5 - entry.rating)}
         </span>
       </div>
 
       {editing ? (
-        <div style={{ marginTop: 8 }}>
+        <div className="stack-2">
           <StarPicker value={rating} onChange={setRating} size={18} />
-          <textarea value={comment} onChange={e => setComment(e.target.value)} rows={2}
-            style={{ ...input, marginTop: 4, resize: 'vertical' }} />
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={save} disabled={busy} style={btn('#ea580c', '#fff')}>{t('auth.save')}</button>
-            <button onClick={() => { setEditing(false); setRating(entry.rating); setComment(entry.comment || ''); }}
-              style={btn('#f3f4f6', '#6b7280')}>{t('auth.cancel')}</button>
+          <textarea className="field field--textarea" rows={2}
+            aria-label={t('ui.sideComment')}
+            value={comment} onChange={e => setComment(e.target.value)} />
+          <div className="row-2">
+            <button type="button" className="btn btn--primary btn--sm"
+              onClick={save} disabled={busy}>{t('auth.save')}</button>
+            <button type="button" className="btn btn--ghost btn--sm"
+              onClick={() => { setEditing(false); setRating(entry.rating); setComment(entry.comment || ''); }}>
+              {t('auth.cancel')}
+            </button>
           </div>
         </div>
       ) : (
         <>
-          {entry.comment && (
-            <p style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: '#374151',
-              wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{entry.comment}</p>
-          )}
+          {entry.comment && <p className="review__text">{entry.comment}</p>}
           {entry.photo_url && (
-            <img src={`${API}${entry.photo_url}`} alt="" style={{ marginTop: 6, maxWidth: 100,
-              maxHeight: 100, borderRadius: 8, border: '1px solid #f3f4f6', display: 'block' }}
+            <img className="review__photo" src={`${API}${entry.photo_url}`} alt=""
               onError={e => { e.target.style.display = 'none'; }} />
           )}
-          <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
-            <button onClick={() => setEditing(true)} disabled={busy}
-              style={{ background: 'none', border: 'none', color: '#ea580c', cursor: 'pointer',
-                fontSize: '0.75rem', padding: 0, fontWeight: 600 }}>{t('auth.edit')}</button>
-            <button onClick={remove} disabled={busy}
-              style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer',
-                fontSize: '0.75rem', padding: 0, fontWeight: 600 }}>{t('auth.delete')}</button>
+          <div className="entry__actions">
+            <button type="button" className="btn--quiet"
+              onClick={() => setEditing(true)} disabled={busy}>{t('auth.edit')}</button>
+            <button type="button" className="btn--quiet" data-tone="danger"
+              onClick={remove} disabled={busy}>{t('auth.delete')}</button>
           </div>
         </>
       )}
@@ -177,11 +172,11 @@ function Profile({ user, onLogout, language, onUpdate }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const saveDisplayName = async () => {
+  const saveDisplayName = async (value) => {
     setDisplayBusy(true);
     setDisplayError('');
     try {
-      const trimmed = displayName.trim();
+      const trimmed = (value !== undefined ? value : displayName).trim();
       if (trimmed.length > 30) {
         throw new Error(t('auth.displayNameLong'));
       }
@@ -215,52 +210,54 @@ function Profile({ user, onLogout, language, onUpdate }) {
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-        <span style={{ fontSize: '1rem', color: '#374151', fontWeight: 600 }}>
+      <div className="account-head">
+        <span className="account-head__who">
           {t('auth.signedInAs')} <strong>{user.username}</strong>
         </span>
-        <button onClick={logout} style={btn('#f3f4f6', '#6b7280')}>{t('auth.logout')}</button>
+        <button type="button" className="btn btn--ghost" onClick={logout}>
+          {t('auth.logout')}
+        </button>
       </div>
 
-      <div style={{ background: '#fff', border: '1px solid #f3f4f6', borderRadius: 12,
-        padding: '20px', marginBottom: 16, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-        <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: '#111827', marginBottom: 8 }}>
+      <div className="card">
+        <label className="form-label" htmlFor="display-name">
           {t('auth.displayName')}
         </label>
-        <input style={{ ...input, marginBottom: 8 }} type="text"
+        <input id="display-name" className="field" type="text"
           placeholder={t('auth.displayNameHint')}
           value={displayName}
           onChange={e => { setDisplayNameLocal(e.target.value); setDisplayError(''); }}
           maxLength={30} />
-        {displayError && <p style={{ color: '#dc2626', fontSize: '0.75rem', margin: '0 0 8px', fontWeight: 500 }}>{displayError}</p>}
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => saveDisplayName()} disabled={displayBusy}
-            style={{ ...btn(displayBusy ? '#f3f4f6' : '#ea580c', displayBusy ? '#9ca3af' : '#fff'), padding: '6px 12px', fontWeight: 600 }}>
-            {displayBusy ? '...' : t('auth.save')}
+        <p aria-live="polite">
+          {displayError && <span className="error-text">{displayError}</span>}
+        </p>
+        <div className="row-2">
+          <button type="button" className="btn btn--primary btn--sm"
+            onClick={() => saveDisplayName()} disabled={displayBusy}>
+            {displayBusy ? '…' : t('auth.save')}
           </button>
           {displayName && (
-            <button onClick={() => { setDisplayNameLocal(''); saveDisplayName(); }}
-              style={{ ...btn('#f3f4f6', '#6b7280'), padding: '6px 12px' }}>
+            <button type="button" className="btn btn--ghost btn--sm"
+              onClick={() => { setDisplayNameLocal(''); saveDisplayName(''); }}>
               {t('auth.clear')}
             </button>
           )}
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+      <div className="tabs mt-4">
         {[['mine', 'auth.myRatings'], ['favourites', 'auth.favourites']].map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key)}
-            style={btn(tab === key ? '#ea580c' : '#f3f4f6', tab === key ? '#fff' : '#6b7280')}>
+          <button key={key} type="button" className="btn btn--ghost"
+            aria-pressed={tab === key} onClick={() => setTab(key)}>
             {t(label)}
           </button>
         ))}
       </div>
 
       {loading ? (
-        <p style={{ color: '#6b7280', fontSize: '0.875rem' }}>{t('search.loadingMenu')}</p>
+        <p className="muted-text">{t('search.loadingMenu')}</p>
       ) : entries.length === 0 ? (
-        <p style={{ color: '#9ca3af', fontSize: '0.875rem' }}>
+        <p className="muted-text">
           {t(tab === 'favourites' ? 'auth.noFavourites' : 'auth.noRatings')}
         </p>
       ) : (
@@ -280,14 +277,12 @@ function Account({ user, onAuth, onLogout, onBack, language }) {
   };
 
   return (
-    <div style={{ maxWidth: '600px', margin: '0 auto', padding: '24px' }}>
-      <h1 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1f2937', marginBottom: '24px' }}>
-        {t('auth.account')}
-      </h1>
+    <div className="page--narrow">
+      <h2 className="view-title">{t('auth.account')}</h2>
       {user
         ? <Profile user={userState || user} onLogout={onLogout} language={language} onUpdate={handleProfileUpdate} />
         : <AuthForm onAuth={onAuth} />}
-      <button onClick={onBack} style={{ ...btn('#ea580c', '#fff'), marginTop: 24, fontWeight: 600 }}>
+      <button type="button" className="btn btn--primary mt-6" onClick={onBack}>
         {t('ui.backHome')}
       </button>
     </div>

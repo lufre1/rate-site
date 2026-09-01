@@ -1,0 +1,12 @@
+[Unit]
+Description=rate-site unclean-shutdown detector
+After=systemd-journald.service local-fs.target
+Wants=systemd-journald.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/cloud/rate-site/ops/boot-report.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

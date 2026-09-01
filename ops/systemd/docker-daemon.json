@@ -1,0 +1,17 @@
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "5",
+    "compress": "true"
+  },
+  "live-restore": true,
+  "builder": {
+    "gc": {
+      "enabled": true,
+      "policy": [
+        { "keepStorage": "4GB", "all": true }
+      ]
+    }
+  }
+}
