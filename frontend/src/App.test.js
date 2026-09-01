@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
+import { API } from './shared';
 
 const MENSA = 'Testmensa';
 
@@ -116,7 +117,10 @@ test('a review with an uploaded photo renders the photo thumbnail', async () => 
 
   await screen.findByText('Sieht toll aus');
 
-  const photo = document.querySelector(`img[src="http://localhost:8000${review.photo_url}"]`);
+  // Built against `API`, not a hardcoded host: the fallback only applies when
+  // REACT_APP_API_URL is absent (which is the `npm test` case), while the
+  // deployed bundle builds with it empty and emits a same-origin path.
+  const photo = document.querySelector(`img[src="${API}${review.photo_url}"]`);
   expect(photo).toBeInTheDocument();
 });
 

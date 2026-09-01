@@ -128,10 +128,10 @@ be applied to prod by accident. See "How dev and prod are kept apart" in
 
 **Environment variables (`.env`):**
 - `DATABASE_URL` — PostgreSQL connection string
-- `REACT_APP_API_URL` — Backend API URL (default: `http://localhost:8000`)
+- `REACT_APP_API_URL` — Backend API base. **Empty** behind the reverse proxy (same-origin); `http://localhost:8000` only for a bare `npm start`
 
 **Build-time (frontend):**
-- `REACT_APP_API_URL` set in `frontend/Dockerfile`
+- `REACT_APP_API_URL` set in `frontend/Dockerfile` as a build arg (empty in the deployed stacks)
 
 ## License
 

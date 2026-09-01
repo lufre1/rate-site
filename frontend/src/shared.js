@@ -3,7 +3,14 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 
-export const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+// `??`, not `||`. Behind the reverse proxy the correct value is the EMPTY string
+// -- calls are same-origin, so `${API}/api/v1/x` must come out as `/api/v1/x`.
+// An empty string is falsy, so `||` would silently swap it for the localhost
+// fallback and every request would go to the *visitor's own* machine (and be
+// blocked as mixed content on an HTTPS page). `??` falls back only on
+// undefined/null, which is still the `npm start` case: CRA leaves the identifier
+// undefined when the variable is absent.
+export const API = process.env.REACT_APP_API_URL ?? 'http://localhost:8000';
 
 const TOKEN_KEY = 'mensa_token';
 
@@ -34,8 +41,27 @@ export function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// Local-calendar YYYY-MM-DD. NOT toISOString().slice(0, 10), which is UTC: for a
+// Berlin user between midnight and 02:00 that returns *yesterday*, so the app
+// opened on the wrong day's menu. Everything else in the UI reads local getters
+// (formatDate in App.js), so the date key has to be local too.
+export function toDateKey(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// The API serialises naive UTC timestamps with no offset (`.isoformat()` on a
+// tz-naive datetime, e.g. "2026-09-01T12:00:00"). ES2015 parses the date-TIME
+// form without an offset as LOCAL, so those instants land 1-2h off for Berlin --
+// enough to flip "today"/"yesterday" near a boundary. Appending Z fixes that.
+// Date-ONLY strings ("2026-09-01") are already spec'd as UTC; leave them alone.
+export function parseServerDate(dateStr) {
+  const needsZ = /T/.test(dateStr) && !/(Z|[+-]\d{2}:?\d{2})$/.test(dateStr);
+  return new Date(needsZ ? `${dateStr}Z` : dateStr);
+}
+
 export function formatRelativeDate(dateStr, t) {
-  const days = Math.round((new Date() - new Date(dateStr)) / 86400000);
+  const days = Math.round((new Date() - parseServerDate(dateStr)) / 86400000);
   if (days <= 0) return t('dates.today');
   if (days === 1) return t('dates.yesterday');
   if (days < 7) return t('dates.daysAgo', { count: days });

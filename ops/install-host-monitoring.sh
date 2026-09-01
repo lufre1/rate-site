@@ -28,6 +28,12 @@ install -m 0644 "$SRC/logrotate-rate-site"           /etc/logrotate.d/rate-site
 install -m 0644 "$SRC/journald-sync.conf"            /etc/systemd/journald.conf.d/10-sync.conf
 install -m 0644 "$SRC/earlyoom-priority.conf"        /etc/systemd/system/earlyoom.service.d/priority.conf
 
+# certbot renews the files but cannot reload nginx by itself; without this the
+# proxy serves the expired certificate until it is restarted. See the script.
+install -d /etc/letsencrypt/renewal-hooks/deploy
+install -m 0755 "$RATE_SITE_DIR/ops/letsencrypt-deploy-hook.sh" \
+    /etc/letsencrypt/renewal-hooks/deploy/reload-rate-site-proxy.sh
+
 systemctl daemon-reload
 systemctl enable --now rate-site-memwatch.service
 systemctl enable rate-site-boot-report.service

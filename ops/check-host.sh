@@ -40,10 +40,36 @@ esac
 
 # Readiness of the prod API. Reported, never acted on -- restarting the backend
 # cannot fix a broken database, and doing so on a DB outage is a restart loop.
-curl -sf -m 5 -o /dev/null http://localhost/api/v1/health/db \
-    || PROBLEMS="$PROBLEMS prod-db-health=fail"
+#
+# Assert the status code explicitly. This probe used to be
+#     curl -sf -m 5 -o /dev/null http://localhost/api/v1/health/db
+# and it silently stopped testing anything the moment port 80 became a redirect
+# to HTTPS on 2026-09-01: `curl -f` does not treat a 3xx as an error and there is
+# no -L, so it exited 0 on the 301 without ever reaching the backend. It would
+# have reported a healthy host with a completely dead API. Same shape as the
+# backup tripwire's lesson -- a check that cannot fail is not a check.
+#
+# --resolve rather than -k so the real certificate chain is validated too; an
+# expired or mismatched cert fails here instead of only in users' browsers.
+API_CODE=$(curl -s -m 5 -o /dev/null -w '%{http_code}' \
+           --resolve "${SITE_DOMAIN}:443:127.0.0.1" \
+           "https://${SITE_DOMAIN}/api/v1/health/db" 2>/dev/null) || API_CODE="000"
+[ "$API_CODE" = "200" ] || PROBLEMS="$PROBLEMS prod-db-health=$API_CODE"
 
-log "disk ${USED}% (${FREE_G}G free), swap ${SWAP_TOTAL}MiB, build cache ${CACHE:-?}"
+# Certificate expiry. certbot renews at 30 days remaining, so anything below
+# CERT_WARN_DAYS means a renewal is stuck -- or renewed on disk but never
+# reloaded into nginx, which serves the old cert until the container restarts.
+CERT_END=$(echo | openssl s_client -connect 127.0.0.1:443 -servername "$SITE_DOMAIN" 2>/dev/null \
+           | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
+if [ -n "${CERT_END:-}" ]; then
+    CERT_DAYS=$(( ( $(date -d "$CERT_END" +%s) - $(date +%s) ) / 86400 ))
+    [ "$CERT_DAYS" -ge "$CERT_WARN_DAYS" ] || PROBLEMS="$PROBLEMS cert-expiry=${CERT_DAYS}d"
+else
+    CERT_DAYS="?"
+    PROBLEMS="$PROBLEMS cert-read=fail"
+fi
+
+log "disk ${USED}% (${FREE_G}G free), swap ${SWAP_TOTAL}MiB, build cache ${CACHE:-?}, cert ${CERT_DAYS}d"
 
 if [ -n "$PROBLEMS" ]; then
     write_status "ALARM$PROBLEMS"

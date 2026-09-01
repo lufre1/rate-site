@@ -1,21 +1,23 @@
 """Frontend/API integration tests: verify nginx proxy routing end-to-end.
 
-Tests the full routing chain:
-  browser → proxy nginx (port 80) → frontend nginx → backend
+The frontend is built with REACT_APP_API_URL empty, so JS code does:
+  fetch(`${API}/api/v1/mensas`) = fetch('/api/v1/mensas')
 
-The frontend is built with REACT_APP_API_URL=/api, so JS code does:
-  fetch(`${API}/api/v1/mensas`) = fetch('/api/api/v1/mensas')
+That is the route these tests care about:
+  /api/v1/mensas → proxy nginx `location /api/v1` → backend:8000, URI unchanged
 
-Frontend nginx strips /api prefix before proxying to backend:
-  location ~ ^/api/(.*) → proxy_pass to backend:8000/$1
+Until 2026-09-01 the build used REACT_APP_API_URL=/api, which emitted
+`/api/api/v1/mensas`. That does NOT prefix-match `location /api/v1` (position 6
+is `a`, not `v`), so it fell through `location /` to the frontend container,
+whose `location ~ ^/api/(.*)` stripped exactly one `/api/` on a second hop. Two
+errors that cancelled -- at the cost of an extra hop and the real client IP.
+That regex block is retained for now as a compatibility shim so browsers holding
+a cached old bundle keep working, and `test_legacy_doubled_prefix_shim` covers
+it. When the shim is removed, delete that test with it.
 
-So the chain is:
-  /api/api/v1/mensas → frontend nginx strips first /api → /api/v1/mensas → backend
-
-Direct proxy routing (bypassing frontend) also works:
-  /api/v1/mensas → proxy nginx → backend:8000
-
-Requires the Docker stack running (or at least the proxy on port 80).
+Requires the Docker stack running and reachable at API_BASE_URL (default
+http://localhost). Point it at http://localhost:8080 for dev, or at the https://
+origin for prod. Every test skips if that base is not answering.
 """
 import os
 
@@ -53,13 +55,12 @@ def test_frontend_index_served_through_proxy():
     assert "root" in resp.text.lower(), "Expected 'root' in index.html"
 
 
-def test_api_frontend_chain_serves_mensas():
-    """Test API calls through the frontend-nginx chain.
+def test_legacy_doubled_prefix_shim():
+    """The old `/api/api/v1/...` route still works while the shim is in place.
 
-    Verifies: proxy / → frontend nginx (strips /api) → backend
-
-    JS code: fetch('/api/api/v1/mensas')
-    Frontend nginx strips first /api: /api/v1/mensas → backend
+    Not the route the app takes any more -- this only guards browsers still
+    running a bundle cached from before 2026-09-01. Delete this test at the same
+    time as `location ~ ^/api/(.*)` in frontend/nginx.conf.
     """
     resp = requests.get(f"{PROXY_BASE}/api/api/v1/mensas", timeout=10)
     assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"

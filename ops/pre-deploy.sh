@@ -31,5 +31,16 @@ docker compose -p rate-site -f docker-compose.yml up -d --force-recreate --remov
 
 log "deploy done -- verifying"
 sleep 5 2>/dev/null || true
-curl -sf -o /dev/null -w 'api/v1/mensas -> %{http_code}\n' http://localhost/api/v1/mensas \
-    || die "prod API is not answering after deploy"
+
+# Assert the code. This was `curl -sf ... http://localhost/api/v1/mensas`, which
+# stopped verifying anything when port 80 became an HTTPS redirect on 2026-09-01:
+# `curl -f` does not treat a 3xx as an error and there is no -L, so a deploy that
+# left the API dead would still have printed a cheerful "-> 301" and exited 0.
+# Same bug, same day, as the one in ops/check-host.sh.
+#
+# --resolve rather than -k so the certificate chain is validated on the way past.
+CODE=$(curl -s -m 10 -o /dev/null -w '%{http_code}' \
+       --resolve "${SITE_DOMAIN}:443:127.0.0.1" \
+       "https://${SITE_DOMAIN}/api/v1/mensas" 2>/dev/null) || CODE="000"
+printf 'api/v1/mensas -> %s\n' "$CODE"
+[ "$CODE" = "200" ] || die "prod API is not answering after deploy (got $CODE)"

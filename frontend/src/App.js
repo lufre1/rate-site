@@ -8,7 +8,7 @@ import Account from './Account';
 import Stats from './Stats';
 import {
   API, authHeaders, getToken, clearToken, formatRelativeDate, StarPicker,
-  getVoterId, ThemeToggle,
+  getVoterId, ThemeToggle, toDateKey,
 } from './shared';
 
 const ICON_BASE = 'https://www.studierendenwerk-goettingen.de/fileadmin/templates/images/mensaspeiseplan/png/';
@@ -47,20 +47,21 @@ function formatDate(dateStr, lang) {
   return `${weekday} ${day}.${month}.${year}`;
 }
 
-// Generate min/max date strings for input[type="date"]
+// Generate min/max date strings for input[type="date"].
+// All three go through toDateKey (local), not toISOString (UTC) -- see shared.js.
 function getMinDate() {
   const d = new Date();
   d.setDate(d.getDate() - 7);
-  return d.toISOString().slice(0, 10);
+  return toDateKey(d);
 }
 
 function getMaxDate() {
   const d = new Date();
   d.setDate(d.getDate() + 7);
-  return d.toISOString().slice(0, 10);
+  return toDateKey(d);
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => toDateKey();
 
 function IconLegend() {
   const { t } = useTranslation();

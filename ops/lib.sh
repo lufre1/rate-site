@@ -88,6 +88,16 @@ write_status() {
     mv -f "$tmp" "$RATE_STATUS_FILE"
 }
 
+# Public hostname the production certificate is issued for. Health probes resolve
+# it to 127.0.0.1 rather than using -k, so they validate the real chain without
+# leaving the host: a broken or expired cert then trips the same check.
+SITE_DOMAIN="${SITE_DOMAIN:-c100-246.cloud.gwdg.de}"
+
+# certbot renews at 30 days remaining. Warning at 14 leaves a fortnight to notice
+# a renewal that ran but never reached nginx -- the failure mode the deploy hook
+# in ops/letsencrypt-deploy-hook.sh exists to prevent.
+CERT_WARN_DAYS="${CERT_WARN_DAYS:-14}"
+
 # The frontend build (CRA/webpack + terser) peaks well over 1 GiB, and this host
 # hard-locked mid-build on 2026-08-31 and 2026-09-01 (see "Host memory" in
 # AGENTS.md). Refuse to START a build when there is not enough headroom for it.

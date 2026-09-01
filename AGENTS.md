@@ -4,8 +4,8 @@
 
 - **Frontend**: React (Create React App, Nginx serve), **Backend**: FastAPI (Python 3.11), **DB**: PostgreSQL 15
 - **No router**: views are toggled with boolean state in `App.js` (`showImpressum`, `showAccount`). Shared helpers (`API`, token storage, `StarPicker`, `formatRelativeDate`) live in `frontend/src/shared.js` so `Account.js` doesn't import from its own parent
-- **All API routes under `/api/v1/`** — frontend calls `http://localhost:8000` by default, but in prod through nginx on `/api/v1`
-- **API URL from env**: `REACT_APP_API_URL` (set at build time in `frontend/Dockerfile:4`)
+- **All API routes under `/api/v1/`**. In every deployed stack the frontend calls them **same-origin** — `REACT_APP_API_URL` is **empty**, so `${API}/api/v1/x` is `/api/v1/x` and the proxy's `location /api/v1` sends it straight to the backend. `http://localhost:8000` is only the `npm start` fallback
+- **API URL from env**: `REACT_APP_API_URL`, a build-time Docker arg (`frontend/Dockerfile`), inlined by CRA. **`shared.js` reads it with `??`, not `||`** — the correct deployed value is the empty string, which is falsy, so `||` would silently substitute the localhost fallback and point every request at the visitor's own machine. For the same reason `docker-compose.dev.yml` uses `${REACT_APP_API_URL-/api}`, not `:-`
 - **Language support**: Each meal stores `name_de`, `name_en`, `description_de`, `description_en`; API returns `lang` parameter (default `de`)
 - **Dev instance**: http://141.5.100.246:8080/ — all development updates applied here first. Start it with `./ops/dev-up.sh`. Dev has its own database (`mensa_dev`), its own uploads volume and its own proxy config; see "How dev and prod are kept apart".
 
@@ -115,10 +115,39 @@ Same fallback applies to descriptions.
 
 ## Nginx Proxy Routes (`nginx-proxy.conf`)
 
-- `/` → `frontend:80`
-- `/api/v1` → `backend:8000`
+Prod terminates TLS; **port 80 serves only the ACME challenge and a 301 to
+`https://c100-246.cloud.gwdg.de`**. Dev (`nginx-proxy.dev.conf`, port 8080) is
+HTTP-only and has no TLS at all, so the two files are no longer near-copies.
 
-**Note**: The frontend's `nginx.conf` strips `/api/` prefix before proxying to backend (see `location ~ ^/api/(.*)` on line 9).
+- `:443` `/` → `frontend:80`
+- `:443` `/api/v1` → `backend:8000`
+- `:443` `/uploads` → `backend:8000`
+- `:80` `/.well-known/acme-challenge/` → `/var/www/certbot` (must stay ABOVE the
+  redirect; certbot renewal fails silently if the 301 swallows it)
+- `:80` everything else → `301`
+
+**Both files log with `log_format proxymain`, which appends `:$server_port
+$scheme`.** The stock `main` format omits them, and on 2026-09-01 that turned
+"did their HTTPS request even arrive?" into a packet-level argument, because a
+request on 80 and one on 443 produced identical log lines. Keep the two formats
+in step so a log line means the same thing in either environment.
+
+## TLS / Let's Encrypt
+
+- **Cert**: `c100-246.cloud.gwdg.de`, ECDSA, webroot authenticator, renewed by the
+  `certbot.timer` systemd unit. `/etc/letsencrypt` and `/var/www/certbot` are
+  bind-mounted into the proxy (`docker-compose.yml`).
+- **`ops/letsencrypt-deploy-hook.sh`** → installed to
+  `/etc/letsencrypt/renewal-hooks/deploy/` by `ops/install-host-monitoring.sh`.
+  **Without it a renewal is invisible to nginx**: certbot rewrites the files, but
+  nginx reads its certificate once at startup and keeps it in memory, so the proxy
+  serves the *expired* cert until the container happens to restart. The hook runs
+  `nginx -t` then `nginx -s reload`, and exits 0 with a message if the container is
+  not running (the cert is on disk and correct; the next start picks it up).
+- `ops/check-host.sh` reads expiry off the **live socket**, not off disk, precisely
+  so it catches a renewal that happened but never reached nginx.
+- `certbot renew --dry-run` exercises the challenge path but **not** deploy hooks.
+  Test the hook by running it directly.
 
 ## Deployment Policy
 
@@ -286,6 +315,12 @@ Install or re-install everything with `sudo ./ops/install-host-monitoring.sh`
   `/var/log/rate-site/boot-reports/`.
 - **journald now syncs every 10s**, not every 5 minutes
   (`/etc/systemd/journald.conf.d/10-sync.conf`).
+- **`tcpdump` is installed** (2026-09-01). It was not, during an outage that came
+  down to whether a client's packets were arriving at all -- there was no way to
+  answer that from inside the VM. One SYN per connection attempt:
+  ```bash
+  sudo tcpdump -nn -l -i any 'tcp port 443 and tcp[tcpflags] & tcp-syn != 0'
+  ```
 - **logrotate** (`/etc/logrotate.d/rate-site`) needs its `su root cloud` line --
   the log directory is `2775 root:cloud` so the cron scripts can write there, and
   logrotate silently refuses group-writable parents without it. It rotates by
@@ -359,7 +394,20 @@ the record -- the same pattern as `/home/cloud/backups/STATUS`.
 `show_host_status()` in `ops/lib.sh` prints both at the top of every deploy.
 
 - **`ops/check-host.sh`** (cron 09:05) -- disk, swap, build cache, memwatch and
-  earlyoom alive, prod `/api/v1/health/db` reachable. Exit 3 + `ALARM` on trouble.
+  earlyoom alive, prod `/api/v1/health/db` returning **200**, certificate not
+  within `CERT_WARN_DAYS` of expiry. Exit 3 + `ALARM` on trouble.
+  **Assert the status code, never `curl -f` alone.** This probe was
+  `curl -sf http://localhost/api/v1/health/db` and silently stopped testing
+  anything the moment port 80 became an HTTPS redirect on 2026-09-01: `curl -f`
+  does not treat a 3xx as an error and there was no `-L`, so it exited 0 on the
+  301 without ever reaching the backend. It would have reported a healthy host
+  with a completely dead API -- the same shape as the backup row-count lesson,
+  where a dump of a wiped database is still a perfectly valid dump.
+  It probes `https://$SITE_DOMAIN/...` with `--resolve` pinned to `127.0.0.1`
+  rather than `-k`, so the real certificate chain is validated on the way past
+  and an expired cert fails here instead of only in users' browsers.
+  `ops/pre-deploy.sh`'s post-deploy verification had the identical bug and the
+  identical fix. `ops/dev-up.sh` was already written this way -- copy that one.
 - **`ops/check-stack.sh`** (cron every 5 min) -- **Compose does not restart a
   container just because it is unhealthy**; `restart: unless-stopped` only reacts
   to the process exiting, so a hung uvicorn stays "Up" forever. This closes that
@@ -404,9 +452,9 @@ existence. Scripts live in `ops/`, config in `ops/lib.sh`.
 1. **Duplicate rows**: After DB reset, call `scrape_menus()` to regenerate. Stale rows with ratings are preserved.
 2. **English data loss**: Scraper never overwrites existing `name_en` if new EN source is empty — protects against temporary page outages.
 3. **Port conflict**: Host port 80 must be free (`sudo systemctl stop nginx` if needed).
-4. **Frontend build**: `REACT_APP_API_URL` must be set at build time via Docker arg (default `http://localhost:8000`).
+4. **Frontend build**: `REACT_APP_API_URL` is a build-time Docker arg and must be **empty** behind the proxy. See the `??`/`:-` notes in Architecture — an empty value is easy to lose to a falsy check.
 5. **Database health**: Backend waits for `pg_isready` (see `docker-compose.yml:11-16`); wait ~5-10s after `docker compose up` before API is ready.
-6. **Frontend dev**: `npm start` needs `REACT_APP_API_URL` set; defaults to `http://localhost:8000`.
+6. **Frontend dev**: `npm start` needs no `REACT_APP_API_URL`; absent, it falls back to `http://localhost:8000` (the `??` branch).
 7. **Running tests in the prod container destroys the database.** See "Key
    Commands". The rail in `conftest.py` blocks it now; do not weaken it, and
    never restore `os.environ.setdefault("DATABASE_URL", ...)` — `setdefault`
