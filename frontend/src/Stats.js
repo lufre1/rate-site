@@ -166,7 +166,7 @@ function Stats({ onBack, language }) {
           <div className="rank-list">
             {Object.entries(stats.weekly_trends).map(([day, count]) => (
               <div key={day} className="trend">
-                <div className="trend__day">{day}</div>
+                <div className="trend__day">{t(`stats.days.${day}`)}</div>
                 {/* The bar length is the one genuinely per-row value, so it
                     rides in as a custom property rather than a style object. */}
                 <div className="trend-bar">

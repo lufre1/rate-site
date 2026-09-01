@@ -121,6 +121,15 @@
     "weeklyTrends": "Wochenentwicklung",
     "ratings": "Bewertungen",
     "noData": "Noch keine Daten verfügbar",
-    "error": "Fehler beim Laden der Statistiken"
+    "error": "Fehler beim Laden der Statistiken",
+    "days": {
+      "monday": "Montag",
+      "tuesday": "Dienstag",
+      "wednesday": "Mittwoch",
+      "thursday": "Donnerstag",
+      "friday": "Freitag",
+      "saturday": "Samstag",
+      "sunday": "Sonntag"
+    }
   }
 }

@@ -121,6 +121,15 @@
     "weeklyTrends": "Weekly Trends",
     "ratings": "ratings",
     "noData": "No data available yet",
-    "error": "Error loading statistics"
+    "error": "Error loading statistics",
+    "days": {
+      "monday": "Monday",
+      "tuesday": "Tuesday",
+      "wednesday": "Wednesday",
+      "thursday": "Thursday",
+      "friday": "Friday",
+      "saturday": "Saturday",
+      "sunday": "Sunday"
+    }
   }
 }

@@ -1079,6 +1079,33 @@ def delete_own_rating(
     return Response(status_code=204)
 
 
+# Both PostgreSQL EXTRACT(DOW ...) and SQLite STRFTIME('%w', ...) number the week
+# 0 = Sunday .. 6 = Saturday. Mapping each one to a name explicitly beats offset
+# arithmetic against a Monday-first list, which is what shifted every bar in the
+# weekly-trends chart two days.
+DOW_TO_KEY = {1: "monday", 2: "tuesday", 3: "wednesday", 4: "thursday",
+              5: "friday", 6: "saturday", 0: "sunday"}
+WEEK_ORDER = ["monday", "tuesday", "wednesday", "thursday",
+              "friday", "saturday", "sunday"]
+
+
+def _local_dow(bind):
+    """Weekday of Rating.created_at in Europe/Berlin.
+
+    created_at is a naive TIMESTAMP holding UTC: the db container sets no TZ, so
+    the server-side func.now() default lands as UTC, while the rest of this
+    module reasons in Berlin time (see the ZoneInfo calls above). Postgres can
+    reinterpret it; SQLite has no timezone database, so the test default buckets
+    on UTC -- see test_api_stats.py.
+    """
+    col = DBRating.created_at
+    if bind.dialect.name == "postgresql":
+        # timezone('UTC', naive) -> timestamptz, then
+        # timezone('Europe/Berlin', tz) -> Berlin-local naive. Handles CET/CEST.
+        col = func.timezone("Europe/Berlin", func.timezone("UTC", col))
+    return func.extract("dow", col)
+
+
 @app.get("/api/v1/stats/overview", response_model=dict, tags=["Stats"])
 def get_dashboard_stats(db: Session = Depends(get_db), lang: str = "de"):
     """Main dashboard statistics"""
@@ -1141,15 +1168,13 @@ def get_dashboard_stats(db: Session = Depends(get_db), lang: str = "de"):
             "avg_rating": round(float(stat.avg_rating), 1)
         })
     
-    # Weekly trends (ratings by day of week)
-    weekly_trends = {}
-    days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-    
-    for i, day in enumerate(days):
-        count = db.query(func.count(DBRating.id)).filter(
-            func.extract('dow', DBRating.created_at) == (i + 6) % 7
-        ).scalar() or 0
-        weekly_trends[day] = count
+    # Weekly trends (ratings by day of week, in Berlin time)
+    dow = _local_dow(db.get_bind())
+    rows = db.query(dow.label('dow'), func.count(DBRating.id)).group_by(dow).all()
+    counts = {DOW_TO_KEY[int(d)]: n for d, n in rows if int(d) in DOW_TO_KEY}
+    # Zero-fill so all seven keys are always present, Monday first: the frontend
+    # renders Object.entries() in insertion order.
+    weekly_trends = {key: counts.get(key, 0) for key in WEEK_ORDER}
     
     return {
         "total_ratings": total_ratings,

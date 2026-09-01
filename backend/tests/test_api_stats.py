@@ -1,7 +1,8 @@
 """Tests for the statistics/overview endpoint.
 
 Covers:
-- Weekly trends day-of-week mapping (dow 0=Sunday maps to Monday label via offset)
+- Weekly trends day-of-week mapping (dow 0=Sunday -> lowercase day keys)
+- Weekly trends bucketing on Berlin day boundaries (Postgres only)
 - Language parameter (lang=en vs lang=de) for dish name resolution
 - Minimum rating floor for top dishes and mensa rankings
 - Correct aggregation of avg_rating and rating_count
@@ -96,16 +97,111 @@ def seed_data(client, sqlite_db):
         db.close()
 
 
-def test_weekly_trends_day_mapping(client, seed_data):
-    """Weekly trends should map PostgreSQL dow (0=Sunday) to Monday-first labels."""
+WEEK_ORDER = ["monday", "tuesday", "wednesday", "thursday",
+              "friday", "saturday", "sunday"]
+
+# Anchored to real calendar dates so the assertions name a weekday rather than a
+# relative offset -- `seed_data` uses datetime.now() - timedelta(...), which has no
+# fixed weekday and is why the two-day label shift survived this file for so long.
+# Midday times keep every count clear of the UTC/Berlin day boundary, so the
+# expectations hold on SQLite (naive) and Postgres (converted) alike.
+KNOWN_WEEKDAYS = {
+    "monday": [datetime(2026, 1, 5, 12, 0), datetime(2026, 1, 12, 12, 0)],
+    "tuesday": [datetime(2026, 1, 6, 12, 0)],
+    "wednesday": [datetime(2026, 1, 7, 12, 0), datetime(2026, 1, 7, 13, 0),
+                  datetime(2026, 1, 7, 14, 0)],
+    "thursday": [],
+    "friday": [datetime(2026, 1, 9, 12, 0)],
+    "saturday": [datetime(2026, 1, 10, 12, 0)],
+    "sunday": [datetime(2026, 1, 11, 12, 0), datetime(2026, 1, 11, 13, 0)],
+}
+
+
+def _seed_ratings(meal_id, stamps):
+    """Add one rating per timestamp in `stamps`."""
+    db = SessionLocal()
+    try:
+        for created_at in stamps:
+            db.add(Rating(meal_id=meal_id, rating=4, comment="x", created_at=created_at))
+        db.commit()
+    finally:
+        db.close()
+
+
+@pytest.fixture()
+def weekday_data(client, sqlite_db):
+    """One mensa, one meal, and ratings pinned to known weekdays."""
+    db = SessionLocal()
+    try:
+        mensa = Mensa(name="Mensa A")
+        db.add(mensa)
+        db.commit()
+        db.refresh(mensa)
+
+        meal = Meal(
+            name="Pasta", name_de="Pasta", name_en="Pasta",
+            description="Tomatensoße", description_de="Tomatensoße",
+            description_en="Tomato sauce", tags=None, type="main",
+            date=date_cls(2026, 1, 5), mensa_id=mensa.id,
+        )
+        db.add(meal)
+        db.commit()
+        db.refresh(meal)
+        meal_id = meal.id
+    finally:
+        db.close()
+
+    _seed_ratings(meal_id, [s for stamps in KNOWN_WEEKDAYS.values() for s in stamps])
+    return meal_id
+
+
+def test_weekly_trends_day_mapping(client, weekday_data):
+    """A rating made on a given weekday must be counted under that weekday.
+
+    Regression test for the (i + 6) % 7 offset, which credited every count to the
+    day two places later -- Monday's ratings showed up under Wednesday.
+    """
     resp = client.get("/api/v1/stats/overview")
     assert resp.status_code == 200
-    data = resp.json()
-    weekly = data["weekly_trends"]
+    weekly = resp.json()["weekly_trends"]
 
-    assert set(weekly.keys()) == {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"}
-    assert isinstance(weekly["Monday"], int)
-    assert isinstance(weekly["Sunday"], int)
+    expected = {day: len(stamps) for day, stamps in KNOWN_WEEKDAYS.items()}
+    assert weekly == expected
+
+
+def test_weekly_trends_keys_are_complete_and_ordered(client, weekday_data):
+    """All seven days are always present, Monday first (the frontend renders in order)."""
+    resp = client.get("/api/v1/stats/overview")
+    assert resp.status_code == 200
+    weekly = resp.json()["weekly_trends"]
+
+    assert list(weekly.keys()) == WEEK_ORDER
+    assert all(isinstance(v, int) for v in weekly.values())
+
+
+def test_weekly_trends_zero_fills_days_without_ratings(client, weekday_data):
+    """A day with no ratings reports 0 rather than going missing."""
+    resp = client.get("/api/v1/stats/overview")
+    assert resp.status_code == 200
+    assert resp.json()["weekly_trends"]["thursday"] == 0
+
+
+def test_local_dow_converts_to_berlin_on_postgres():
+    """created_at is naive UTC, so on Postgres the weekday must be taken in Berlin.
+
+    This asserts the compiled SQL rather than query results: the `client` fixture
+    is bound to `sqlite_db`, so no test in this file ever reaches a real Postgres.
+    Verified separately against the live database -- 2026-01-05 23:30 UTC (Monday)
+    converts to Tuesday 00:30 CET, and 2026-07-06 22:30 UTC to Tuesday 00:30 CEST.
+    """
+    sql = str(main._local_dow(create_engine("postgresql://")))
+    assert "timezone(:timezone_1, timezone(:timezone_2, ratings.created_at))" in sql
+
+
+def test_local_dow_stays_naive_on_sqlite():
+    """SQLite has no timezone database, so the expression must not emit timezone()."""
+    sql = str(main._local_dow(create_engine("sqlite://")))
+    assert "timezone" not in sql
 
 
 def test_lang_parameter_affects_dish_names(client, seed_data):
