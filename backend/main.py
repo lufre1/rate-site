@@ -361,7 +361,14 @@ def search_menu(q: str, past: bool = False, lang: str = "de", request: Request =
     ).join(DBMensa, DBMeal.mensa_id == DBMensa.id).outerjoin(
         rating_agg, (rating_agg.c.agg_name == DBMeal.name) & (rating_agg.c.agg_mensa_id == DBMeal.mensa_id)
     ).filter(
+        # Every language column, regardless of `lang`. `name`/`description` hold
+        # the German text (scraper.py sets name and name_de to the same string),
+        # so matching only those made an English query return nothing while the
+        # results were being rendered from name_en. Searching all of them also
+        # covers the common case of typing a German dish name on the English UI.
         DBMeal.name.ilike(qf) | DBMeal.description.ilike(qf)
+        | DBMeal.name_de.ilike(qf) | DBMeal.description_de.ilike(qf)
+        | DBMeal.name_en.ilike(qf) | DBMeal.description_en.ilike(qf)
     )
     if not past:
         results = results.filter(DBMeal.date >= today)
