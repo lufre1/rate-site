@@ -264,3 +264,74 @@ def test_total_counts(client, seed_data):
     assert data["total_ratings"] == 9
     assert data["total_meals"] == 3
     assert data["total_mensas"] == 2
+
+# Regression: both endpoints below selected aggregates over Rating without ever
+# joining it, so SQLAlchemy put `ratings` in the FROM clause unconstrained and
+# every row was paired with every rating. Each dish reported the site-wide
+# average, and per-mensa totals were multiplied by the mensa's meal count.
+# seed_data holds: Mensa A -> Pasta (5 ratings, avg 4.6) + Currywurst (2, 3.5),
+# Mensa B -> Salat (2 ratings, avg 4.5). Nine ratings, global average 4.3.
+
+def test_mensa_stats_counts_only_its_own_ratings(client, seed_data):
+    resp = client.get("/api/v1/stats/mensas")
+    assert resp.status_code == 200
+    by_name = {m["name"]: m for m in resp.json()}
+
+    # Cross-joined, these were 18 and 9 -- meals-in-mensa x all ratings.
+    assert by_name["Mensa A"]["total_ratings"] == 7
+    assert by_name["Mensa B"]["total_ratings"] == 2
+
+    assert by_name["Mensa A"]["total_meals"] == 2
+    assert by_name["Mensa B"]["total_meals"] == 1
+
+    # Mensa B is 5 and 4. Cross-joined it reported the global 4.3.
+    assert by_name["Mensa B"]["avg_rating"] == 4.5
+
+
+def test_mensa_stats_keeps_mensas_without_ratings(client, sqlite_db):
+    """An unrated mensa still has meals, so it stays in the list with avg 0."""
+    db = SessionLocal()
+    try:
+        mensa = Mensa(name="Mensa Leer")
+        db.add(mensa)
+        db.commit()
+        db.refresh(mensa)
+        db.add(Meal(name="Nudeln", name_de="Nudeln", type="main",
+                    date=date_cls.today(), mensa_id=mensa.id))
+        db.commit()
+    finally:
+        db.close()
+
+    resp = client.get("/api/v1/stats/mensas")
+    assert resp.status_code == 200
+    entry = next(m for m in resp.json() if m["name"] == "Mensa Leer")
+    assert entry["total_ratings"] == 0
+    assert entry["total_meals"] == 1
+    assert entry["avg_rating"] == 0
+
+
+def test_top_dishes_aggregates_per_dish(client, seed_data):
+    resp = client.get("/api/v1/stats/top-dishes")
+    assert resp.status_code == 200
+    by_name = {d["name"]: d for d in resp.json()}
+
+    # Cross-joined, all three of these were (9, 4.3).
+    assert (by_name["Pasta"]["rating_count"], by_name["Pasta"]["avg_rating"]) == (5, 4.6)
+    assert (by_name["Currywurst"]["rating_count"], by_name["Currywurst"]["avg_rating"]) == (2, 3.5)
+    assert (by_name["Salad"]["rating_count"], by_name["Salad"]["avg_rating"]) == (2, 4.5)
+
+
+def test_top_dishes_excludes_unrated_dishes(client, seed_data, sqlite_db):
+    """A dish nobody rated has no average and must not appear."""
+    db = SessionLocal()
+    try:
+        mensa_id = db.query(Mensa).filter(Mensa.name == "Mensa A").first().id
+        db.add(Meal(name="Ungetestet", name_de="Ungetestet", name_en="Untested",
+                    type="main", date=date_cls.today(), mensa_id=mensa_id))
+        db.commit()
+    finally:
+        db.close()
+
+    names = [d["name"] for d in client.get("/api/v1/stats/top-dishes").json()]
+    assert "Untested" not in names
+    assert "Pasta" in names

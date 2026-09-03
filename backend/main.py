@@ -1188,13 +1188,19 @@ def get_dashboard_stats(db: Session = Depends(get_db), lang: str = "de"):
 @app.get("/api/v1/stats/mensas")
 def get_mensa_stats(db: Session = Depends(get_db)):
     """Per-mensa statistics"""
+    # outerjoin, not join: a mensa whose meals have no ratings yet still has a
+    # meal count worth reporting and must not drop out of the list. Without any
+    # join at all, `ratings` lands in the FROM clause unconstrained and every
+    # mensa is paired with every rating in the database.
     mensa_stats = db.query(
         DBMensa.name,
         func.count(DBRating.id).label('total_ratings'),
-        func.avg(DBRating.rating).label('avg_rating'),
+        func.coalesce(func.avg(DBRating.rating), 0).label('avg_rating'),
         func.count(DBMeal.id.distinct()).label('total_meals')
-    ).join(DBMeal, DBMeal.mensa_id == DBMensa.id).group_by(DBMensa.name).order_by(
-        func.avg(DBRating.rating).desc()
+    ).join(DBMeal, DBMeal.mensa_id == DBMensa.id
+    ).outerjoin(DBRating, DBRating.meal_id == DBMeal.id
+    ).group_by(DBMensa.name).order_by(
+        func.coalesce(func.avg(DBRating.rating), 0).desc()
     ).all()
     
     return [
@@ -1220,6 +1226,10 @@ def get_top_dishes(limit: int = 10, db: Session = Depends(get_db)):
         func.count(DBRating.id).label('rating_count')
     ).join(
         DBMensa, DBMeal.mensa_id == DBMensa.id
+    ).join(
+        # Inner join: an unrated dish has no average and does not belong in a
+        # "top rated" list. Omitting it cross-joined every meal with every rating.
+        DBRating, DBRating.meal_id == DBMeal.id
     ).group_by(DBMeal.id, DBMensa.name).order_by(
         func.avg(DBRating.rating).desc()
     ).limit(limit).all()
