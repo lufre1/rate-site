@@ -1481,8 +1481,13 @@ def get_dashboard_stats(db: Session = Depends(get_db), lang: str = "de"):
     # Total ratings
     total_ratings = db.query(func.count(DBRating.id)).scalar() or 0
     
-    # Total meals (unique meal names)
-    total_meals = db.query(func.count(DBMeal.id.distinct())).scalar() or 0
+    # Distinct dishes, not menu rows. DBMeal.id is the primary key, so the old
+    # count(DISTINCT id) removed nothing and counted every row the scraper has
+    # ever written -- one per (date, mensa_id, name) -- which grows without
+    # bound as the same dish is served again. (name, mensa_id) is the dish
+    # identity used everywhere else here: see the rating_agg group_by in
+    # get_meals and the filters in get_ratings.
+    total_meals = db.query(DBMeal.name, DBMeal.mensa_id).distinct().count()
     
     # Total mensas
     total_mensas = db.query(func.count(DBMensa.id)).scalar() or 0

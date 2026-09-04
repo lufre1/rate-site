@@ -265,6 +265,7 @@ def test_total_counts(client, seed_data):
     assert data["total_meals"] == 3
     assert data["total_mensas"] == 2
 
+
 # Regression: both endpoints below selected aggregates over Rating without ever
 # joining it, so SQLAlchemy put `ratings` in the FROM clause unconstrained and
 # every row was paired with every rating. Each dish reported the site-wide
@@ -335,3 +336,47 @@ def test_top_dishes_excludes_unrated_dishes(client, seed_data, sqlite_db):
     names = [d["name"] for d in client.get("/api/v1/stats/top-dishes").json()]
     assert "Untested" not in names
     assert "Pasta" in names
+
+
+def test_total_meals_counts_dishes_not_menu_rows(client, seed_data):
+    """The same dish served on another day is one dish, not two.
+
+    total_meals used count(DISTINCT DBMeal.id) -- the primary key, so DISTINCT
+    removed nothing and the tile counted scraped menu rows. The label is
+    "Gerichte" / "Meals", so it should count dishes.
+    """
+    db = SessionLocal()
+    try:
+        pasta = db.query(Meal).filter(Meal.name == "Pasta").first()
+        db.add(Meal(
+            name="Pasta", name_de="Pasta", name_en="Pasta",
+            description="Tomatensoße", description_de="Tomatensoße",
+            description_en="Tomato sauce", type="main",
+            date=date_cls.today() + timedelta(days=1), mensa_id=pasta.mensa_id,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    data = client.get("/api/v1/stats/overview").json()
+    # Pasta, Currywurst, Salat. Counting rows would now report 4.
+    assert data["total_meals"] == 3
+
+
+def test_total_meals_counts_same_name_at_two_mensas_separately(client, sqlite_db):
+    """Dish identity is (name, mensa_id) throughout this module, not name alone."""
+    db = SessionLocal()
+    try:
+        a, b = Mensa(name="Mensa A"), Mensa(name="Mensa B")
+        db.add_all([a, b])
+        db.commit()
+        db.refresh(a)
+        db.refresh(b)
+        for mensa in (a, b):
+            db.add(Meal(name="Pommes", name_de="Pommes", type="side",
+                        date=date_cls.today(), mensa_id=mensa.id))
+        db.commit()
+    finally:
+        db.close()
+
+    assert client.get("/api/v1/stats/overview").json()["total_meals"] == 2
