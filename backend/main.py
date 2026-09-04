@@ -1,7 +1,6 @@
 from fastapi import FastAPI, Depends, Query, HTTPException, Request, File, Form, UploadFile, Response, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import date, datetime, timedelta
@@ -1230,21 +1229,6 @@ def get_photo_vote_status(rating_id: int, db: Session = Depends(get_db), voter_i
     }
 
 
-@app.get("/uploads/{filename}")
-def serve_photo(filename: str):
-    """Serve uploaded photos"""
-    file_path = os.path.join(UPLOAD_DIR, filename)
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Photo not found")
-    
-    content_type = "image/jpeg"
-    if filename.lower().endswith('.png'):
-        content_type = "image/png"
-    elif filename.lower().endswith('.webp'):
-        content_type = "image/webp"
-    
-    return FileResponse(file_path, media_type=content_type)
-
 # ---------------------------------------------------------------- Accounts
 
 @app.post("/api/v1/auth/register", response_model=TokenOut, status_code=201, tags=["Auth"])
@@ -1678,7 +1662,9 @@ def get_top_photo(meal_id: int, db: Session = Depends(get_db)):
 
     return {"photo_url": top_photo.photo_url}
 
-# Mount static files for photos
+# Serves the photos written by create_rating_with_photo. StaticFiles handles
+# content types, conditional requests (ETag/Last-Modified) and range requests,
+# and refuses to resolve a path outside `directory`.
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 if __name__ == "__main__":
