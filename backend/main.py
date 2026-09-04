@@ -1570,7 +1570,13 @@ def get_mensa_stats(db: Session = Depends(get_db)):
         DBMensa.name,
         func.count(DBRating.id).label('total_ratings'),
         func.coalesce(func.avg(DBRating.rating), 0).label('avg_rating'),
-        func.count(DBMeal.id.distinct()).label('total_meals')
+        # Distinct name, not distinct id: the same dish served on ten days is ten
+        # DBMeal rows, and counting rows made this tile disagree with the
+        # "Gerichte" total in /stats/overview, which counts (name, mensa_id).
+        # The query groups by mensa, so within a group distinct name IS distinct
+        # (name, mensa_id) -- and unlike count(DISTINCT (a, b)) it runs on
+        # SQLite, which is what the tests use.
+        func.count(DBMeal.name.distinct()).label('total_meals')
     ).join(DBMeal, DBMeal.mensa_id == DBMensa.id
     ).outerjoin(DBRating, DBRating.meal_id == DBMeal.id
     ).group_by(DBMensa.name).order_by(

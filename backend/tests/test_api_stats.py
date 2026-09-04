@@ -380,3 +380,32 @@ def test_total_meals_counts_same_name_at_two_mensas_separately(client, sqlite_db
         db.close()
 
     assert client.get("/api/v1/stats/overview").json()["total_meals"] == 2
+
+
+def test_mensa_stats_total_meals_agrees_with_overview(client, seed_data):
+    """The two "meals" numbers on the Stats page must measure the same thing.
+
+    /stats/overview counts dishes -- distinct (name, mensa_id) -- while
+    /stats/mensas counted DBMeal rows, so re-serving a dish inflated the
+    per-mensa rows without moving the overview tile and the page contradicted
+    itself. seed_data holds Pasta + Currywurst at Mensa A and Salat at Mensa B;
+    serving Pasta again the next day must change neither number.
+    """
+    db = SessionLocal()
+    try:
+        pasta = db.query(Meal).filter(Meal.name == "Pasta").first()
+        db.add(Meal(name="Pasta", name_de="Pasta", name_en="Pasta", type="main",
+                    date=date_cls.today() + timedelta(days=1),
+                    mensa_id=pasta.mensa_id))
+        db.commit()
+    finally:
+        db.close()
+
+    per_mensa = client.get("/api/v1/stats/mensas").json()
+    by_name = {m["name"]: m for m in per_mensa}
+    # Counting rows, Mensa A would now report 3.
+    assert by_name["Mensa A"]["total_meals"] == 2
+    assert by_name["Mensa B"]["total_meals"] == 1
+
+    overview = client.get("/api/v1/stats/overview").json()
+    assert sum(m["total_meals"] for m in per_mensa) == overview["total_meals"]
