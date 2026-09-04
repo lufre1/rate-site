@@ -444,23 +444,47 @@ def _extract_and_create_sides(db, mensa_obj, date_obj, description, created_side
             created_sides[mensa_key].add(side_name)
 
 
-def scrape_today():
-    """Scrape only today's menus. Lightweight — used for the precise lunch-time pre-open updates."""
-    db = SessionLocal()
+def _fetch_day(date_str):
+    """Fetch and parse one date's German + English tables. Does NO database work.
+
+    Deliberately kept apart from _write_day. Each request in here can take up to
+    _fetch's 10s timeout, and until 2026-09-02 they all ran *inside* an open
+    session: scrape_menus() opened one session, looped 7 days of fetches and
+    committed only at the very end, pinning a pool connection for the whole
+    scrape. Readers were never blocked by its locks -- Postgres MVCC means a
+    SELECT does not wait on a writer -- but one connection permanently missing
+    from a pool of 10 was enough, back when a single page load fired 66
+    requests, to push the surplus onto pool_timeout and stall the site for 10s.
+    Keep the network out of the session.
+    """
+    de_tables = _mensa_tables_for_date(date_str, ALL_URL, CACHE_URL)
+    en_tables = _mensa_tables_for_date(date_str, ALL_URL_EN, CACHE_URL_EN)
+    return de_tables, en_tables
+
+
+def _write_day(scrape_date, de_tables, en_tables):
+    """Apply one date's already-fetched tables in one short transaction.
+
+    Opens and closes its own session so the write transaction lives exactly as
+    long as the writes. Returns (new, updated, removed).
+
+    An empty `de_tables` is a no-op, which is what preserves existing data when
+    the official site is unreachable: _reconcile only runs for a mensa that was
+    actually scraped, so nothing gets marked unavailable on a failed fetch.
+    """
+    date_str = scrape_date.strftime('%Y-%m-%d')
     valid_names = set(ALIAS_MAP.values())
+
+    # Keyed by (mensa_id, date), so scoping this per call is equivalent to the
+    # single dict the old 7-day loop shared across every date.
+    created_sides = {}
+
+    new_count = 0
+    updated_count = 0
+    removed_count = 0
+
+    db = SessionLocal()
     try:
-        today = date.today()
-        date_str = today.strftime('%Y-%m-%d')
-
-        de_tables = _mensa_tables_for_date(date_str, ALL_URL, CACHE_URL)
-        en_tables = _mensa_tables_for_date(date_str, ALL_URL_EN, CACHE_URL_EN)
-
-        # Track created sides per mensa to avoid duplicates
-        created_sides = {}
-
-        new_count = 0
-        updated_count = 0
-
         for mensa_name, de_table in de_tables.items():
             if mensa_name not in valid_names:
                 continue
@@ -483,7 +507,7 @@ def scrape_today():
             for i, de_row in enumerate(de_rows):
                 de_dishes = _parse_dish_rows(de_row)
                 if not de_dishes:
-                    continue
+                    continue  # German row decides inclusion
 
                 # A multi-item row has no English counterpart worth pairing: the English
                 # page serves unrelated Last Minute text in that slot, and _parse_dish_row
@@ -498,7 +522,7 @@ def scrape_today():
                     seen.add(dedup_key)
                     german_names.add(de_dish['name'])
 
-                    result = _upsert_meal(db, mensa_obj, today, de_dish, en_dish)
+                    result = _upsert_meal(db, mensa_obj, scrape_date, de_dish, en_dish)
                     if result == 'new':
                         new_count += 1
                     else:
@@ -508,101 +532,55 @@ def scrape_today():
                     # Multi-item rows are already split per item, and their text carries
                     # prices whose decimal comma would shred a comma split.
                     if not multi and de_dish['type'] == 'main' and de_dish.get('description'):
-                        _extract_and_create_sides(db, mensa_obj, today, de_dish['description'], created_sides)
+                        _extract_and_create_sides(db, mensa_obj, scrape_date, de_dish['description'], created_sides)
 
-            _reconcile(db, mensa_obj, today, german_names)
+            removed_count += _reconcile(db, mensa_obj, scrape_date, german_names)
 
         db.commit()
-        log.info(f'scrape_today OK - {new_count} new, {updated_count} updated')
     except Exception:
         # log.exception writes the message AND the traceback through the logging
         # handler, so it lands in the docker json log with the rest. The old
         # traceback.print_exc() went straight to stderr, unformatted and
         # unattributed, and the message itself was logged at INFO.
         db.rollback()
-        log.exception('scrape_today failed')
+        log.exception(f'scraper failed writing {date_str}')
+        return 0, 0, 0
     finally:
         db.close()
+
+    return new_count, updated_count, removed_count
+
+
+def scrape_today():
+    """Scrape only today's menus. Lightweight — used for the precise lunch-time pre-open updates."""
+    today = date.today()
+    de_tables, en_tables = _fetch_day(today.strftime('%Y-%m-%d'))
+    new_count, updated_count, _ = _write_day(today, de_tables, en_tables)
+    log.info(f'scrape_today OK - {new_count} new, {updated_count} updated')
 
 
 def scrape_menus():
-    """Scrape German + English menus and merge them into one row per dish."""
-    db = SessionLocal()
-    valid_names = set(ALIAS_MAP.values())
-    try:
-        today = date.today()
-        # Track created sides per mensa to avoid duplicates
-        created_sides = {}
+    """Scrape German + English menus for the next 7 days and merge them into one row per dish.
 
-        new_count = 0
-        updated_count = 0
-        removed_count = 0
+    Each day is fetched with no session open, then written and committed before
+    the next day is fetched. The old shape committed all 7 days in a single
+    transaction, so a failure on day 5 threw away days 1-4; now every committed
+    day stands on its own.
+    """
+    today = date.today()
+    new_count = 0
+    updated_count = 0
+    removed_count = 0
 
-        for offset in range(7):
-            scrape_date = today + timedelta(days=offset)
-            date_str = scrape_date.strftime('%Y-%m-%d')
+    for offset in range(7):
+        scrape_date = today + timedelta(days=offset)
+        de_tables, en_tables = _fetch_day(scrape_date.strftime('%Y-%m-%d'))
+        new, updated, removed = _write_day(scrape_date, de_tables, en_tables)
+        new_count += new
+        updated_count += updated
+        removed_count += removed
 
-            de_tables = _mensa_tables_for_date(date_str, ALL_URL, CACHE_URL)
-            en_tables = _mensa_tables_for_date(date_str, ALL_URL_EN, CACHE_URL_EN)
-
-            for mensa_name, de_table in de_tables.items():
-                if mensa_name not in valid_names:
-                    continue
-
-                mensa_obj = _get_or_create_mensa(db, mensa_name)
-
-                de_rows = _dish_rows(de_table)
-                en_table = en_tables.get(mensa_name)
-                en_rows = _dish_rows(en_table) if en_table is not None else []
-
-                if en_table is not None and len(en_rows) != len(de_rows):
-                    log.info(
-                        f'WARNING: DE/EN row count mismatch for "{mensa_name}" on {date_str}: '
-                        f'{len(de_rows)} DE vs {len(en_rows)} EN - pairing by index'
-                    )
-
-                german_names = set()
-                seen = set()
-
-                for i, de_row in enumerate(de_rows):
-                    de_dishes = _parse_dish_rows(de_row)
-                    if not de_dishes:
-                        continue  # German row decides inclusion
-
-                    # A multi-item row has no English counterpart worth pairing: the English
-                    # page serves unrelated Last Minute text in that slot, and _parse_dish_row
-                    # rejects it, so leave English empty and let main.py fall back to German.
-                    multi = de_dishes[0].get('multi_item')
-                    en_dish = None if multi else (_parse_dish_row(en_rows[i]) if i < len(en_rows) else None)
-
-                    for de_dish in de_dishes:
-                        dedup_key = (de_dish['name'].lower(), (de_dish.get('description') or '').lower())
-                        if dedup_key in seen:
-                            continue
-                        seen.add(dedup_key)
-                        german_names.add(de_dish['name'])
-
-                        result = _upsert_meal(db, mensa_obj, scrape_date, de_dish, en_dish)
-                        if result == 'new':
-                            new_count += 1
-                        else:
-                            updated_count += 1
-
-                        # Extract sides from main dish descriptions and create side entries.
-                        # Multi-item rows are already split per item, and their text carries
-                        # prices whose decimal comma would shred a comma split.
-                        if not multi and de_dish['type'] == 'main' and de_dish.get('description'):
-                            _extract_and_create_sides(db, mensa_obj, scrape_date, de_dish['description'], created_sides)
-
-                removed_count += _reconcile(db, mensa_obj, scrape_date, german_names)
-
-        db.commit()
-        log.info(
-            f'Scraper OK - scraped {today} + 6 days, '
-            f'{new_count} new, {updated_count} updated, {removed_count} stale removed'
-        )
-    except Exception:
-        db.rollback()
-        log.exception('scrape_menus failed')
-    finally:
-        db.close()
+    log.info(
+        f'Scraper OK - scraped {today} + 6 days, '
+        f'{new_count} new, {updated_count} updated, {removed_count} stale removed'
+    )

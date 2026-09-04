@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   API, authHeaders, setToken, clearToken, formatRelativeDate, StarPicker,
-  getDisplayName,
 } from './shared';
+import { useToast } from './Toast';
 
 function AuthForm({ onAuth }) {
   const { t } = useTranslation();
@@ -27,8 +27,11 @@ function AuthForm({ onAuth }) {
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data.detail || t('auth.failed'));
       setToken(data.token);
-      const displayName = getDisplayName();
-      onAuth({ username: data.username, display_name: displayName || null });
+      // The server does not return the display name on login, and the
+      // mensa_display_name localStorage key it used to be read from was never
+      // written by anything -- so this was always null. Profile picks the real
+      // value up from GET /api/v1/me.
+      onAuth({ username: data.username, display_name: null });
     } catch (err) {
       setError(err.message || t('auth.failed'));
     } finally {
@@ -73,6 +76,7 @@ function AuthForm({ onAuth }) {
 
 function RatingRow({ entry, onChanged }) {
   const { t } = useTranslation();
+  const notify = useToast();
   const [editing, setEditing] = useState(false);
   const [rating, setRating] = useState(entry.rating);
   const [comment, setComment] = useState(entry.comment || '');
@@ -86,7 +90,10 @@ function RatingRow({ entry, onChanged }) {
       body: JSON.stringify({ rating, comment }),
     }).catch(() => null);
     setBusy(false);
-    if (resp && resp.ok) { setEditing(false); onChanged(); }
+    if (resp && resp.ok) { setEditing(false); onChanged(); return; }
+    // Used to do nothing at all: the edit form just stayed open, which reads
+    // as "the click didn't land" rather than "the save failed".
+    notify(t('auth.saveRatingFailed'));
   };
 
   const remove = async () => {
@@ -97,7 +104,9 @@ function RatingRow({ entry, onChanged }) {
       headers: authHeaders(),
     }).catch(() => null);
     setBusy(false);
-    if (resp && resp.ok) onChanged();
+    if (resp && resp.ok) { onChanged(); return; }
+    // A failed delete was entirely silent -- the row simply remained.
+    notify(t('auth.deleteRatingFailed'));
   };
 
   return (
@@ -110,7 +119,10 @@ function RatingRow({ entry, onChanged }) {
             {entry.created_at && ` · ${formatRelativeDate(entry.created_at, t)}`}
           </div>
         </div>
-        <span className="stars" aria-label={t('ui.starLabel', { count: entry.rating })}>
+        {/* role="img" is required: a bare <span> does not reliably expose
+            aria-label, so the rating was announced as a run of glyphs. */}
+        <span className="stars" role="img"
+          aria-label={t('ui.starLabel', { count: entry.rating })}>
           {'★'.repeat(entry.rating)}{'☆'.repeat(5 - entry.rating)}
         </span>
       </div>
@@ -151,23 +163,30 @@ function RatingRow({ entry, onChanged }) {
 
 function Profile({ user, onLogout, language, onUpdate }) {
   const { t } = useTranslation();
+  const notify = useToast();
   const [displayName, setDisplayNameLocal] = useState(user.display_name || '');
   const [displayError, setDisplayError] = useState('');
   const [displayBusy, setDisplayBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   // "favourites" is not a separate store -- it is the same endpoint filtered to
   // the dishes this user actually rated 4 or 5.
   const [tab, setTab] = useState('mine');
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
+    setLoadError(false);
     const query = tab === 'favourites' ? 'min_rating=4&sort=rating' : 'sort=date';
     fetch(`${API}/api/v1/me/ratings?${query}&lang=${language}`, { headers: authHeaders() })
-      .then(r => (r.ok ? r.json() : []))
+      // A non-ok response used to become `[]`, so a stale token told a user
+      // with dozens of reviews that they had never rated anything.
+      .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
       .then(data => { setEntries(Array.isArray(data) ? data : []); setLoading(false); })
-      .catch(() => { setEntries([]); setLoading(false); });
+      .catch(() => { setEntries([]); setLoadError(true); setLoading(false); });
   }, [tab, language]);
 
   useEffect(() => { load(); }, [load]);
@@ -203,9 +222,34 @@ function Profile({ user, onLogout, language, onUpdate }) {
   };
 
   const logout = async () => {
-    await fetch(`${API}/api/v1/auth/logout`, { method: 'POST', headers: authHeaders() }).catch(() => {});
+    const resp = await fetch(`${API}/api/v1/auth/logout`, {
+      method: 'POST', headers: authHeaders(),
+    }).catch(() => null);
     clearToken();
     onLogout();
+    // Signing out locally always works, but auth_tokens rows never expire on
+    // their own (see auth.py), so a failed call leaves a usable token behind.
+    // Say so rather than imply the session is gone everywhere.
+    if (!resp || !resp.ok) notify(t('auth.logoutIncomplete'));
+  };
+
+  // Erasure keeps the ratings as anonymous rows -- see DELETE /api/v1/me. The
+  // confirm text says so, because "delete account" reads like it takes the
+  // reviews with it.
+  const deleteAccount = async () => {
+    if (!window.confirm(t('auth.confirmDeleteAccount'))) return;
+    setDeleteBusy(true);
+    const resp = await fetch(`${API}/api/v1/me`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    }).catch(() => null);
+    setDeleteBusy(false);
+    if (resp && resp.ok) {
+      clearToken();
+      onLogout();
+    } else {
+      setDeleteError(t('auth.deleteAccountFailed'));
+    }
   };
 
   return (
@@ -255,7 +299,17 @@ function Profile({ user, onLogout, language, onUpdate }) {
       </div>
 
       {loading ? (
-        <p className="muted-text">{t('search.loadingMenu')}</p>
+        <div aria-hidden="true">
+          <div className="skeleton skeleton--sub" />
+          <div className="skeleton skeleton--meta" />
+        </div>
+      ) : loadError ? (
+        <p className="error-text">
+          {t('auth.loadRatingsFailed')}{' '}
+          <button type="button" className="btn--quiet" onClick={load}>
+            {t('ui.retry')}
+          </button>
+        </p>
       ) : entries.length === 0 ? (
         <p className="muted-text">
           {t(tab === 'favourites' ? 'auth.noFavourites' : 'auth.noRatings')}
@@ -263,6 +317,15 @@ function Profile({ user, onLogout, language, onUpdate }) {
       ) : (
         entries.map(e => <RatingRow key={e.id} entry={e} onChanged={load} />)
       )}
+
+      <hr className="rule" />
+      <p aria-live="polite">
+        {deleteError && <span className="error-text">{deleteError}</span>}
+      </p>
+      <button type="button" className="btn--quiet" data-tone="danger"
+        onClick={deleteAccount} disabled={deleteBusy}>
+        {deleteBusy ? '\u2026' : t('auth.deleteAccount')}
+      </button>
     </>
   );
 }

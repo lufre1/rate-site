@@ -465,3 +465,131 @@ def test_ratings_across_multiple_dates_same_dish(client, meal_id):
 
 
 
+
+
+# -- contract pins for the review-submit UI ----------------------------------
+# The frontend now depends on these specific facts. They are asserted here so
+# a backend change that breaks the UI fails a backend test, not only in a
+# browser.
+
+
+@pytest.fixture()
+def berlin_meal_id(client):
+    """A meal dated by Europe/Berlin, which is what the API compares against.
+
+    The `meal_id` fixture uses `date_cls.today()`, i.e. the HOST's local date,
+    while get_ratings_breakdown computes `today` in Europe/Berlin (main.py).
+    On a UTC host those disagree between 22:00 and midnight, which would make
+    any `is_recent` assertion flake once a day.
+    """
+    from zoneinfo import ZoneInfo
+    from datetime import datetime
+
+    db = SessionLocal()
+    try:
+        mensa = Mensa(name="Berlinmensa")
+        db.add(mensa)
+        db.commit()
+        db.refresh(mensa)
+
+        meal = Meal(
+            name="Berlingericht", name_de="Berlingericht", name_en="Berlin Dish",
+            description="", description_de="", description_en="",
+            tags=None, type="main",
+            date=datetime.now(ZoneInfo("Europe/Berlin")).date(), mensa_id=mensa.id,
+        )
+        db.add(meal)
+        db.commit()
+        db.refresh(meal)
+        return meal.id
+    finally:
+        db.close()
+
+
+def test_create_rating_response_carries_the_fields_the_ui_reads(client, meal_id):
+    """Neither POST route declares a response_model, so the whole row is
+    serialised -- and that is load-bearing on the client too. The frontend
+    reads `id` to mark the submitter's own row in the list and `photo_url` to
+    decide whether a fresh photo can take over the dish picture. Adding a
+    response_model here would break the UI as well as test_smoke.py.
+    """
+    resp = client.post(f"/api/v1/meals/{meal_id}/ratings", json={"rating": 5, "comment": "Mine"})
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert isinstance(body["id"], int)
+    assert body["meal_id"] == meal_id
+    assert body["user_name"]          # rating_identity() always stamps one
+    assert "created_at" in body
+    assert "photo_url" in body
+
+
+def test_breakdown_lists_a_new_comment_immediately(client, berlin_meal_id):
+    """There is no moderation, rate limiting or caching anywhere, so a comment
+    is visible in the very next request. The UI's post-submit re-fetch relies
+    on exactly that, and on these six fields the POST response does not carry.
+    """
+    created = client.post(
+        f"/api/v1/meals/{berlin_meal_id}/ratings",
+        json={"rating": 5, "comment": "Sofort sichtbar"},
+    )
+    assert created.status_code == 201, created.text
+    new_id = created.json()["id"]
+
+    resp = client.get(f"/api/v1/meals/{berlin_meal_id}/ratings-breakdown")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert body["comments"][0]["id"] == new_id
+    row = body["comments"][0]
+    assert row["comment"] == "Sofort sichtbar"
+    assert row["score"] == 0
+    assert row["vote_direction"] is None
+    assert row["photo_score"] == 0
+    assert row["photo_vote_direction"] is None
+    assert row["is_recent"] is True
+    assert body["recent"]["count"] == 1
+    assert body["overall"]["count"] == 1
+
+
+def test_breakdown_omits_a_stars_only_rating_but_counts_it(client, berlin_meal_id):
+    """The comment list filters on `comment IS NOT NULL OR photo_url IS NOT
+    NULL`, so a stars-only rating never appears in it. The UI shows a
+    different confirmation for that case rather than pointing at a list that
+    did not change.
+    """
+    created = client.post(f"/api/v1/meals/{berlin_meal_id}/ratings", json={"rating": 4})
+    assert created.status_code == 201, created.text
+    new_id = created.json()["id"]
+
+    body = client.get(f"/api/v1/meals/{berlin_meal_id}/ratings-breakdown").json()
+    assert new_id not in [c["id"] for c in body["comments"]]
+    assert body["recent"]["count"] == 1
+
+
+def test_comment_length_is_capped_on_every_write_path(client, meal_id):
+    """A single review used to be able to be arbitrarily long: the column is
+    Text and no route bounded it. The frontend caps the textarea at the same
+    number, so this is what keeps that cap from being merely cosmetic.
+    """
+    too_long = "x" * (main.COMMENT_MAX_LENGTH + 1)
+    at_limit = "y" * main.COMMENT_MAX_LENGTH
+
+    assert client.post(
+        f"/api/v1/meals/{meal_id}/ratings", json={"rating": 3, "comment": too_long}
+    ).status_code == 422
+    ok = client.post(
+        f"/api/v1/meals/{meal_id}/ratings", json={"rating": 3, "comment": at_limit}
+    )
+    assert ok.status_code == 201, ok.text
+
+    # The legacy PATCH takes a raw dict, so its cap is checked by hand.
+    rating_id = ok.json()["id"]
+    assert client.patch(
+        f"/api/v1/ratings/{rating_id}/comment", json={"comment": too_long}
+    ).status_code == 400
+
+    # And the multipart route.
+    assert client.post(
+        f"/api/v1/meals/{meal_id}/ratings-with-photo",
+        data={"rating": "3", "comment": too_long},
+    ).status_code == 422

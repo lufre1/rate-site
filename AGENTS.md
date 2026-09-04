@@ -3,9 +3,17 @@
 ## Architecture
 
 - **Frontend**: React (Create React App, Nginx serve), **Backend**: FastAPI (Python 3.11), **DB**: PostgreSQL 15
-- **No router**: views are toggled with boolean state in `App.js` (`showImpressum`, `showAccount`). Shared helpers (`API`, token storage, `StarPicker`, `formatRelativeDate`) live in `frontend/src/shared.js` so `Account.js` doesn't import from its own parent
+- **No router**: views are toggled with boolean state in `App.js` (`showImpressum`, `showDatenschutz`, `showAccount`, `showStats`) via `openView()`, which is what keeps them mutually exclusive — add a view in all four places (state, `goHome`, `openView`, the `<main>` ternary) or it will not close when another opens. Shared helpers (`API`, token storage, `StarPicker`, `formatRelativeDate`) live in `frontend/src/shared.js` so `Account.js` doesn't import from its own parent. `frontend/src/Toast.js` exports `ToastProvider`/`useToast`, and the provider is mounted in `index.js` **above** `<App />` rather than inside it — `App` itself needs `notify` for its own failed fetches, and a component cannot consume a context it provides
 - **All API routes under `/api/v1/`**. In every deployed stack the frontend calls them **same-origin** — `REACT_APP_API_URL` is **empty**, so `${API}/api/v1/x` is `/api/v1/x` and the proxy's `location /api/v1` sends it straight to the backend. `http://localhost:8000` is only the `npm start` fallback
 - **API URL from env**: `REACT_APP_API_URL`, a build-time Docker arg (`frontend/Dockerfile`), inlined by CRA. **`shared.js` reads it with `??`, not `||`** — the correct deployed value is the empty string, which is falsy, so `||` would silently substitute the localhost fallback and point every request at the visitor's own machine. For the same reason `docker-compose.dev.yml` uses `${REACT_APP_API_URL-/api}`, not `:-`
+- **The legal pages are code-checked prose.** `Impressum.js` publishes **no
+  postal address** — the site is a private, non-commercial project and so not
+  a *geschäftsmäßiges* Telemedium under § 5 DDG; `impressum.natureText` is the
+  clause that says why, so do not add an address back without it.
+  `Datenschutz.js` describes what the code actually stores, and its header
+  comment lists which file to re-check for each claim. Changing the log format,
+  a localStorage key, the upload handling or the backup retention makes that
+  page wrong.
 - **Language support**: Each meal stores `name_de`, `name_en`, `description_de`, `description_en`; API returns `lang` parameter (default `de`)
 - **Dev instance**: http://141.5.100.246:8080/ — all development updates applied here first. Start it with `./ops/dev-up.sh`. Dev has its own database (`mensa_dev`), its own uploads volume and its own proxy config; see "How dev and prod are kept apart".
 
@@ -14,7 +22,47 @@
 - **Meal deduplication**: `(date, mensa_id, name)` must be unique. `scrape_menus()` deletes stale rows but preserves rows with existing ratings
 - **German/English merge**: Scraper pairs DE/EN rows positionally. Missing EN doesn't wipe existing EN data
 - **Rating identity**: every rating goes through `rating_identity()` in `main.py`. Signed in -> the real username and a `user_id`; anonymous -> a `generate_funny_name()` string and `user_id = NULL`. All three creation routes (`ratings`, `ratings-with-photo`, `side-ratings`) use it — change it there, not per-route
+- **Two vote tables, deliberately**: `comment_votes` rates the review *text*; `photo_votes` rates the *picture*. Only `photo_votes` decides which photo represents a dish (`_top_photo_rating()` in `main.py`, used by both `/meals/{id}/top-photo` and `/stats/top-photo`). Until 2026-09-01 the photo was picked by comment votes, so an upvote on a review silently promoted whatever image was attached to it. `photo_votes` started empty — there was no backfill, and comment votes must never be read back into photo ranking
+- **Ties in photo ranking go to the oldest photo** (`ORDER BY score DESC, created_at ASC, id ASC`). Every photo sits at 0 until someone votes, so a newest-wins rule would reshuffle the dish picture on every upload. The old code used Python `max()` over an unordered query and broke ties arbitrarily
+- **`photo_votes` has a unique `(rating_id, voter_id)` constraint; `comment_votes` does not** — the older table can hold duplicate rows for one voter and was left alone rather than migrated
+- **`ratings-breakdown` lists a row if it has a comment OR a photo.** A photo posted without text used to be invisible and unvotable. The route also pins the current top photo into the list even when it falls outside the 15 most recent, otherwise nobody can vote it back down
+- **After a successful submit the frontend RE-FETCHES `ratings-breakdown`; it
+  does not splice the POST response into the list.** The POST body carries
+  none of `date`, `is_recent`, `score`, `vote_direction`, `photo_score`,
+  `photo_vote_direction` — and `is_recent` is a **`Europe/Berlin`** date
+  comparison (`main.py`) the browser cannot make: a visitor in another timezone,
+  or browsing another day, would render the badge wrong. The same GET also
+  returns `recent` and `overall` over the same `(name, mensa_id)` grouping the
+  card header uses, so both averages move without a reload. A stars-only rating
+  legitimately never appears in the list, so the UI says so explicitly
+  (`ui.reviewSavedStarsOnly`) rather than pointing at a list that did not change.
+- **Neither POST route declares a `response_model`, and that is load-bearing on
+  the CLIENT too.** The full row is serialised; the frontend reads `id` to mark
+  the submitter's own row and `photo_url` to decide whether a fresh photo can
+  take over the dish picture. Adding a `response_model` breaks the UI as well as
+  `backend/test_smoke.py:79-81`. Pinned by
+  `test_create_rating_response_carries_the_fields_the_ui_reads`.
+- **Comment length is capped at `COMMENT_MAX_LENGTH` (1000) on all four write
+  paths**, mirrored by `COMMENT_MAX` in `frontend/src/App.js` so the limit is
+  visible while typing instead of a rejection afterwards. The legacy
+  `PATCH /ratings/{id}/comment` parses a raw dict, so its check is manual. No
+  migration — the column is already `Text`, and lowering the number would not
+  invalidate rows already stored above it.
 - **Side ratings aggregation**: `side-ratings` are **global per side name** across all meals in a mensa, not per-meal; API returns aggregated stats
+- **Deleting a rating deletes its votes first.** `comment_votes.rating_id` and
+  `photo_votes.rating_id` are FKs with `NO ACTION` and `Rating` declares no
+  `relationship()` to either table, so until 2026-09-02 `DELETE
+  /api/v1/ratings/{id}` raised an FK violation → opaque 500 for any review
+  someone had voted on. The photo file is also unlinked **after** the commit
+  now, not before: the old order left a visible review pointing at a file that
+  no longer existed when the commit failed
+- **Account deletion anonymises, it does not cascade.** `DELETE /api/v1/me`
+  sets `user_id = NULL` and stamps a fresh `generate_funny_name()` on the
+  user's `ratings`/`side_ratings`, nulls `user_id` on their vote rows (the
+  votes stay — they are counted per `voter_id`, and deleting them would
+  reshuffle every dish photo), deletes **all** their `auth_tokens`, then the
+  `users` row. Nothing in the schema declares `ON DELETE`, so every
+  referencing table must be handled explicitly and in that order
 
 ## Key Commands
 
@@ -74,7 +122,37 @@ docker builder prune -f --filter until=168h        # build cache (was 13.98 GB)
   shared one. Do not reintroduce that pattern.
 - **Backend integration tests**: need a running backend (`API_BASE_URL`) or the
   `mensa_test` Postgres from the test stack.
-- **Frontend unit tests**: Run via `npm test` (default CRA Jest config, looks for `*.test.js`, `*.test.jsx`, `translations.test.js`)
+- **Frontend unit tests**: `npm test` (default CRA Jest config, looks for
+  `*.test.js`, `*.test.jsx`, `translations.test.js`). **This host has no node
+  installed**, so run them in a throwaway container — mount the repo
+  **read-only** and keep `node_modules` in a named volume, or you leave
+  root-owned build artefacts in the working tree (see Common Pitfalls 12):
+  ```bash
+  docker run --rm -v /home/cloud/rate-site/frontend:/src:ro \
+      -v rate-site-fe-test-modules:/app/node_modules -w /app \
+      -e CI=true -e NODE_OPTIONS=--max-old-space-size=768 node:20-alpine sh -c '
+        cp /src/package.json /app/ && rm -rf /app/src /app/public \
+          && cp -r /src/src /src/public /app/ && npm install --no-audit --no-fund
+        npx react-scripts test --watchAll=false'   # or: npx react-scripts build
+  ```
+- **`frontend/Dockerfile` sets `CI=true`, so ANY eslint warning fails the
+  production build.** Run the `build` variant above before deploying, not just
+  the tests: jest tolerates warnings that `npm run build` rejects. One trap
+  found this way — an `// eslint-disable-next-line react-hooks/exhaustive-deps`
+  comment **fails the build** ("Definition for rule ... was not found"), because
+  the build's resolved eslint config does not register that plugin. Fix the
+  dependency array instead of disabling the rule.
+- **`App.test.js` was repaired on 2026-09-02 and was failing before that.**
+  Four of its five tests clicked a `/Bewertungen/i` button that no longer
+  exists, one mocked `/side-ratings` (never called any more), and two matched
+  `url.includes('/meals/1/ratings')` — a **substring of
+  `/meals/1/ratings-breakdown`**, so the breakdown request was answered with a
+  bare array and the list rendered empty either way. Match `'/ratings-breakdown'`
+  explicitly. `dates.today` is lowercase `"heute"`, so assert case-insensitively.
+- **Tests must render `<ToastProvider><App /></ToastProvider>`**, not `<App />`
+  -- that is what `index.js` does, and `useToast()` otherwise falls back to its
+  deliberate no-op, so nothing about the toast would be asserted. `App.test.js`
+  has a `renderApp()` helper for exactly this.
 - **Test files**:
   - `test_scraper_alignment.py` — validates DE/EN row alignment, no duplicates, mensa-name consistency
   - `test_db_integrity.py` — validates DB schema, no duplicates, matches official site
@@ -83,14 +161,172 @@ docker builder prune -f --filter until=168h        # build cache (was 13.98 GB)
   - `test_auth.py` — register/login/session round-trip, anonymous rating still works, cross-user edit/delete is refused
   - `validate-translations.py` — validates translation files structure
 
+## Request concurrency and the connection pool
+
+The site "hung for about ten seconds and then loaded" until 2026-09-02. Ten
+seconds was not a coincidence: it is `pool_timeout` in `database.py`.
+
+- **Never lower the anyio thread limiter below `POOL_CAPACITY`.** Every route is
+  a sync `def`, so FastAPI runs it on the anyio worker thread pool — **and it
+  runs the cleanup of the sync `get_db` dependency there too**. Releasing a
+  connection needs a worker thread exactly like acquiring one does. Capping
+  tokens below the pool size deadlocks release: the exit tasks that call
+  `db.close()` queue behind pending requests that are blocked in
+  `pool.connect()` waiting for a connection only those exits can free, and the
+  queue drains only as each waiter times out. Measured on dev while trying this
+  "fix": 60 concurrent requests went from ~50 ms each to 30–40 s with 102 of 180
+  failing, and every pooled connection sat in `idle in transaction`. `main.py`
+  now *asserts* the limiter is `>= POOL_CAPACITY` at startup instead of setting
+  it. The default 40 is correct.
+- The pool is sized for the concurrency instead (`pool_size=10`,
+  `max_overflow=10`). Waiting for a connection is safe when threads are
+  plentiful — requests are ~50 ms, so a spike drains well inside `pool_timeout`.
+- **A page load costs 2 API requests, not 66.** Each `DishCard` used to fetch
+  `/ratings-breakdown` and `/top-photo` on mount; a 33-dish menu meant 66
+  requests competing for 10 connections, which is what turned any brief
+  contention into the visible stall. `GET /api/v1/meals-summary?ids=…` now
+  returns `recent` and the top photo for the whole page in one query each.
+  `overall` is deliberately absent from it: `GET /api/v1/meals` already returns
+  it as `avg_rating`/`rating_count`, grouped by exactly the same
+  `(name, mensa_id)`. The full breakdown loads only when a card is expanded.
+- **A successful submit costs POST + one `ratings-breakdown` GET, and that is a
+  different budget.** The 66-request problem was *fan-out on mount*: every
+  visitor, including passive readers, firing two requests per card at once. This
+  is one request, serial, following a POST that already held a connection, once
+  per deliberate action, and it cannot fan out. It is the same shape as
+  `loadTopPhoto()` after a photo vote, which is already accepted here.
+- **Do NOT generalise that to votes.** `handleVote`/`handlePhotoVote` patch
+  `reviews.comments` in place precisely because voting is high-frequency;
+  `loadTopPhoto()` is the one narrow exception, because a photo vote can change
+  which photo wins. Re-fetching the breakdown per vote would reintroduce the
+  fan-out on the busiest action in the app.
+- `_top_photos_by_dish()` is the batch form of `_top_photo_rating()` and must
+  keep the same `ORDER BY score DESC, created_at ASC, id ASC`; it takes the first
+  row per dish from that order. Do not reduce it with `max()` — see the
+  photo-ranking note above.
+
 ## Scraper Behavior
 
+- **Fetch and write are separate, and must stay separate.** `_fetch_day()` does
+  the network and parsing with no session open; `_write_day()` opens a session,
+  writes one date and commits. Until 2026-09-02 `scrape_menus()` held ONE
+  session and ONE transaction across all 7 days of fetches — each up to
+  `_fetch`'s 10 s timeout — pinning a pool connection for the whole scrape. Never
+  call `SessionLocal()` around anything that does I/O.
+- **One transaction per date.** A failure on day 5 no longer discards days 1–4.
+  An empty fetch is a no-op: `_reconcile` only runs for a mensa actually
+  scraped, so an unreachable site cannot mark the menu unavailable.
+- **The first scrape is a scheduled job, not a startup call.** It ran inline in
+  `@app.on_event("startup")`, so uvicorn served nothing until up to 14 fetches
+  finished — the reason the healthcheck carries `start_period: 180s`. Dev now
+  answers in under a second. The scheduler uses a **single-threaded executor**:
+  APScheduler's `max_instances` only stops a job overlapping *itself*, so the
+  11:30 cron and the 4-hourly refresh could previously run at once, at lunch peak.
 - Fetches **next 7 days** inclusive of today
 - Two-stage URL fallback: `alle.html` → per-mensas (`ALIAS_MAP` in `scraper.py:43`)
 - Skips: `last minute`, `pastabuffet`, `Selbstbedienung` rows; filters to 4 mensas only
 - **Description cleanup**: Removes "oder"/"or" separators between ingredients; normalizes whitespace
 - **Multi-item rows**: a row with no `<strong>` whose description cell holds `MULTI_ITEM_MIN_LINES`+ individually priced lines (CGiN's "Heute : Grillfest") is exploded into one dish per line, so each is rateable on its own. Price classifies the type — under `SIDE_PRICE_MAX` (2,00 €) is a `side`, above it a `main` — and the per-item diet word supplies the tag, because the row's single `sp_hin` image describes the whole block and would label the Bratwurst vegan. Prices are stripped; `_extract_and_create_sides` is skipped for these rows (their decimal commas shred a comma split)
 - **English is dropped for multi-item rows**: the English page serves Last Minute boilerplate in CGiN's Grillfest slot, so `LAST_MINUTE_RE` rejects it by content and the UI falls back to German. The older `last minute` skip only inspects the type cell
+
+## Photo uploads
+
+- **Uploads are metadata-stripped, not re-encoded.** `strip_metadata()` in
+  `backend/images.py` walks the JPEG segments / PNG chunks / RIFF chunks and
+  drops the metadata ones, copying every other byte through. **No Pillow** —
+  no decode means no quality loss and no memory spike on a 3.8 GiB VM, and the
+  pixel data stays bit-identical. Anything unparseable is returned unchanged:
+  a photo that keeps its EXIF is a privacy bug, a photo mangled by a
+  half-understood parser is worse.
+- **The JPEG trailer is dropped, and that is the whole point.** An iPhone HDR
+  photo appends a *second* JPEG after the primary image's EOI (the gain map)
+  carrying its own APP1/XMP. The first version of the stripper copied
+  everything after `SOS` verbatim and so republished it — 34 of 55 live files
+  kept their XMP that way. `_scan_to_marker()` walks the entropy-coded data
+  properly (0xFF 0x00 stuffing, RST markers, fill bytes) so the loop reaches
+  EOI and stops there. Measured on the real uploads: 38 of 55 carried
+  metadata, 21 had a GPS IFD, and the iPhone files shrink 180-280 KB each.
+- **APP0 (JFIF) and APP2 (ICC) are deliberately kept.** Dropping the ICC
+  profile visibly shifts the colours of a wide-gamut phone photo.
+- **Filenames are a bare `uuid4().hex`.** They used to be prefixed with the
+  uploader's own file name, which put it in a public, 30-day-immutable URL.
+  Files uploaded before 2026-09-02 still carry the old prefix; their URLs are
+  stored in `ratings.photo_url`, so they must not be renamed.
+- **The backlog is fixed by `ops/strip-existing-exif.py`** (dry run by default,
+  `--apply` to write, atomic rename, preserves mode). Back up first —
+  `ops/backup.sh` tars the uploads directory.
+- **Anything user-visible about this is also stated in the privacy notice.**
+  `frontend/src/Datenschutz.js` claims metadata is removed on upload; if that
+  stops being true, that page is then a false statement, not just stale.
+
+## Feedback and UI state
+
+Added 2026-09-02. Users submitted a review and saw nothing happen; several
+reported being confused about whether the comment had vanished or been rejected.
+The cause was entirely client-side — `submitRating` posted and then did nothing,
+and the comment list only ever loaded from the card's expand toggle.
+
+- **There was a 1500 ms `setTimeout` in `submitRating`'s `finally`.** It reset
+  `submitted`, `rating`, `comment`, `selectedImage` and `imagePreview`
+  **regardless of outcome**, so a *failed* submit destroyed the user's typed
+  comment 1.5 s later while the error was still on screen, and a successful one
+  replaced the whole form with a badge that then vanished — which is what made a
+  saved comment look rejected. It was never cleared either, so it also fired
+  `setState` after the card unmounted on a day change. **There is no timer now:**
+  the fields reset in the success branch, and the confirmation persists until the
+  next deliberate interaction (opening/closing the rate form, or collapsing the
+  card). Regression test: "a failed submit keeps the typed comment and explains
+  itself" asserts the text is still there 1700 ms later.
+- **Errors are never rendered from a server string.** FastAPI's `detail` values
+  are English and the UI defaults to German, so `submitErrorMessage()` maps the
+  two known 400s onto the existing specific photo messages and gives everything
+  else one honest line. The old fallback was `ui.photoError` ("Fehler beim
+  Hochladen") *even for a text-only submit*.
+- **`Toast.js` is for actions with nowhere to put a message** — vote failures,
+  `Account`'s delete/save/logout, `/mensas` and `/meals-summary`. Twelve call
+  sites used to swallow their failure entirely; a failed DELETE in Account was
+  completely silent and the row simply stayed. **The review confirmation is
+  deliberately NOT a toast:** the complaint was locational ("where did my
+  comment go"), and a self-dismissing message recreates exactly that. It is
+  `.rating-form__status`, inline on the card, next to the list it refers to.
+- **A failed request and an empty result are different facts.** `menuError`,
+  `searchError`, `reviewsError` and Account's `loadError` exist because the UI
+  used to blame the user's date ("Kein Menü für dieses Datum"), query ("0
+  Ergebnisse") or history ("Du hast noch nichts bewertet") for a network error.
+  `Stats.js` had the sharpest form of this: no `r.ok` check, so an HTTP error
+  body was stored *as* the stats object, the error branch never ran, and three
+  blank cards rendered. Every one of these fetches now rejects on `!r.ok`.
+- **Menu retry needs `menuReload`, not `setDate(d => d)`.** Setting state to the
+  value it already holds makes React bail out of the re-render, so the effect
+  never re-runs.
+- **Two pieces of UI state are in-memory ON PURPOSE**: the "Deine Bewertung"
+  marker on rows this visitor submitted (`myReviewIds`), and the filter panel's
+  open/closed state. Persisting either needs a new `localStorage` key, and
+  `Datenschutz.js` plus `datenschutz.storage*` in both translation files
+  enumerate every key — `legal.test.js` asserts that list. Session-scoped costs
+  nothing legally and solves the actual problem.
+- **Anonymous submits go through a confirm step; signed-in ones do not.**
+  `owned_rating()` treats `user_id IS NULL` as owned by nobody, so an anonymous
+  review is permanent and public — the preview shows exactly what will be
+  published, and the form says so. A signed-in user can edit and delete from
+  their profile, so for them the same step would be pure friction. A failed
+  submit **stays** on the preview, so retrying is one tap.
+- **`aria-live` must not wrap a list.** The menu's wrapper used to be a live
+  region containing every dish, so each card expand, vote and skeleton swap
+  re-announced the whole menu. It announces only the count now. Live regions
+  that carry a message (`.rating-form__status`, `.toast-host`) are mounted
+  unconditionally and have their *text* swapped — a region inserted together
+  with its content is not reliably announced.
+- **`Lightbox` is `aria-modal="true"`, so it has to behave like one**: a
+  focusable close button, focus moved in and returned on close, Tab kept inside,
+  and `body` scroll locked. Before this it had zero focusable children and the
+  only exit was the sliver of backdrop around a 90vw/90vh image whose own
+  `onClick` stops propagation.
+- **`ErrorBoundary` uses `i18n.isInitialized ? i18n.t(...) : fallback`.** It
+  renders outside the i18n-initialised tree (`index.js` wraps `App`, and `App`
+  is what calls `init`) and exists to survive a crash that may have happened
+  before init ran. `ErrorBoundary.test.js` renders it in isolation, which is
+  exactly that case.
 
 ## Accounts (Non-Obvious)
 
@@ -126,11 +362,39 @@ HTTP-only and has no TLS at all, so the two files are no longer near-copies.
   redirect; certbot renewal fails silently if the 301 swallows it)
 - `:80` everything else → `301`
 
+Also set at the `http` level in both files:
+
+- **`http2 on;`** — ALPN negotiated http/1.1 until 2026-09-02, capping a browser
+  at 6 concurrent connections to this origin. nginx is 1.31 here, so it is the
+  `http2 on;` directive, not the deprecated `listen … http2` form.
+- **`gzip on;`** with `gzip_proxied any` — the bundle went out uncompressed
+  (237 KB JS, 25 KB CSS). Now 73 KB and 5 KB; API JSON drops 7.5 KB → 1.3 KB.
+  **No image types in `gzip_types`** — the uploads are already-compressed JPEG.
+- **`/uploads` gets `Cache-Control: public, max-age=2592000, immutable`** — the
+  filenames carry a content hash, so a URL never changes content. One explicit
+  header rather than `expires` *plus* `add_header`, which emits two competing
+  `Cache-Control` lines. `proxy_buffers 16 64k` stops multi-MB photos
+  round-tripping through `proxy_temp` on disk.
+- Hashed build assets are cached in **`frontend/nginx.conf`** (`location /static/`,
+  `expires 1y`) — that is the file the frontend image copies; the repo-root
+  `nginx.conf` and `nginx/nginx.conf` are dead. It uses `expires` and **not**
+  `add_header`, because a location declaring any `add_header` stops inheriting
+  the server-level ones and would silently drop `X-Frame-Options` and friends
+  from every JS and CSS response.
+- A second `:443` block answers `server_name 141.5.100.246` with a 301 to the
+  canonical host. The cert has one SAN and Let's Encrypt will not issue an IP
+  SAN, so `https://<ip>` still warns; the point is that clicking through lands on
+  the canonical origin rather than a second copy of the app with its own
+  `localStorage` (and so its own sessions and voter id).
+
 **Both files log with `log_format proxymain`, which appends `:$server_port
-$scheme`.** The stock `main` format omits them, and on 2026-09-01 that turned
+$scheme rt=$request_time urt=$upstream_response_time`.** The stock `main` format omits them, and on 2026-09-01 that turned
 "did their HTTPS request even arrive?" into a packet-level argument, because a
-request on 80 and one on 443 produced identical log lines. Keep the two formats
-in step so a log line means the same thing in either environment.
+request on 80 and one on 443 produced identical log lines. `rt`/`urt` were added
+on 2026-09-02 for the same reason: the access log could not answer "was that
+request slow, and was it slow upstream?", so diagnosing the 10 s stall needed a
+load test rather than a grep. Keep the two formats in step so a log line means
+the same thing in either environment.
 
 ## TLS / Let's Encrypt
 
@@ -454,6 +718,12 @@ existence. Scripts live in `ops/`, config in `ops/lib.sh`.
 3. **Port conflict**: Host port 80 must be free (`sudo systemctl stop nginx` if needed).
 4. **Frontend build**: `REACT_APP_API_URL` is a build-time Docker arg and must be **empty** behind the proxy. See the `??`/`:-` notes in Architecture — an empty value is easy to lose to a falsy check.
 5. **Database health**: Backend waits for `pg_isready` (see `docker-compose.yml:11-16`); wait ~5-10s after `docker compose up` before API is ready.
+5b. **Anything not matched by a `location` falls through to the SPA and returns
+   `index.html` as `text/html` with a 200.** That is why `/favicon.ico`,
+   `/robots.txt` and `/.git/config` all logged `200 737` — one missing file, not
+   three. `frontend/public/` had no favicon at all until 2026-09-02; it holds one
+   now, referenced from `index.html`. Read a `200 737` in the access log as "that
+   path does not exist".
 6. **Frontend dev**: `npm start` needs no `REACT_APP_API_URL`; absent, it falls back to `http://localhost:8000` (the `??` branch).
 7. **Running tests in the prod container destroys the database.** See "Key
    Commands". The rail in `conftest.py` blocks it now; do not weaken it, and
@@ -483,7 +753,21 @@ existence. Scripts live in `ops/`, config in `ops/lib.sh`.
 
 ## Mobile Behavior
 
-- Viewport: `width=device-width, initial-scale=1.0, maximum-scale=3.0`
+- Viewport: `width=device-width, initial-scale=1` — **no `maximum-scale`**. It
+  was dropped deliberately: capping zoom fails WCAG 1.4.4. This file claimed
+  `maximum-scale=3.0` until 2026-09-02, which `index.html` never had by then.
 - Base font: `16px` (1rem = 16px), uses `rem` throughout
-- Buttons ≥ 48px touch targets (`MinWidth: 48` in `StarPicker`)
+- **Touch targets are `--tap-min`, which is `44px`** (`styles/tokens.css`), not
+  48, and there is no `MinWidth: 48` anywhere — `StarPicker` styles from CSS.
+  `.btn--quiet` was `min-height: 0` (a ~20px target on the footer links, the
+  Account actions and the rate toggle) and `.preview__remove` was 28px; both
+  are `--tap-min` now. If you add an interactive element, size it from that
+  token rather than a literal.
 - No horizontal scroll (`overflow-x: hidden` in `index.css:14`)
+- **The filter toolbar is a disclosure.** `.toolbar` is `position: sticky`, so
+  everything in it costs screen space on every scroll — it used to stack four
+  44px rows plus a checkbox, with an always-open 7-item `.legend` under it,
+  ~250px of a 360x640 viewport. Date and search stay out; mensa, sort and
+  `includePast` live behind `toolbar__toggle`, and the legend is a `<details>`.
+  The collapsed toggle names the active filters, so a forgotten filter is never
+  hidden silently.

@@ -62,7 +62,7 @@ MIN_DUMP_BYTES="${MIN_DUMP_BYTES:-5000}"
 MAX_ROW_DROP_PCT="${MAX_ROW_DROP_PCT:-50}"
 
 # Tables whose contents are irreplaceable (user-generated, not re-scrapable).
-WATCHED_TABLES="${WATCHED_TABLES:-ratings side_ratings users comment_votes}"
+WATCHED_TABLES="${WATCHED_TABLES:-ratings side_ratings users comment_votes photo_votes}"
 
 DAILY_KEEP_DAYS="${DAILY_KEEP_DAYS:-14}"
 WEEKLY_KEEP_DAYS="${WEEKLY_KEEP_DAYS:-56}"

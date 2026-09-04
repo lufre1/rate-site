@@ -4,15 +4,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 import uvicorn
+from anyio import to_thread
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.executors.pool import ThreadPoolExecutor
 import locale
 import os
-import shutil
 import uuid
 import re
 from datetime import datetime
@@ -28,8 +29,9 @@ from logging_config import configure_logging, request_id_var
 configure_logging()
 log = logging.getLogger("api")
 
-from database import Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, User as DBUser, AuthToken as DBAuthToken, CommentVote as DBCommentVote, init_db, get_db
+from database import Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, User as DBUser, AuthToken as DBAuthToken, CommentVote as DBCommentVote, PhotoVote as DBPhotoVote, init_db, get_db, POOL_CAPACITY
 import auth
+from images import strip_metadata
 from scraper import scrape_menus, scrape_today
 
 app = FastAPI(
@@ -143,15 +145,22 @@ def resolve_language(r, lang: str):
         description = r.description
     return name, description
 
+# Mirrored by COMMENT_MAX in frontend/src/App.js, which caps the textarea so
+# the limit is visible while typing rather than a rejection afterwards. The
+# column is Text, so raising this needs no migration -- and lowering it would
+# not invalidate rows already stored above it.
+COMMENT_MAX_LENGTH = 1000
+
+
 class RatingInput(BaseModel):
     rating: int = Field(ge=1, le=5)
-    comment: Optional[str] = None
+    comment: Optional[str] = Field(default=None, max_length=COMMENT_MAX_LENGTH)
     user_name: Optional[str] = None
 
 class SideRatingInput(BaseModel):
     side_name: str
     rating: int = Field(ge=1, le=5)
-    comment: Optional[str] = None
+    comment: Optional[str] = Field(default=None, max_length=COMMENT_MAX_LENGTH)
 
 import random
 
@@ -233,7 +242,9 @@ class RatingBadgeSection(BaseModel):
 class CommentDisplay(BaseModel):
     id: int
     rating: int
-    comment: str
+    # Optional: an entry may be a photo with no text at all. Those are shown so
+    # their picture can be voted on.
+    comment: Optional[str] = None
     user_name: Optional[str]
     date: date
     created_at: datetime
@@ -241,6 +252,8 @@ class CommentDisplay(BaseModel):
     is_recent: bool = False
     score: int = 0
     vote_direction: Optional[int] = None
+    photo_score: int = 0
+    photo_vote_direction: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -280,7 +293,7 @@ class MyRatingOut(BaseModel):
 
 class RatingUpdate(BaseModel):
     rating: Optional[int] = Field(None, ge=1, le=5)
-    comment: Optional[str] = None
+    comment: Optional[str] = Field(None, max_length=COMMENT_MAX_LENGTH)
 
 class SideRatingOut(BaseModel):
     side_name: str
@@ -293,9 +306,31 @@ class SideRatingOut(BaseModel):
 def on_startup():
     init_db()
     ensure_upload_dir()
-    scrape_menus()
 
-    scheduler = BackgroundScheduler(daemon=True, timezone="Europe/Berlin")
+    # Assert, do not lower. The worker thread pool also runs the cleanup of the
+    # sync get_db dependency, so capping it below the connection pool deadlocks
+    # connection release under load -- see the long note in database.py. This
+    # just fails loudly if someone ever tightens it below what the pool can
+    # serve.
+    tokens = to_thread.current_default_thread_limiter().total_tokens
+    if tokens < POOL_CAPACITY:
+        raise RuntimeError(
+            f"anyio thread limiter ({tokens}) is below the connection pool "
+            f"capacity ({POOL_CAPACITY}); connection release would deadlock"
+        )
+    log.info("thread limiter %s vs pool capacity %d", tokens, POOL_CAPACITY)
+
+    # One scrape at a time, ever. APScheduler's max_instances only stops a job
+    # overlapping *itself*, and the default executor has 10 threads -- so the
+    # 11:30 cron and the 4-hourly refresh used to be able to run concurrently,
+    # at lunch peak, each holding a connection. coalesce collapses a backlog of
+    # missed runs into one instead of firing them back to back.
+    scheduler = BackgroundScheduler(
+        daemon=True,
+        timezone="Europe/Berlin",
+        executors={'default': ThreadPoolExecutor(1)},
+        job_defaults={'coalesce': True, 'max_instances': 1},
+    )
 
     # Precise lunch-time pre-open updates (mensas open at 11:30, dishes change right before)
     scheduler.add_job(scrape_today, 'cron', hour=11, minute=0, misfire_grace_time=300)
@@ -304,6 +339,14 @@ def on_startup():
 
     # Background fallback: full 7-day refresh through the day
     scheduler.add_job(scrape_menus, 'interval', hours=4, misfire_grace_time=3600)
+
+    # The first scrape is a scheduled job, not a blocking startup call. It used
+    # to run inline here, so uvicorn served nothing until up to 14 fetches at a
+    # 10s timeout had finished -- which is what `start_period: 180s` on the
+    # healthcheck was covering for. Going through the scheduler also means it
+    # shares the single-threaded executor above and cannot overlap a cron run.
+    scheduler.add_job(scrape_menus, 'date', run_date=datetime.now() + timedelta(seconds=15))
+
     scheduler.start()
 
 @app.get("/api/v1/health", include_in_schema=False)
@@ -496,7 +539,7 @@ def create_rating(meal_id: int, data: RatingInput, db: Session = Depends(get_db)
 
 
 @app.post("/api/v1/meals/{meal_id}/ratings-with-photo", status_code=201, tags=["Ratings"])
-def create_rating_with_photo(meal_id: int, rating: int = Form(..., ge=1, le=5), comment: Optional[str] = Form(None), photo: Optional[UploadFile] = File(None), db: Session = Depends(get_db), user: Optional[DBUser] = Depends(auth.optional_user)):
+def create_rating_with_photo(meal_id: int, rating: int = Form(..., ge=1, le=5), comment: Optional[str] = Form(None, max_length=COMMENT_MAX_LENGTH), photo: Optional[UploadFile] = File(None), db: Session = Depends(get_db), user: Optional[DBUser] = Depends(auth.optional_user)):
     """Create a rating with optional photo upload"""
     # Check if meal exists
     meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
@@ -518,24 +561,25 @@ def create_rating_with_photo(meal_id: int, rating: int = Form(..., ge=1, le=5), 
             raise HTTPException(status_code=400, detail="Invalid file type. Only JPG, PNG, and WebP images are allowed")
         
         # Check file size (max 5MB)
-        file_size = 0
         content = photo.file.read()
         file_size = len(content)
-        photo.file.seek(0)
-        
+
         if file_size > 5 * 1024 * 1024:
             raise HTTPException(status_code=400, detail="File size exceeds 5MB limit")
-        
-        # Generate unique filename
-        original_name = os.path.splitext(photo.filename)[0]
-        safe_name = "".join(c for c in original_name if c.isalnum() or c in " -_")
-        new_filename = f"{safe_name}_{uuid.uuid4().hex[:8]}{file_ext}"
+
+        # The uploader's own file name used to be kept as a prefix, which put
+        # it in a public, permanently cached URL -- a camera name like
+        # IMG_2109 says nothing, but a name does. Pure random now.
+        new_filename = f"{uuid.uuid4().hex}{file_ext}"
         photo_path = os.path.join(UPLOAD_DIR, new_filename)
-        
-        # Save file
+
+        # Photos are world-readable and cached for 30 days, so EXIF/XMP left
+        # in the file is published: device model, capture time, and GPS if the
+        # camera recorded it. strip_metadata copies the pixel data through
+        # untouched -- see backend/images.py.
         with open(photo_path, 'wb') as f:
-            shutil.copyfileobj(photo.file, f)
-        
+            f.write(strip_metadata(content, file_ext))
+
         photo_url = f"/uploads/{new_filename}"
 
     user_name, user_id = rating_identity(user)
@@ -574,6 +618,161 @@ def get_ratings(meal_id: int, db: Session = Depends(get_db)):
                            photo_url=r.Rating.photo_url)
         for r in rows
     ]
+
+
+def _top_photo_rating(meal_ids, db: Session):
+    """The rating whose photo represents a dish.
+
+    Ranked by photo votes only -- comment votes deliberately have no say. Ties
+    (including the all-zero case, which is every photo until someone votes) go
+    to the oldest photo, so the dish picture does not churn on every upload.
+    """
+    score = func.coalesce(func.sum(DBPhotoVote.direction), 0).label('total_score')
+    return db.query(
+        DBRating.id.label('rating_id'),
+        DBRating.photo_url,
+        score
+    ).join(
+        DBMeal, DBRating.meal_id == DBMeal.id
+    ).outerjoin(
+        DBPhotoVote, DBPhotoVote.rating_id == DBRating.id
+    ).filter(
+        DBMeal.id.in_(meal_ids),
+        DBRating.photo_url.isnot(None)
+    ).group_by(
+        DBRating.id, DBRating.photo_url
+    ).order_by(
+        score.desc(), DBRating.created_at.asc(), DBRating.id.asc()
+    ).first()
+
+
+def _top_photos_by_dish(dish_keys, db: Session):
+    """Top photo per dish, resolved for many dishes in one query.
+
+    Same ranking as _top_photo_rating -- photo votes only, ties to the oldest
+    photo -- but keyed by (name, mensa_id) so a whole page of cards costs one
+    query instead of one per card.
+
+    The ORDER BY is what makes this deterministic: rows arrive best-first, so the
+    first row seen for a dish is its winner. Do NOT reduce this with max() in
+    Python; picking from an unordered query is the exact bug the photo-ranking
+    note in AGENTS.md records.
+    """
+    if not dish_keys:
+        return {}
+
+    score = func.coalesce(func.sum(DBPhotoVote.direction), 0).label('total_score')
+    rows = db.query(
+        DBMeal.name.label('dish_name'),
+        DBMeal.mensa_id.label('dish_mensa_id'),
+        DBRating.photo_url,
+        score,
+    ).join(
+        DBMeal, DBRating.meal_id == DBMeal.id
+    ).outerjoin(
+        DBPhotoVote, DBPhotoVote.rating_id == DBRating.id
+    ).filter(
+        # A superset of dish_keys (the cross product of the names and mensa ids
+        # asked for); keying the result by the exact pair discards the rest.
+        DBMeal.name.in_({k[0] for k in dish_keys}),
+        DBMeal.mensa_id.in_({k[1] for k in dish_keys}),
+        DBRating.photo_url.isnot(None),
+    ).group_by(
+        DBMeal.name, DBMeal.mensa_id, DBRating.id, DBRating.photo_url
+    ).order_by(
+        score.desc(), DBRating.created_at.asc(), DBRating.id.asc()
+    ).all()
+
+    top = {}
+    for r in rows:
+        top.setdefault((r.dish_name, r.dish_mensa_id), r.photo_url)
+    return top
+
+
+# A page of cards asks about every dish on the menu at once. 200 is well clear of
+# the ~35 a day the four mensas produce, and stops a hand-built URL from turning
+# into an unbounded IN list.
+MAX_SUMMARY_IDS = 200
+
+
+def _parse_id_list(raw: str):
+    """Parse a `?ids=1,2,3` parameter into a list of ints."""
+    ids = []
+    for part in raw.split(','):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            ids.append(int(part))
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"not an integer id: {part!r}")
+    if len(ids) > MAX_SUMMARY_IDS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"at most {MAX_SUMMARY_IDS} ids per request, got {len(ids)}",
+        )
+    return ids
+
+
+@app.get("/api/v1/meals-summary", tags=["Meals"])
+def get_meals_summary(ids: str = Query(..., description="Comma-separated meal ids"),
+                      db: Session = Depends(get_db)):
+    """Everything a *collapsed* dish card needs, for a whole page in one request.
+
+    Replaces the two requests each card used to fire on mount
+    (`/ratings-breakdown` and `/top-photo`). A 33-dish menu meant 66 requests,
+    each checking out one of the 10 pool connections; that storm is what turned
+    any brief contention -- a scrape holding a connection, say -- into the ~10s
+    stall users saw, because the surplus waited out `pool_timeout`.
+
+    `overall` is deliberately absent: GET /api/v1/meals already returns it as
+    avg_rating/rating_count, grouped by exactly the same (name, mensa_id).
+    The full breakdown is absent too -- it is ~6 queries per dish and the card
+    only needs it once expanded.
+    """
+    meal_ids = _parse_id_list(ids)
+    if not meal_ids:
+        return {}
+
+    meals = db.query(DBMeal.id, DBMeal.name, DBMeal.mensa_id).filter(
+        DBMeal.id.in_(meal_ids)
+    ).all()
+    dish_of = {m.id: (m.name, m.mensa_id) for m in meals}
+    dish_keys = set(dish_of.values())
+
+    # "recent" means today's instance of this dish, matching get_ratings_breakdown
+    # -- which is not the same as the card's own date when the user is browsing
+    # another day.
+    today = datetime.now(ZoneInfo("Europe/Berlin")).date()
+    recent = {}
+    if dish_keys:
+        rows = db.query(
+            DBMeal.name.label('dish_name'),
+            DBMeal.mensa_id.label('dish_mensa_id'),
+            func.avg(DBRating.rating).label('avg_rating'),
+            func.count(DBRating.id).label('rating_count'),
+        ).join(
+            DBRating, DBRating.meal_id == DBMeal.id
+        ).filter(
+            DBMeal.date == today,
+            DBMeal.name.in_({k[0] for k in dish_keys}),
+            DBMeal.mensa_id.in_({k[1] for k in dish_keys}),
+        ).group_by(DBMeal.name, DBMeal.mensa_id).all()
+        recent = {(r.dish_name, r.dish_mensa_id): r for r in rows}
+
+    top_photos = _top_photos_by_dish(dish_keys, db)
+
+    out = {}
+    for meal_id, key in dish_of.items():
+        agg = recent.get(key)
+        out[str(meal_id)] = {
+            "recent": {
+                "avg": round(float(agg.avg_rating), 1) if agg else 0,
+                "count": agg.rating_count if agg else 0,
+            },
+            "top_photo": top_photos.get(key),
+        }
+    return out
 
 
 @app.get("/api/v1/meals/{meal_id}/ratings-breakdown", response_model=dict, tags=["Ratings"])
@@ -620,15 +819,29 @@ def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db), voter_id:
     overall_avg = round(float(overall_result.avg_rating), 1) if overall_result else 0
     overall_count = overall_result.rating_count if overall_result else 0
 
-    # Get comments for display (most recent 15 across all ratings for this dish)
+    # Get entries for display (most recent 15 across all ratings for this dish).
+    # A row qualifies on a comment OR a photo: a photo posted without text is
+    # still something people vote on, and it used to be invisible here.
     comments_query = db.query(DBRating, DBMeal.date, DBRating.created_at).join(
         DBMeal, DBRating.meal_id == DBMeal.id
     ).filter(
         DBMeal.id.in_(all_meal_ids),
-        DBRating.comment.isnot(None)
+        or_(DBRating.comment.isnot(None), DBRating.photo_url.isnot(None))
     ).order_by(DBRating.created_at.desc()).limit(15).all()
 
+    # The photo currently representing the dish must always be votable, even
+    # when it is older than the 15 most recent entries -- otherwise nobody can
+    # ever vote it back down and the selection is a one-way ratchet.
+    top_photo = _top_photo_rating(all_meal_ids, db)
+    if top_photo and top_photo.rating_id not in {r.Rating.id for r in comments_query}:
+        extra = db.query(DBRating, DBMeal.date, DBRating.created_at).join(
+            DBMeal, DBRating.meal_id == DBMeal.id
+        ).filter(DBRating.id == top_photo.rating_id).first()
+        if extra:
+            comments_query = list(comments_query) + [extra]
+
     comment_ids = [r.Rating.id for r in comments_query]
+    photo_ids = [r.Rating.id for r in comments_query if r.Rating.photo_url]
     
     comment_scores = {}
     if comment_ids:
@@ -651,6 +864,27 @@ def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db), voter_id:
         ).all()
         viewer_votes = {r.rating_id: r.direction for r in vote_results}
 
+    photo_scores = {}
+    if photo_ids:
+        photo_score_results = db.query(
+            DBPhotoVote.rating_id,
+            func.sum(DBPhotoVote.direction).label('score')
+        ).filter(
+            DBPhotoVote.rating_id.in_(photo_ids)
+        ).group_by(DBPhotoVote.rating_id).all()
+        photo_scores = {r.rating_id: r.score if r.score is not None else 0 for r in photo_score_results}
+
+    viewer_photo_votes = {}
+    if voter_id and photo_ids:
+        photo_vote_results = db.query(
+            DBPhotoVote.rating_id,
+            DBPhotoVote.direction
+        ).filter(
+            DBPhotoVote.rating_id.in_(photo_ids),
+            DBPhotoVote.voter_id == voter_id
+        ).all()
+        viewer_photo_votes = {r.rating_id: r.direction for r in photo_vote_results}
+
     comments = [
         CommentDisplay(
             id=r.Rating.id,
@@ -661,7 +895,9 @@ def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db), voter_id:
             created_at=r.Rating.created_at,
             photo_url=r.Rating.photo_url,
             score=comment_scores.get(r.Rating.id, 0),
-            vote_direction=viewer_votes.get(r.Rating.id)
+            vote_direction=viewer_votes.get(r.Rating.id),
+            photo_score=photo_scores.get(r.Rating.id, 0),
+            photo_vote_direction=viewer_photo_votes.get(r.Rating.id)
         )
         for r in comments_query
     ]
@@ -698,7 +934,9 @@ def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db), voter_id:
                 "photo_url": c.photo_url,
                 "is_recent": c.date == today,
                 "score": c.score,
-                "vote_direction": c.vote_direction
+                "vote_direction": c.vote_direction,
+                "photo_score": c.photo_score,
+                "photo_vote_direction": c.photo_vote_direction
             }
             for c in comments
         ]
@@ -810,6 +1048,10 @@ def update_rating_comment(rating_id: int, data: dict, db: Session = Depends(get_
     comment = data.get("comment")
     if not isinstance(comment, str):
         raise HTTPException(status_code=400, detail="comment must be a string")
+    # This route takes a raw dict rather than a model, so the length cap the
+    # other three write paths get from Field(max_length=...) is manual here.
+    if len(comment) > COMMENT_MAX_LENGTH:
+        raise HTTPException(status_code=400, detail=f"comment exceeds {COMMENT_MAX_LENGTH} characters")
     rating.comment = comment
     db.add(rating)
     db.commit()
@@ -908,6 +1150,86 @@ def get_comment_score(rating_id: int, db: Session) -> int:
     return result if result is not None else 0
 
 
+def get_photo_score(rating_id: int, db: Session) -> int:
+    result = db.query(func.sum(DBPhotoVote.direction)).filter(
+        DBPhotoVote.rating_id == rating_id
+    ).scalar()
+    return result if result is not None else 0
+
+
+@app.put("/api/v1/ratings/{rating_id}/photo-vote")
+def vote_on_photo(rating_id: int, data: dict, db: Session = Depends(get_db), voter_id: Optional[str] = Header(None, alias="X-Voter-Id"), authorization: Optional[str] = Header(None)):
+    """Vote on the photo attached to a rating. Toggle: same direction removes, opposite switches.
+
+    Separate from vote_on_comment on purpose -- these votes, and only these,
+    decide which photo represents the dish (get_top_photo).
+    """
+    if not voter_id:
+        raise HTTPException(status_code=400, detail="X-Voter-Id header required")
+
+    rating = db.query(DBRating).filter(DBRating.id == rating_id).first()
+    if not rating:
+        raise HTTPException(status_code=404, detail="Rating not found")
+    if not rating.photo_url:
+        raise HTTPException(status_code=400, detail="Rating has no photo")
+
+    direction = data.get("direction")
+    if direction not in (1, -1):
+        raise HTTPException(status_code=400, detail="direction must be 1 (up) or -1 (down)")
+
+    user = auth._lookup(db, authorization)
+
+    existing = db.query(DBPhotoVote).filter(
+        DBPhotoVote.rating_id == rating_id,
+        DBPhotoVote.voter_id == voter_id
+    ).first()
+
+    if existing:
+        if existing.direction == direction:
+            db.delete(existing)
+            db.commit()
+            return {"direction": None, "score": get_photo_score(rating_id, db)}
+        existing.direction = direction
+        db.add(existing)
+        db.commit()
+        db.refresh(existing)
+        return {"direction": direction, "score": get_photo_score(rating_id, db)}
+
+    vote = DBPhotoVote(
+        rating_id=rating_id,
+        voter_id=voter_id,
+        user_id=user.id if user else None,
+        direction=direction
+    )
+    db.add(vote)
+    db.commit()
+    db.refresh(vote)
+    return {"direction": direction, "score": get_photo_score(rating_id, db)}
+
+
+@app.get("/api/v1/ratings/{rating_id}/photo-vote")
+def get_photo_vote_status(rating_id: int, db: Session = Depends(get_db), voter_id: Optional[str] = Header(None, alias="X-Voter-Id")):
+    """Get current photo vote status, including the viewer's vote and total score."""
+    if not voter_id:
+        raise HTTPException(status_code=400, detail="X-Voter-Id header required")
+
+    rating = db.query(DBRating).filter(DBRating.id == rating_id).first()
+    if not rating:
+        raise HTTPException(status_code=404, detail="Rating not found")
+    if not rating.photo_url:
+        raise HTTPException(status_code=400, detail="Rating has no photo")
+
+    vote = db.query(DBPhotoVote).filter(
+        DBPhotoVote.rating_id == rating_id,
+        DBPhotoVote.voter_id == voter_id
+    ).first()
+
+    return {
+        "direction": vote.direction if vote else None,
+        "score": get_photo_score(rating_id, db)
+    }
+
+
 @app.get("/uploads/{filename}")
 def serve_photo(filename: str):
     """Serve uploaded photos"""
@@ -963,6 +1285,50 @@ def logout(authorization: Optional[str] = Header(None), db: Session = Depends(ge
 def get_me(user: DBUser = Depends(auth.current_user), db: Session = Depends(get_db)):
     count = db.query(func.count(DBRating.id)).filter(DBRating.user_id == user.id).scalar()
     return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at)
+
+
+@app.delete("/api/v1/me", status_code=204, tags=["Auth"])
+def delete_me(user: DBUser = Depends(auth.current_user), db: Session = Depends(get_db)):
+    """Erase the account, keeping the ratings as anonymous rows (DSGVO Art. 17).
+
+    Ratings are not deleted, they are detached: user_id goes to NULL and
+    user_name is replaced with a fresh generated pseudonym, which is exactly
+    the shape an anonymous rating has always had (both columns are nullable by
+    design). So the dish averages and the photo ranking survive, while nothing
+    published stays attributable to a person. Someone who wants the reviews
+    gone as well is told in the privacy notice to ask by email.
+
+    Nothing in the schema declares ON DELETE, so every table that references
+    users.id has to be handled here explicitly and in this order, or Postgres
+    raises a foreign-key violation on the final delete.
+    """
+    for row in db.query(DBRating).filter(DBRating.user_id == user.id).all():
+        row.user_id = None
+        row.user_name = generate_funny_name()
+    for row in db.query(DBSideRating).filter(DBSideRating.user_id == user.id).all():
+        row.user_id = None
+        row.user_name = generate_funny_name()
+
+    # The votes stay -- they are counted per voter_id, so dropping them would
+    # reshuffle which photo represents a dish. Only the account link goes.
+    db.query(DBCommentVote).filter(DBCommentVote.user_id == user.id).update(
+        {DBCommentVote.user_id: None}, synchronize_session=False)
+    db.query(DBPhotoVote).filter(DBPhotoVote.user_id == user.id).update(
+        {DBPhotoVote.user_id: None}, synchronize_session=False)
+
+    # Every session, not just the token that made this request.
+    db.query(DBAuthToken).filter(DBAuthToken.user_id == user.id).delete(
+        synchronize_session=False)
+
+    # Flush before the delete rather than trusting the unit of work to order
+    # the pending rating UPDATEs ahead of it. The unit tests run on SQLite,
+    # which does not enforce foreign keys by default, so a wrong order here
+    # would only ever fail on Postgres -- i.e. in production.
+    db.flush()
+
+    db.delete(user)
+    db.commit()
+    return Response(status_code=204)
 
 
 @app.patch("/api/v1/me/display-name", response_model=MeOut, tags=["Auth"])
@@ -1074,15 +1440,27 @@ def delete_own_rating(
     db: Session = Depends(get_db),
 ):
     rating = owned_rating(rating_id, user, db)
-    # Drop the attached photo too -- otherwise deleted ratings leave their
-    # uploads on disk forever. basename() so a crafted photo_url can't escape
-    # the upload directory.
+
+    # Both vote tables reference ratings.id with NO ACTION, and Rating declares
+    # no relationship() to either, so a bare DELETE raised a foreign-key
+    # violation that the catch-all handler turned into a 500. Any review that
+    # someone had voted on was undeletable by its author.
+    db.query(DBCommentVote).filter(DBCommentVote.rating_id == rating.id).delete()
+    db.query(DBPhotoVote).filter(DBPhotoVote.rating_id == rating.id).delete()
+
+    # basename() so a crafted photo_url can't escape the upload directory.
+    photo_path = None
     if rating.photo_url:
         photo_path = os.path.join(UPLOAD_DIR, os.path.basename(rating.photo_url))
-        if os.path.isfile(photo_path):
-            os.remove(photo_path)
+
     db.delete(rating)
     db.commit()
+
+    # Unlink only once the row is really gone. Removing the file first meant a
+    # failed commit left a visible review pointing at a photo that no longer
+    # existed.
+    if photo_path and os.path.isfile(photo_path):
+        os.remove(photo_path)
     return Response(status_code=204)
 
 
@@ -1244,27 +1622,30 @@ def get_top_dishes(limit: int = 10, db: Session = Depends(get_db)):
 
 @app.get("/api/v1/stats/top-photo")
 def get_top_photo_global(db: Session = Depends(get_db)):
-    """Get photo from rating with most upvotes across all meals"""
-    photo_results = db.query(
+    """Get the photo with the highest photo-vote score across all meals"""
+    score = func.coalesce(func.sum(DBPhotoVote.direction), 0).label('total_score')
+    top_photo = db.query(
         DBRating.id.label('rating_id'),
         DBRating.photo_url,
         DBMeal.name.label('meal_name'),
         DBMensa.name.label('mensa'),
-        func.sum(DBCommentVote.direction).label('total_score')
+        score
     ).join(
         DBMeal, DBRating.meal_id == DBMeal.id
     ).join(
         DBMensa, DBMeal.mensa_id == DBMensa.id
     ).outerjoin(
-        DBCommentVote, DBCommentVote.rating_id == DBRating.id
+        DBPhotoVote, DBPhotoVote.rating_id == DBRating.id
     ).filter(
         DBRating.photo_url.isnot(None)
-    ).group_by(DBRating.id, DBRating.photo_url, DBMeal.name, DBMensa.name).all()
-    
-    if not photo_results:
+    ).group_by(
+        DBRating.id, DBRating.photo_url, DBMeal.name, DBMensa.name
+    ).order_by(
+        score.desc(), DBRating.created_at.asc(), DBRating.id.asc()
+    ).first()
+
+    if not top_photo:
         return {"photo_url": None, "meal_name": None, "mensa": None}
-    
-    top_photo = max(photo_results, key=lambda x: x.total_score or 0)
     
     return {
         "photo_url": top_photo.photo_url,
@@ -1278,7 +1659,7 @@ def get_mensas(db: Session = Depends(get_db)):
 
 @app.get("/api/v1/meals/{meal_id}/top-photo")
 def get_top_photo(meal_id: int, db: Session = Depends(get_db)):
-    """Get photo from rating with most upvotes for this meal"""
+    """Get the photo with the highest photo-vote score for this dish"""
     # Find all meal instances with same (name, mensa_id) combination
     meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
     if not meal:
@@ -1290,27 +1671,11 @@ def get_top_photo(meal_id: int, db: Session = Depends(get_db)):
     ).all()
     
     all_meal_ids = [m.id for m in all_meals]
-    
-    # Get ratings with photos, join with comment_votes to sum scores
-    photo_results = db.query(
-        DBRating.id.label('rating_id'),
-        DBRating.photo_url,
-        func.sum(DBCommentVote.direction).label('total_score')
-    ).join(
-        DBMeal, DBRating.meal_id == DBMeal.id
-    ).outerjoin(
-        DBCommentVote, DBCommentVote.rating_id == DBRating.id
-    ).filter(
-        DBMeal.id.in_(all_meal_ids),
-        DBRating.photo_url.isnot(None)
-    ).group_by(DBRating.id, DBRating.photo_url).all()
-    
-    if not photo_results:
+
+    top_photo = _top_photo_rating(all_meal_ids, db)
+    if not top_photo:
         return {"photo_url": None}
-    
-    # Find the photo with highest total score
-    top_photo = max(photo_results, key=lambda x: x.total_score or 0)
-    
+
     return {"photo_url": top_photo.photo_url}
 
 # Mount static files for photos

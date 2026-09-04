@@ -312,3 +312,147 @@ def test_display_name_validation(client):
 def test_display_name_requires_auth(client):
     resp = client.patch("/api/v1/me/display-name", json={"display_name": "test"})
     assert resp.status_code == 401
+
+
+# ------------------------------------------------- deleting a voted rating
+
+def voter(vid):
+    return {"X-Voter-Id": vid}
+
+
+def test_owner_can_delete_a_rating_that_has_been_voted_on(client, meal_id):
+    """Regression: this used to 500.
+
+    comment_votes.rating_id and photo_votes.rating_id reference ratings.id with
+    NO ACTION and Rating declares no relationship() to either table, so the
+    bare DELETE raised a foreign-key violation that the catch-all handler
+    turned into an opaque 500. Production had at least one review its author
+    could not delete.
+    """
+    token = register(client, "voted-on").json()["token"]
+    rating_id = client.post(f"/api/v1/meals/{meal_id}/ratings",
+                            json={"rating": 5, "comment": "worth a vote"},
+                            headers=bearer(token)).json()["id"]
+
+    assert client.put(f"/api/v1/ratings/{rating_id}/vote", json={"direction": 1},
+                      headers=voter("v_someone")).status_code == 200
+
+    assert client.delete(f"/api/v1/ratings/{rating_id}", headers=bearer(token)).status_code == 204
+    assert client.get(f"/api/v1/ratings/{rating_id}").status_code == 404
+
+
+def test_deleting_a_rating_removes_its_photo_file(client, meal_id, tmp_path):
+    token = register(client, "photo-owner").json()["token"]
+    created = client.post(
+        f"/api/v1/meals/{meal_id}/ratings-with-photo",
+        data={"rating": "4", "comment": "with a picture"},
+        files={"photo": ("meal.png", _tiny_png(), "image/png")},
+        headers=bearer(token),
+    )
+    assert created.status_code == 201, created.text
+    rating_id = created.json()["id"]
+    photo_url = created.json()["photo_url"]
+    assert photo_url
+
+    stored = tmp_path / photo_url.rsplit("/", 1)[-1]
+    assert stored.is_file()
+
+    assert client.delete(f"/api/v1/ratings/{rating_id}", headers=bearer(token)).status_code == 204
+    assert not stored.exists()
+
+
+def test_upload_drops_the_original_filename_and_its_metadata(client, meal_id, tmp_path):
+    """The stored name must not echo the uploader's file name, and EXIF must go."""
+    token = register(client, "exif-owner").json()["token"]
+    created = client.post(
+        f"/api/v1/meals/{meal_id}/ratings-with-photo",
+        data={"rating": "5"},
+        files={"photo": ("holiday-with-gps.png", _tiny_png(with_exif=True), "image/png")},
+        headers=bearer(token),
+    )
+    assert created.status_code == 201, created.text
+    name = created.json()["photo_url"].rsplit("/", 1)[-1]
+    assert "holiday" not in name and "gps" not in name
+    assert (tmp_path / name).read_bytes().find(b"Exif") == -1
+
+
+def _tiny_png(with_exif=False):
+    """A 1x1 PNG, optionally carrying an eXIf chunk."""
+    import struct
+    import zlib
+
+    def chunk(ctype, payload=b""):
+        body = ctype + payload
+        return struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body))
+
+    out = b"\x89PNG\r\n\x1a\n"
+    out += chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 0, 0, 0, 0))
+    if with_exif:
+        out += chunk(b"eXIf", b"Exif\x00\x00MM\x00*" + b"\x00" * 32)
+    out += chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+    out += chunk(b"IEND")
+    return out
+
+
+# ------------------------------------------------------------ account erasure
+
+def test_delete_account_anonymises_ratings_and_ends_every_session(client, meal_id):
+    """DSGVO Art. 17: the account goes, the content stays as anonymous rows."""
+    first = register(client, "leaving").json()["token"]
+    # A second login, so we can prove *all* sessions die, not just the caller's.
+    second = client.post("/api/v1/auth/login",
+                         json={"username": "leaving", "password": GOOD_PW}).json()["token"]
+
+    rating_id = client.post(f"/api/v1/meals/{meal_id}/ratings",
+                            json={"rating": 5, "comment": "was signed in"},
+                            headers=bearer(first)).json()["id"]
+    before = client.get(f"/api/v1/meals/{meal_id}/ratings").json()
+    assert [r["user_name"] for r in before] == ["leaving"]
+
+    assert client.delete("/api/v1/me", headers=bearer(first)).status_code == 204
+
+    # Both sessions are gone.
+    assert client.get("/api/v1/me", headers=bearer(first)).status_code == 401
+    assert client.get("/api/v1/me", headers=bearer(second)).status_code == 401
+
+    # The rating survives, detached from the account and renamed.
+    after = client.get(f"/api/v1/meals/{meal_id}/ratings").json()
+    assert len(after) == 1
+    assert after[0]["id"] == rating_id
+    assert after[0]["rating"] == 5
+    assert after[0]["comment"] == "was signed in"
+    assert after[0]["user_name"] != "leaving"
+
+    # And it is genuinely anonymous now, so the authenticated routes disown it.
+    fresh = register(client, "somebody-else").json()["token"]
+    assert client.delete(f"/api/v1/ratings/{rating_id}", headers=bearer(fresh)).status_code == 403
+
+
+def test_delete_account_frees_the_username(client):
+    token = register(client, "recycled").json()["token"]
+    assert client.delete("/api/v1/me", headers=bearer(token)).status_code == 204
+    assert register(client, "recycled").status_code == 201
+
+
+def test_delete_account_keeps_votes_but_drops_the_account_link(client, meal_id):
+    """Votes are counted per voter_id; deleting them would reshuffle which
+    photo represents a dish, so only the user_id link is cleared."""
+    author = register(client, "author").json()["token"]
+    rating_id = client.post(f"/api/v1/meals/{meal_id}/ratings",
+                            json={"rating": 3, "comment": "vote on me"},
+                            headers=bearer(author)).json()["id"]
+
+    voter_token = register(client, "the-voter").json()["token"]
+    assert client.put(f"/api/v1/ratings/{rating_id}/vote", json={"direction": 1},
+                      headers={**bearer(voter_token), **voter("v_kept")}).status_code == 200
+
+    assert client.delete("/api/v1/me", headers=bearer(voter_token)).status_code == 204
+
+    # The score is unchanged, and the vote is still attributed to the voter id.
+    status = client.get(f"/api/v1/ratings/{rating_id}/vote", headers=voter("v_kept"))
+    assert status.status_code == 200
+    assert status.json()["score"] == 1
+
+
+def test_delete_account_requires_authentication(client):
+    assert client.delete("/api/v1/me").status_code == 401
