@@ -9,7 +9,8 @@ import sys
 import re
 from pathlib import Path
 
-FRONTEND_DIR = Path("/home/freckmann15/Documents/rate-site/frontend")
+# Relative to this file, not to an absolute path on one developer's laptop.
+FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
 
 
 def collect_keys(d, prefix=""):
@@ -92,6 +93,12 @@ def validate_translation_files():
     acceptable_loanwords = {
         'tags.vegan', 'tags.strohschwein', 'tags.leinetalerrind',  # Brand/product names
         'mealTypes.dessert',  # Dessert is used in German
+        # These three are the German word too. They only surface now because
+        # FRONTEND_DIR used to point at a directory that does not exist on this
+        # host, so this script exited at the "file missing" check and never
+        # reached the comparison.
+        'ui.upvote', 'ui.downvote',
+        'ui.theme_system',
     }
     
     differences_found = False

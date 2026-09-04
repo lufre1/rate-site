@@ -101,6 +101,30 @@
 }
 
 /* ==================================================================
+   Skip link
+   ================================================================== */
+
+/* Off-screen until focused: five header buttons and three toolbar controls
+   stand between Tab and the first dish. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: var(--space-2);
+  z-index: 1000;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-card);
+  color: var(--accent);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  left: var(--space-3);
+}
+
+/* ==================================================================
    Sticky toolbar (was two stacked sticky bars with a hardcoded top: 80px)
    ================================================================== */
 
@@ -119,6 +143,41 @@
 }
 
 .toolbar__search { position: relative; }
+
+/* Full-width row: the summary can be long, and a wrapped two-line toggle is
+   better than a truncated filter name. */
+.toolbar__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-min);
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.toolbar__summary {
+  color: var(--text-muted);
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbar__panel {
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* `hidden` alone loses to `display: grid` above, so restate it. Kept as an
+   attribute rather than conditional rendering so aria-controls always
+   resolves to a real element. */
+.toolbar__panel[hidden] { display: none; }
 
 .toolbar__clear {
   position: absolute;
@@ -166,10 +225,12 @@
 
 @media (min-width: 640px) {
   .toolbar {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
     align-items: center;
   }
-  .toolbar__search { grid-column: span 2; }
+  .toolbar__toggle,
+  .toolbar__panel { grid-column: 1 / -1; }
+  .toolbar__panel { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: center; }
 }
 
 /* ==================================================================
@@ -261,7 +322,11 @@
 
 /* Text-only button: used where the old code drew a link with a <button>. */
 .btn--quiet {
-  min-height: 0;
+  /* Was min-height: 0, i.e. a ~20px target against a 44px minimum. Applies to
+     the footer links and Account's actions too -- all were undersized. */
+  min-height: var(--tap-min);
+  display: inline-flex;
+  align-items: center;
   padding: var(--space-1) 0;
   background: none;
   border: none;
@@ -436,23 +501,31 @@
    ================================================================== */
 
 .legend {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-4);
   margin-bottom: var(--space-4);
-  padding: var(--space-3);
+  padding: 0 var(--space-3);
   background: var(--surface-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-1);
 }
 
-.legend__title {
+.legend__summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap-min);
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--text-muted);
+  cursor: pointer;
+}
+
+.legend__items {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding-bottom: var(--space-3);
 }
 
 .legend__item {
@@ -611,12 +684,34 @@
    Reviews
    ================================================================== */
 
+/* What the card header's two figures actually mean. "recent" is today's
+   servings only, which is not obvious from a one-word label. */
+.dish__note {
+  margin-bottom: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: var(--leading);
+}
+
 .review {
   padding: var(--space-3) 0;
   border-bottom: 1px solid var(--border);
 }
 
 .review:last-of-type { border-bottom: none; }
+
+/* The row this visitor submitted in this session. Deliberately NOT persisted:
+   a stored "my reviews" list would mean a new localStorage key, and
+   Datenschutz.js enumerates those keys as code-checked prose.
+   Background is --surface-sunken, not --positive-soft: .review__head is
+   --text-muted, which fails contrast on the green in dark mode. The colour
+   semantics ride on the .badge--accent chip instead. */
+.review[data-mine="true"] {
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--positive);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--surface-sunken);
+}
 
 .review__head {
   display: flex;
@@ -652,6 +747,15 @@
   margin-top: var(--space-1);
 }
 
+/* Votes on the image itself -- a separate tally from .review__votes, which
+   rates the review text. Only these decide the dish photo. */
+.review__photo-votes {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: calc(var(--space-1) * -1);
+}
+
 .vote-btn {
   display: inline-flex;
   align-items: center;
@@ -683,11 +787,71 @@
 
 .rating-form { margin-top: var(--space-3); }
 
+/* The submit outcome. Lives OUTSIDE the collapsible form so it survives the
+   form closing on success -- the old success badge replaced the form for
+   1500 ms and then vanished, which is what made a saved comment look
+   rejected. --positive on --positive-soft is the pairing .badge--positive
+   already uses, so it is validated in both themes. */
+.rating-form__status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  background: var(--positive-soft);
+  color: var(--positive);
+  border-radius: var(--radius);
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: var(--leading);
+}
+
 .rating-form__row {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
+
+/* The "stars are required" hint and the character counter share one row: at
+   most one of them is usually present, and neither should push the layout. */
+.rating-form__hint {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  min-height: 1rem;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.rating-form__count { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+/* Standing explanations rather than transient messages: what posting
+   anonymously means, and what happens to an uploaded photo. */
+.rating-form__note {
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: var(--leading);
+}
+
+/* The preview an anonymous submitter confirms. Framed, because it is showing
+   them the finished thing rather than a form to keep editing. */
+.rating-form__confirm {
+  padding: var(--space-3);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.rating-form__confirm-title {
+  margin-bottom: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.rating-form__confirm .row-2 { margin-top: var(--space-3); }
 
 .dropzone {
   display: block;
@@ -702,6 +866,13 @@
 
 @media (hover: hover) {
   .dropzone:hover { border-color: var(--accent); }
+}
+
+/* The file input is .sr-only (a 1x1px box), so the global :focus-visible ring
+   lands somewhere invisible. Show it on the label instead. */
+.dropzone:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .dropzone__title {
@@ -731,8 +902,10 @@
   position: absolute;
   top: calc(var(--space-2) * -1);
   right: calc(var(--space-2) * -1);
-  width: 28px;
-  height: 28px;
+  /* 28px was below --tap-min. It overlaps a 150px thumbnail, so growing it
+     costs a corner of the preview rather than any layout. */
+  width: var(--tap-min);
+  height: var(--tap-min);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1021,6 +1194,73 @@
 .footer-sep { color: var(--border-strong); }
 
 /* ==================================================================
+   Toasts
+   ================================================================== */
+
+/* z-index sits above the sticky toolbar (100) and below the lightbox (9999):
+   a toast must never cover the only way out of a full-screen photo.
+   `pointer-events: none` on the host so the strip does not eat taps on the
+   page behind it; the toasts themselves take them back. */
+.toast-host {
+  position: fixed;
+  left: var(--space-3);
+  right: var(--space-3);
+  bottom: var(--space-3);
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: center;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  max-width: 28rem;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+  font-size: var(--text-base);
+  font-weight: 600;
+  line-height: var(--leading);
+  pointer-events: auto;
+  animation: toast-in var(--speed) ease-out;
+}
+
+.toast[data-tone="error"]   { background: var(--danger-soft);   color: var(--danger); }
+.toast[data-tone="success"] { background: var(--positive-soft); color: var(--positive); }
+
+.toast__text { flex: 1; word-break: break-word; }
+
+.toast__close {
+  flex-shrink: 0;
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: var(--radius-pill);
+  color: inherit;
+  font-size: var(--text-xl);
+  line-height: 1;
+  cursor: pointer;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(var(--space-3)); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}
+
+/* ==================================================================
    Lightbox
    ================================================================== */
 
@@ -1035,6 +1275,26 @@
   background: rgba(12, 10, 9, .92);
   border: none;
   cursor: zoom-out;
+}
+
+/* A real, tappable way out. The image is up to 90vw x 90vh, so the backdrop
+   it used to leave exposed was a --space-4 sliver. */
+.lightbox__close {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(12, 10, 9, .6);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, .4);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xl);
+  line-height: 1;
+  cursor: pointer;
 }
 
 .lightbox__img {
@@ -1151,12 +1411,41 @@
 }
 
 /* ==================================================================
-   Prose (Impressum)
+   Prose (Impressum / Datenschutz)
    ================================================================== */
 
-.prose { color: var(--text); line-height: var(--leading); }
+/* overflow-wrap: the legal pages print localStorage key names and long German
+   compounds, which must not push the page sideways at 320px. */
+.prose {
+  color: var(--text);
+  line-height: var(--leading);
+  overflow-wrap: break-word;
+}
+
 .prose p { margin-bottom: var(--space-3); }
 .prose strong { color: var(--text-strong); }
+
+/* base.css gives h3 its colour and zeroes its margin but sets no size or
+   weight, and nothing styles a list -- the legal pages are the only place
+   either appears, so both rules live here. Anchors already inherit from
+   base.css, so .prose a would be redundant. */
+.prose h3 {
+  margin-top: var(--space-6);
+  margin-bottom: var(--space-2);
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.prose h3:first-child { margin-top: 0; }
+
+.prose ul {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-5);
+  list-style: disc;
+}
+
+.prose li { margin-bottom: var(--space-2); }
 
 .rule {
   border: none;

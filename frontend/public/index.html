@@ -5,6 +5,9 @@
     <!-- No maximum-scale: capping zoom at 3x fails WCAG 1.4.4. -->
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="Bewerte Gerichte in den Göttinger Mensen." />
+    <!-- There was no favicon at all until 2026-09-02, so /favicon.ico fell
+         through try_files and returned index.html as text/html. -->
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" sizes="16x16 32x32 48x48" />
     <meta name="theme-color" content="#ea580c" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#7c2d12" media="(prefers-color-scheme: dark)" />
     <title>Mensa Rating</title>

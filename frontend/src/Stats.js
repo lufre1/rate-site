@@ -3,16 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { API } from './shared';
 
 function renderStars(rating) {
-  const fullStars = Math.floor(rating);
-  const hasHalfStar = rating % 1 >= 0.5;
-  const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
-
-  let stars = '★'.repeat(fullStars);
-  if (hasHalfStar) {
-    stars += '☆';
-  }
-  stars += '☆'.repeat(emptyStars);
-  return stars;
+  const filled = Math.min(5, Math.max(0, Math.round(rating)));
+  return '★'.repeat(filled) + '☆'.repeat(5 - filled);
 }
 
 function StatSkeleton() {
@@ -44,14 +36,17 @@ function Stats({ onBack, language }) {
 
   useEffect(() => {
     setLoading(true);
+    setError('');
     fetch(`${API}/api/v1/stats/overview?lang=${language}`)
-      .then(r => r.json())
+      .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
       .then(data => {
         setStats(data);
         setLoading(false);
       })
-      .catch(err => {
-        setError(err.message || t('stats.error'));
+      .catch(() => {
+        // Not err.message: fetch's own messages are English, and a rejected
+        // status code has none at all.
+        setError(t('stats.error'));
         setLoading(false);
       });
   }, [language, t]);
@@ -121,7 +116,7 @@ function Stats({ onBack, language }) {
                     {renderStars(dish.avg_rating)} {dish.avg_rating}
                   </div>
                   <div className="rank__count">
-                    {dish.rating_count} {t('stats.ratings')}
+                    {t('stats.ratings', { count: dish.rating_count })}
                   </div>
                 </div>
               </div>
@@ -148,7 +143,7 @@ function Stats({ onBack, language }) {
                     {renderStars(mensa.avg_rating)} {mensa.avg_rating}
                   </div>
                   <div className="rank__count">
-                    {mensa.total_ratings} {t('stats.ratings')}
+                    {t('stats.ratings', { count: mensa.total_ratings })}
                   </div>
                 </div>
               </div>

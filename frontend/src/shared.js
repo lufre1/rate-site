@@ -155,7 +155,6 @@ export function StarPicker({ value, onChange, size = 22 }) {
 }
 
 const VOTER_ID_KEY = 'mensa_voter_id';
-const DISPLAY_NAME_KEY = 'mensa_display_name';
 
 export function getVoterId() {
   try {
@@ -173,28 +172,4 @@ export function getVoterId() {
 export function voteHeaders() {
   const id = getVoterId();
   return id ? { 'X-Voter-Id': id } : {};
-}
-
-export function getDisplayName() {
-  try {
-    return localStorage.getItem(DISPLAY_NAME_KEY);
-  } catch (e) {
-    return null;
-  }
-}
-
-export function setDisplayName(displayName) {
-  try {
-    if (displayName === null || displayName === '') {
-      localStorage.removeItem(DISPLAY_NAME_KEY);
-    } else {
-      localStorage.setItem(DISPLAY_NAME_KEY, displayName);
-    }
-  } catch (e) { /* non-fatal */ }
-}
-
-export function clearDisplayName() {
-  try {
-    localStorage.removeItem(DISPLAY_NAME_KEY);
-  } catch (e) { /* nothing to do */ }
 }
