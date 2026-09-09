@@ -6,13 +6,14 @@ untouched, and that one user cannot edit or delete another user's rating.
 Runs against a private SQLite database created fresh for each test by the
 `sqlite_db` fixture in conftest.py -- never a shared or ambient database.
 """
-from datetime import date as date_cls
+from datetime import date as date_cls, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
+import auth
 import main
-from database import SessionLocal, Mensa, Meal
+from database import SessionLocal, Mensa, Meal, AuthToken
 
 GOOD_PW = "correct-horse-battery"
 
@@ -456,3 +457,123 @@ def test_delete_account_keeps_votes_but_drops_the_account_link(client, meal_id):
 
 def test_delete_account_requires_authentication(client):
     assert client.delete("/api/v1/me").status_code == 401
+
+
+# ------------------------------------------------------------- token at rest
+
+def _only_token_row():
+    db = SessionLocal()
+    try:
+        rows = db.query(AuthToken).all()
+        assert len(rows) == 1, f"expected exactly one session, got {len(rows)}"
+        return rows[0].token, rows[0].expires_at
+    finally:
+        db.close()
+
+
+def test_token_is_not_stored_in_plaintext(client):
+    """A pg_dump must not be a set of usable credentials (issue #10)."""
+    token = register(client, "hashed").json()["token"]
+
+    stored, _ = _only_token_row()
+    assert stored != token
+    assert stored == auth._digest(token)
+    # A SHA-256 digest, not the 43-char token_urlsafe value it replaced.
+    assert len(stored) == 64
+    assert all(c in "0123456789abcdef" for c in stored)
+
+
+def test_issued_token_carries_an_expiry(client):
+    register(client, "expiring")
+    _, expires_at = _only_token_row()
+    assert expires_at is not None
+    # Within a minute of a full TTL out; the test cannot pin the exact instant.
+    assert abs((expires_at - (datetime.utcnow() + auth.TOKEN_TTL))) < timedelta(minutes=1)
+
+
+def test_logout_deletes_the_hashed_row(client):
+    """logout has to digest before querying, or it deletes nothing."""
+    token = register(client, "leaver").json()["token"]
+    assert client.post("/api/v1/auth/logout", headers=bearer(token)).status_code == 204
+
+    db = SessionLocal()
+    try:
+        assert db.query(AuthToken).count() == 0
+    finally:
+        db.close()
+
+
+# ----------------------------------------------------------------- expiry
+
+def _set_expiry(when):
+    db = SessionLocal()
+    try:
+        row = db.query(AuthToken).one()
+        row.expires_at = when
+        db.add(row)
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_expired_token_is_rejected(client):
+    token = register(client, "stale").json()["token"]
+    assert client.get("/api/v1/me", headers=bearer(token)).status_code == 200
+
+    _set_expiry(datetime.utcnow() - timedelta(seconds=1))
+    assert client.get("/api/v1/me", headers=bearer(token)).status_code == 401
+
+
+def test_token_with_no_expiry_is_rejected(client):
+    """Fail closed: a NULL expires_at means something wrote a row outside
+    issue_token, not that the session lives forever."""
+    token = register(client, "nullexpiry").json()["token"]
+    _set_expiry(None)
+    assert client.get("/api/v1/me", headers=bearer(token)).status_code == 401
+
+
+def test_expiry_slides_when_the_session_is_used(client):
+    token = register(client, "active").json()["token"]
+
+    # Two days in, so the refresh guard (one day) lets a write through.
+    _set_expiry(datetime.utcnow() + auth.TOKEN_TTL - timedelta(days=2))
+    assert client.get("/api/v1/me", headers=bearer(token)).status_code == 200
+
+    _, refreshed = _only_token_row()
+    assert refreshed - datetime.utcnow() > auth.TOKEN_TTL - timedelta(minutes=1)
+
+
+def test_expiry_is_not_rewritten_on_every_request(client):
+    """_lookup is on every authenticated path, so the refresh must be guarded
+    to one write per token per day rather than a write per read."""
+    token = register(client, "chatty").json()["token"]
+    _, first = _only_token_row()
+
+    for _ in range(3):
+        assert client.get("/api/v1/me", headers=bearer(token)).status_code == 200
+
+    _, after = _only_token_row()
+    assert after == first
+
+
+# ----------------------------------------------------------------- purge job
+
+def test_purge_removes_only_lapsed_sessions(client):
+    live = register(client, "liveone").json()["token"]
+    doomed = register(client, "doomed").json()["token"]
+
+    db = SessionLocal()
+    try:
+        row = db.query(AuthToken).filter(
+            AuthToken.token == auth._digest(doomed)
+        ).one()
+        row.expires_at = datetime.utcnow() - timedelta(days=1)
+        db.add(row)
+        db.commit()
+
+        assert auth.purge_expired_tokens(db) == 1
+        assert [r.token for r in db.query(AuthToken).all()] == [auth._digest(live)]
+    finally:
+        db.close()
+
+    assert client.get("/api/v1/me", headers=bearer(live)).status_code == 200

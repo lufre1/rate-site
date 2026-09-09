@@ -28,7 +28,7 @@ from logging_config import configure_logging, request_id_var
 configure_logging()
 log = logging.getLogger("api")
 
-from database import Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, User as DBUser, AuthToken as DBAuthToken, CommentVote as DBCommentVote, PhotoVote as DBPhotoVote, init_db, get_db, POOL_CAPACITY
+from database import Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, User as DBUser, AuthToken as DBAuthToken, CommentVote as DBCommentVote, PhotoVote as DBPhotoVote, init_db, get_db, SessionLocal, POOL_CAPACITY
 import auth
 from images import strip_metadata
 from scraper import scrape_menus, scrape_today
@@ -301,6 +301,19 @@ class SideRatingOut(BaseModel):
     recent_avg: float = 0
     recent_count: int = 0
 
+def purge_expired_tokens():
+    """Scheduler entry point. Owns its session -- there is no request to borrow one from."""
+    db = SessionLocal()
+    try:
+        deleted = auth.purge_expired_tokens(db)
+        if deleted:
+            log.info("purged %s expired session(s)", deleted)
+    except Exception:
+        log.exception("purge_expired_tokens failed")
+    finally:
+        db.close()
+
+
 @app.on_event("startup")
 def on_startup():
     init_db()
@@ -338,6 +351,11 @@ def on_startup():
 
     # Background fallback: full 7-day refresh through the day
     scheduler.add_job(scrape_menus, 'interval', hours=4, misfire_grace_time=3600)
+
+    # Housekeeping, not enforcement -- auth._lookup already rejects an expired
+    # row. Runs at 04:00, well clear of the lunch-time scrape jobs, since it
+    # shares the single-threaded executor above.
+    scheduler.add_job(purge_expired_tokens, 'cron', hour=4, minute=0, misfire_grace_time=3600)
 
     # The first scrape is a scheduled job, not a blocking startup call. It used
     # to run inline here, so uvicorn served nothing until up to 14 fetches at a
@@ -1260,7 +1278,8 @@ def login(data: CredentialsInput, db: Session = Depends(get_db)):
 def logout(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
     token = auth.token_from_header(authorization)
     if token:
-        db.query(DBAuthToken).filter(DBAuthToken.token == token).delete()
+        # Only the digest is stored, so that is what identifies the row.
+        db.query(DBAuthToken).filter(DBAuthToken.token == auth._digest(token)).delete()
         db.commit()
     return Response(status_code=204)
 

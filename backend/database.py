@@ -145,9 +145,16 @@ class User(Base):
 class AuthToken(Base):
     # Not "Session" -- that name is already sqlalchemy.orm.Session throughout this codebase.
     __tablename__ = "auth_tokens"
+    # A SHA-256 digest of the token, never the token itself. See auth._digest for
+    # why a plain digest is the right choice here. The plaintext exists only in
+    # the login response and the client's localStorage, so a database dump is no
+    # longer a set of usable credentials.
     token = Column(String, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True)
     created_at = Column(DateTime, default=func.now())
+    # Sliding: auth._lookup pushes this out as the session is used, so active
+    # users are never signed out and abandoned sessions die on their own.
+    expires_at = Column(DateTime, index=True)
 
 class CommentVote(Base):
     __tablename__ = "comment_votes"
@@ -276,6 +283,29 @@ def init_db():
             conn.execute(text("ALTER TABLE users ADD COLUMN display_name VARCHAR"))
             conn.commit()
             log.info("Added display_name column to users table")
+        # Add expires_at column to auth_tokens if missing, and retire every
+        # session that predates token hashing.
+        #
+        # Both steps are gated on the column being absent so they run exactly
+        # once. The wipe is the point of the migration, not a side effect: the
+        # old rows hold plaintext tokens, ~22 nightly pg_dumps on disk contain
+        # copies of them, and a digest is deterministic -- so hashing those
+        # values in place would leave every already-leaked token still valid.
+        # Deleting them is the only thing that actually retires them. Everyone
+        # signs in once more.
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='auth_tokens' AND column_name='expires_at'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("ALTER TABLE auth_tokens ADD COLUMN expires_at TIMESTAMP"))
+            conn.execute(text("CREATE INDEX ix_auth_tokens_expires_at ON auth_tokens (expires_at)"))
+            purged = conn.execute(text("DELETE FROM auth_tokens")).rowcount
+            conn.commit()
+            log.info(
+                "Added expires_at column to auth_tokens and purged %s pre-hashing "
+                "session(s); those users must sign in again", purged
+            )
         # Create comment_votes table if not exists
         result = conn.execute(text(
             "SELECT table_name FROM information_schema.tables "
