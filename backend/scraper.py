@@ -19,6 +19,7 @@ The cached HTML format per row:
   </td>
 """
 
+import os
 import re
 import json
 import requests
@@ -90,6 +91,13 @@ SIDE_REJECT_KEYWORDS = (
     'sauce', 'dressing', 'ketchup', 'remoulade', 'mayo', 'senf',
     'kompott', 'topping', 'zusätzlich',
 )
+
+# A side is not listed on the menu page, it is extracted from a main dish's
+# description, which used to make a mis-split one immortal: _reconcile skipped
+# every type='side' row. With SCRAPER_PRUNE_SIDES set, a side the current scrape
+# no longer produces is reconciled like any other row. Off by default so the
+# parsing fix and the deletions roll out as two separately revertable steps.
+PRUNE_SIDES = os.environ.get('SCRAPER_PRUNE_SIDES', '').strip().lower() in ('1', 'true', 'yes')
 
 # Diet words the menu appends to an item, e.g. "Bunter Bauernsalat. Vegan".
 # Word boundaries matter -- "Vegane", "Veganer" and "Veganem" appear mid-name
@@ -386,11 +394,17 @@ def _upsert_meal(db, mensa_obj, date_obj, de_dish, en_dish):
     return 'new'
 
 
-def _reconcile(db, mensa_obj, date_obj, keep_names):
+def _reconcile(db, mensa_obj, date_obj, keep_names, side_names=frozenset(), prune_sides=False):
     """Mark stale rows as unavailable for this date+mensa not in the current German name set.
 
     Rows that already have ratings are preserved to avoid orphaning data, but
     marked as unavailable since they no longer appear on the official site.
+
+    `side_names` is every side this run extracted from the day's main dishes,
+    and `prune_sides` says whether extraction actually ran (see _write_day). A
+    side row is only reconciled when both say so; otherwise it is left alone,
+    because "not extracted this run" and "nothing was extracted at all" look
+    identical from here and the second must never delete a day's sides.
 
     Returns count of dishes marked as unavailable.
     """
@@ -400,9 +414,13 @@ def _reconcile(db, mensa_obj, date_obj, keep_names):
     ).all()
     unavailable_count = 0
     for row in rows:
-        # Keep side entries (they're extracted from main dish descriptions)
         if row.type == 'side':
-            continue
+            # The only evidence a side went stale is that this run did not
+            # extract it -- which counts only if extraction ran at all.
+            if not prune_sides or row.name in side_names:
+                continue
+        # A "Beilage"/"Salat" row on the page is typed 'side' too, and its name
+        # is in keep_names -- this is what keeps pruning off page-listed sides.
         if row.name in keep_names:
             continue
         has_rating = db.query(DBRating).filter(DBRating.meal_id == row.id).first()
@@ -445,18 +463,21 @@ def _extract_side_parts(description):
     return parts
 
 
-def _extract_and_create_sides(db, mensa_obj, date_obj, description, created_sides):
-    """Create a side meal entry for every side named in a main dish description."""
-    # Names already handled for this mensa/date in this run, so two mains that
-    # share a side do not race each other to insert it.
+def _extract_and_create_sides(db, mensa_obj, date_obj, description, seen_sides):
+    """Create a side meal entry for every side named in a main dish description.
+
+    Records every name it handles in `seen_sides[(mensa_id, date)]`, which keeps
+    two mains that share a side from racing to insert it, and tells _reconcile
+    which sides this run still stands behind.
+    """
     mensa_key = (mensa_obj.id, date_obj)
-    if mensa_key not in created_sides:
-        created_sides[mensa_key] = set()
+    if mensa_key not in seen_sides:
+        seen_sides[mensa_key] = set()
 
     for side_name in _extract_side_parts(description):
-        if side_name in created_sides[mensa_key]:
+        if side_name in seen_sides[mensa_key]:
             continue
-        created_sides[mensa_key].add(side_name)
+        seen_sides[mensa_key].add(side_name)
 
         exists = db.query(DBMeal).filter(
             DBMeal.name == side_name,
@@ -512,9 +533,10 @@ def _write_day(scrape_date, de_tables, en_tables):
     date_str = scrape_date.strftime('%Y-%m-%d')
     valid_names = set(ALIAS_MAP.values())
 
-    # Keyed by (mensa_id, date), so scoping this per call is equivalent to the
-    # single dict the old 7-day loop shared across every date.
-    created_sides = {}
+    # Every side name extracted this run, keyed by (mensa_id, date), so scoping
+    # this per call is equivalent to the single dict the old 7-day loop shared
+    # across every date. _reconcile reads it to find sides that went stale.
+    seen_sides = {}
 
     new_count = 0
     updated_count = 0
@@ -540,6 +562,9 @@ def _write_day(scrape_date, de_tables, en_tables):
 
             german_names = set()
             seen = set()
+            # Whether side extraction ran at all for this mensa. An empty page or
+            # a markup change would otherwise look like "this day has no sides".
+            sides_extracted = False
 
             for i, de_row in enumerate(de_rows):
                 de_dishes = _parse_dish_rows(de_row)
@@ -569,9 +594,14 @@ def _write_day(scrape_date, de_tables, en_tables):
                     # Multi-item rows are already split per item, and their text carries
                     # prices whose decimal comma would shred a comma split.
                     if not multi and de_dish['type'] == 'main' and de_dish.get('description'):
-                        _extract_and_create_sides(db, mensa_obj, scrape_date, de_dish['description'], created_sides)
+                        _extract_and_create_sides(db, mensa_obj, scrape_date, de_dish['description'], seen_sides)
+                        sides_extracted = True
 
-            removed_count += _reconcile(db, mensa_obj, scrape_date, german_names)
+            removed_count += _reconcile(
+                db, mensa_obj, scrape_date, german_names,
+                side_names=seen_sides.get((mensa_obj.id, scrape_date), frozenset()),
+                prune_sides=PRUNE_SIDES and sides_extracted,
+            )
 
         db.commit()
     except Exception:
