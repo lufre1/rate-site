@@ -68,6 +68,29 @@ MULTI_ITEM_MIN_LINES = 3
 # salads and the Fladenbrot go for 1,10-1,15 €, every grill item for 2,60-4,10 €.
 SIDE_PRICE_MAX = 2.00
 
+# A main dish's description lists its sides separated by a comma or, when the
+# mensa offers a choice, by a bare "oder": "Basmatireis oder Trüffel Pommes".
+# Whitespace on BOTH sides of the conjunction is what keeps "moderne Beilage"
+# in one piece. The description itself is never rewritten -- "oder" means a
+# choice and the dish card should keep saying so.
+SIDE_SPLIT_RE = re.compile(r',|\s+oder\s+', re.IGNORECASE)
+
+# "A,oder B" glues the conjunction to the front of the next part: SIDE_SPLIT_RE
+# needs whitespace before "oder" and a comma does not provide any.
+LEADING_CONJUNCTION_RE = re.compile(r'^(?:oder|und)\s+', re.IGNORECASE)
+
+# A conjunction left standing alone by the split is not a dish. Without this the
+# middle part of "A, oder, B" would become a rateable meal named "oder".
+SIDE_STOPWORDS = {'oder', 'or', 'und', 'and', 'mit', 'sowie', 'dazu', 'wahlweise'}
+
+# What a side is not: an accompaniment poured over the dish, or a dessert
+# component. "mit" is deliberately absent -- it belongs to the side's own name
+# ("Kartoffelsalat mit Ei und Gurke") and rejecting it dropped real sides.
+SIDE_REJECT_KEYWORDS = (
+    'sauce', 'dressing', 'ketchup', 'remoulade', 'mayo', 'senf',
+    'kompott', 'topping', 'zusätzlich',
+)
+
 # Diet words the menu appends to an item, e.g. "Bunter Bauernsalat. Vegan".
 # Word boundaries matter -- "Vegane", "Veganer" and "Veganem" appear mid-name
 # and must not split it.
@@ -394,54 +417,68 @@ def _reconcile(db, mensa_obj, date_obj, keep_names):
     return unavailable_count
 
 
-def _extract_and_create_sides(db, mensa_obj, date_obj, description, created_sides):
-    """Extract side names from a main dish description and create side meal entries."""
-    # Split description by comma and extract unique side names
-    sides = set()
-    for part in description.split(','):
-        side_name = part.strip()
-        # Filter out common non-side items (sauces, dressings, etc.)
+def _extract_side_parts(description):
+    """Split a main dish description into the side names it offers.
+
+    Pure: no database work, so the splitting rules stay unit testable.
+    """
+    if not description:
+        return []
+
+    parts = []
+    for raw in SIDE_SPLIT_RE.split(description):
+        side_name = LEADING_CONJUNCTION_RE.sub('', raw.strip()).strip()
         if not side_name:
             continue
-        # Skip if it looks like a sauce/dressing (contains "sauce", "dressing", "ketchup", etc.)
-        if any(kw in side_name.lower() for kw in ['sauce', 'dressing', 'ketchup', 'remoulade', 'mayo', 'senf', 'mit ', 'mit']):
+        if side_name.lower() in SIDE_STOPWORDS:
             continue
-        # Skip if too short
-        if len(side_name) < 5:
+        # A part starting with "mit" continues the dish above it ("mit
+        # hausgemachte Vanillesauce"); an infix "mit" is part of the side's name.
+        if side_name.lower().startswith('mit '):
             continue
-        # Skip if it looks like a topping/dessert component
-        if any(kw in side_name.lower() for kw in ['kompott', 'kompott', 'topping', 'zusätzlich', 'zusätzlich']):
+        if any(kw in side_name.lower() for kw in SIDE_REJECT_KEYWORDS):
             continue
-        sides.add(side_name)
+        # Keep a floor, but below the 4 characters of "Reis".
+        if len(side_name) < 3:
+            continue
+        parts.append(side_name)
+    return parts
 
-    # Track sides created in this call to avoid duplicates within same extraction
+
+def _extract_and_create_sides(db, mensa_obj, date_obj, description, created_sides):
+    """Create a side meal entry for every side named in a main dish description."""
+    # Names already handled for this mensa/date in this run, so two mains that
+    # share a side do not race each other to insert it.
     mensa_key = (mensa_obj.id, date_obj)
     if mensa_key not in created_sides:
         created_sides[mensa_key] = set()
-    
-    for side_name in sides:
-        # Check if side entry already exists in DB or was created in this run
+
+    for side_name in _extract_side_parts(description):
+        if side_name in created_sides[mensa_key]:
+            continue
+        created_sides[mensa_key].add(side_name)
+
         exists = db.query(DBMeal).filter(
             DBMeal.name == side_name,
             DBMeal.date == date_obj,
             DBMeal.mensa_id == mensa_obj.id,
         ).first()
-        
-        if not exists and side_name not in created_sides[mensa_key]:
-            db.add(DBMeal(
-                name=side_name,
-                name_de=side_name,
-                name_en=side_name,
-                description=None,
-                description_de=None,
-                description_en=None,
-                tags=None,
-                type='side',
-                date=date_obj,
-                mensa_id=mensa_obj.id,
-                is_available=True,
-            ))
-            created_sides[mensa_key].add(side_name)
+        if exists:
+            continue
+
+        db.add(DBMeal(
+            name=side_name,
+            name_de=side_name,
+            name_en=side_name,
+            description=None,
+            description_de=None,
+            description_en=None,
+            tags=None,
+            type='side',
+            date=date_obj,
+            mensa_id=mensa_obj.id,
+            is_available=True,
+        ))
 
 
 def _fetch_day(date_str):

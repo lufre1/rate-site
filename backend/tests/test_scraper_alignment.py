@@ -17,6 +17,7 @@ from bs4 import BeautifulSoup
 from scraper import (
     ALL_URL, CACHE_URL, ALL_URL_EN, CACHE_URL_EN, ALIAS_MAP,
     _mensa_tables_for_date, _dish_rows, _parse_dish_row, _parse_dish_rows,
+    _extract_side_parts,
 )
 
 VALID = set(ALIAS_MAP.values())
@@ -172,3 +173,77 @@ def test_normal_row_unchanged():
     assert dish['description'] == 'vegane Erdnuss-Kokos-Chilisauce, Kaiserschoten'
     assert dish['type'] == 'main'
     assert dish['tags'] == ['vegan.png', 'NDS.png']
+
+
+# --- Side extraction (issue #22) --------------------------------------------
+#
+# The mensa writes a choice of sides with a bare "oder": "Basmatireis oder
+# Trüffel Pommes". Both alternatives must become their own rateable side, and
+# the description itself must keep the "oder" so the dish card still reads as
+# a choice.
+
+ODER_ROW_DE = '''<table class="sp_tab"><tr class="odd"><td class="sp_typ">Menü 1</td><td class="sp_bez"><strong>Hähnchenbrust al forno (a.1,a)</strong><br/>Tomatensahnesauce, Basmatireis oder Trüffel Pommes, grüne Bohnen mit Mais<br/><i class="smaller">(Mittagsangebot)</i></td><td class="sp_hin"></td></tr></table>'''
+
+
+def test_oder_splits_alternatives():
+    assert _extract_side_parts('Basmatireis oder Trüffel Pommes') == \
+        ['Basmatireis', 'Trüffel Pommes']
+
+
+def test_comma_wrapped_oder_is_not_a_side():
+    """The English page puts "or" in its own node, so ", oder," reaches us too."""
+    parts = _extract_side_parts('Basmatireis, oder, Trüffel Pommes')
+    assert parts == ['Basmatireis', 'Trüffel Pommes']
+    assert 'oder' not in [p.lower() for p in parts]
+
+
+def test_oder_without_space_after_comma():
+    parts = _extract_side_parts('Basmatireis,oder Trüffel Pommes')
+    assert parts == ['Basmatireis', 'Trüffel Pommes']
+
+
+def test_infix_mit_keeps_both_alternatives():
+    """The old "mit" filter dropped this whole part, losing both sides."""
+    parts = _extract_side_parts('Kartoffelsalat mit Ei und Gurke oder Trüffel Pommes')
+    assert parts == ['Kartoffelsalat mit Ei und Gurke', 'Trüffel Pommes']
+
+
+def test_side_name_containing_mit_is_kept_verbatim():
+    assert _extract_side_parts('Blattspinat mit Porree und Sonnenblumenkernen') == \
+        ['Blattspinat mit Porree und Sonnenblumenkernen']
+
+
+def test_leading_mit_part_is_rejected():
+    """"mit ..." continues the dish above it, it is not a side of its own."""
+    assert _extract_side_parts('Apfelstrudel, mit Puderzucker') == ['Apfelstrudel']
+
+
+def test_oder_inside_a_word_is_untouched():
+    assert _extract_side_parts('moderne Beilage') == ['moderne Beilage']
+
+
+def test_short_side_survives_the_length_floor():
+    assert _extract_side_parts('Hähnchenbrust, Reis') == ['Hähnchenbrust', 'Reis']
+
+
+def test_sauces_and_dressings_still_rejected():
+    assert _extract_side_parts('Reis, Kräuterdressing, Senfsauce') == ['Reis']
+    assert _extract_side_parts('cremige Dillsauce, Butterkartoffeln') == ['Butterkartoffeln']
+
+
+def test_stray_conjunction_never_becomes_a_dish():
+    assert _extract_side_parts('Reis, und, Erbsen') == ['Reis', 'Erbsen']
+
+
+def test_empty_description():
+    assert _extract_side_parts(None) == []
+    assert _extract_side_parts('') == []
+
+
+def test_description_keeps_oder_for_display():
+    """Splitting happens at extraction time only: the card still shows the choice."""
+    dish = _parse_dish_rows(_row(ODER_ROW_DE))[0]
+    assert dish['description'] == \
+        'Tomatensahnesauce, Basmatireis oder Trüffel Pommes, grüne Bohnen mit Mais'
+    assert _extract_side_parts(dish['description']) == \
+        ['Basmatireis', 'Trüffel Pommes', 'grüne Bohnen mit Mais']
