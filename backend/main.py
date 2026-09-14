@@ -1168,10 +1168,18 @@ def vote_on_comment(rating_id: int, data: dict, db: Session = Depends(get_db), v
     
     user = auth._lookup(db, authorization)
     
-    existing = db.query(DBCommentVote).filter(
-        DBCommentVote.rating_id == rating_id,
-        DBCommentVote.voter_id == voter_id
-    ).first()
+    if user:
+        # Signed-in: key on user_id, not forgeable voter_id
+        existing = db.query(DBCommentVote).filter(
+            DBCommentVote.rating_id == rating_id,
+            DBCommentVote.user_id == user.id
+        ).first()
+    else:
+        # Anonymous: key on voter_id (same voter_id can't vote twice)
+        existing = db.query(DBCommentVote).filter(
+            DBCommentVote.rating_id == rating_id,
+            DBCommentVote.voter_id == voter_id
+        ).first()
     
     if existing:
         if existing.direction == direction:
@@ -1198,7 +1206,7 @@ def vote_on_comment(rating_id: int, data: dict, db: Session = Depends(get_db), v
 
 
 @app.get("/api/v1/ratings/{rating_id}/vote")
-def get_vote_status(rating_id: int, db: Session = Depends(get_db), voter_id: Optional[str] = Header(None, alias="X-Voter-Id")):
+def get_vote_status(rating_id: int, db: Session = Depends(get_db), voter_id: Optional[str] = Header(None, alias="X-Voter-Id"), authorization: Optional[str] = Header(None)):
     """Get current vote status for a comment, including viewer's vote and total score."""
     if not voter_id:
         raise HTTPException(status_code=400, detail="X-Voter-Id header required")
@@ -1210,11 +1218,20 @@ def get_vote_status(rating_id: int, db: Session = Depends(get_db), voter_id: Opt
         raise HTTPException(status_code=400, detail="Rating has no comment")
     
     score = get_comment_score(rating_id, db)
+    user = auth._lookup(db, authorization)
     
-    vote = db.query(DBCommentVote).filter(
-        DBCommentVote.rating_id == rating_id,
-        DBCommentVote.voter_id == voter_id
-    ).first()
+    if user:
+        # Signed-in: key on user_id, not forgeable voter_id
+        vote = db.query(DBCommentVote).filter(
+            DBCommentVote.rating_id == rating_id,
+            DBCommentVote.user_id == user.id
+        ).first()
+    else:
+        # Anonymous: key on voter_id (same voter_id can't vote twice)
+        vote = db.query(DBCommentVote).filter(
+            DBCommentVote.rating_id == rating_id,
+            DBCommentVote.voter_id == voter_id
+        ).first()
     
     return {
         "direction": vote.direction if vote else None,
@@ -1258,10 +1275,18 @@ def vote_on_photo(rating_id: int, data: dict, db: Session = Depends(get_db), vot
 
     user = auth._lookup(db, authorization)
 
-    existing = db.query(DBPhotoVote).filter(
-        DBPhotoVote.rating_id == rating_id,
-        DBPhotoVote.voter_id == voter_id
-    ).first()
+    if user:
+        # Signed-in: key on user_id, not forgeable voter_id
+        existing = db.query(DBPhotoVote).filter(
+            DBPhotoVote.rating_id == rating_id,
+            DBPhotoVote.user_id == user.id
+        ).first()
+    else:
+        # Anonymous: key on voter_id (same voter_id can't vote twice)
+        existing = db.query(DBPhotoVote).filter(
+            DBPhotoVote.rating_id == rating_id,
+            DBPhotoVote.voter_id == voter_id
+        ).first()
 
     if existing:
         if existing.direction == direction:
@@ -1287,7 +1312,7 @@ def vote_on_photo(rating_id: int, data: dict, db: Session = Depends(get_db), vot
 
 
 @app.get("/api/v1/ratings/{rating_id}/photo-vote")
-def get_photo_vote_status(rating_id: int, db: Session = Depends(get_db), voter_id: Optional[str] = Header(None, alias="X-Voter-Id")):
+def get_photo_vote_status(rating_id: int, db: Session = Depends(get_db), voter_id: Optional[str] = Header(None, alias="X-Voter-Id"), authorization: Optional[str] = Header(None)):
     """Get current photo vote status, including the viewer's vote and total score."""
     if not voter_id:
         raise HTTPException(status_code=400, detail="X-Voter-Id header required")
@@ -1298,10 +1323,20 @@ def get_photo_vote_status(rating_id: int, db: Session = Depends(get_db), voter_i
     if not rating.photo_url:
         raise HTTPException(status_code=400, detail="Rating has no photo")
 
-    vote = db.query(DBPhotoVote).filter(
-        DBPhotoVote.rating_id == rating_id,
-        DBPhotoVote.voter_id == voter_id
-    ).first()
+    user = auth._lookup(db, authorization)
+    
+    if user:
+        # Signed-in: key on user_id, not forgeable voter_id
+        vote = db.query(DBPhotoVote).filter(
+            DBPhotoVote.rating_id == rating_id,
+            DBPhotoVote.user_id == user.id
+        ).first()
+    else:
+        # Anonymous: key on voter_id (same voter_id can't vote twice)
+        vote = db.query(DBPhotoVote).filter(
+            DBPhotoVote.rating_id == rating_id,
+            DBPhotoVote.voter_id == voter_id
+        ).first()
 
     return {
         "direction": vote.direction if vote else None,

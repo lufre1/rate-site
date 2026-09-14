@@ -334,6 +334,36 @@ def init_db():
             """))
             conn.commit()
             log.info("Created comment_votes table")
+        # Add unique constraint to comment_votes for signed-in voters
+        # Anonymous voters (user_id IS NULL) can still vote multiple times with
+        # different voter_ids, but the same voter_id cannot vote twice.
+        result = conn.execute(text(
+            "SELECT constraint_name FROM information_schema.table_constraints "
+            "WHERE table_name='comment_votes' AND constraint_name='uq_comment_vote_user'"
+        ))
+        if not result.fetchone():
+            # Create partial unique index for signed-in users
+            conn.execute(text("""
+                CREATE UNIQUE INDEX uq_comment_vote_user 
+                ON comment_votes (rating_id, user_id) 
+                WHERE user_id IS NOT NULL
+            """))
+            conn.commit()
+            log.info("Added unique constraint uq_comment_vote_user to comment_votes")
+
+        # Also add unique constraint for anonymous voters on (rating_id, voter_id)
+        result = conn.execute(text(
+            "SELECT constraint_name FROM information_schema.table_constraints "
+            "WHERE table_name='comment_votes' AND constraint_name='uq_comment_vote_voter'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("""
+                CREATE UNIQUE INDEX uq_comment_vote_voter 
+                ON comment_votes (rating_id, voter_id) 
+                WHERE user_id IS NULL
+            """))
+            conn.commit()
+            log.info("Added unique constraint uq_comment_vote_voter to comment_votes")
         # Create photo_votes table if not exists
         result = conn.execute(text(
             "SELECT table_name FROM information_schema.tables "
