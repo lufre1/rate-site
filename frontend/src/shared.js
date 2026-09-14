@@ -12,6 +12,32 @@ import { useTranslation } from 'react-i18next';
 // undefined when the variable is absent.
 export const API = process.env.REACT_APP_API_URL ?? 'http://localhost:8000';
 
+// Every upload is stored twice: its own name is the display copy (capped at
+// 1600px, what the lightbox opens) and /uploads/thumbs/<same name> is a 240px
+// version for the grid. Deriving one URL from the other keeps the pairing out
+// of the database and out of every API response -- see backend/images.py.
+// Anything that is not an upload path is handed back untouched.
+const UPLOADS_PREFIX = '/uploads/';
+
+export function thumbSrc(photoUrl) {
+  if (!photoUrl || !photoUrl.startsWith(UPLOADS_PREFIX)) return photoUrl;
+  return `${UPLOADS_PREFIX}thumbs/${photoUrl.slice(UPLOADS_PREFIX.length)}`;
+}
+
+// A thumbnail is allowed to be missing: render_upload() returns none for an
+// image it cannot decode, so the grid falls back to the full photo once and
+// only then hides the element, which is what it did before thumbnails existed.
+export function thumbErrorHandler(fullSrc) {
+  return (e) => {
+    if (!e.target.dataset.fullFallback) {
+      e.target.dataset.fullFallback = '1';
+      e.target.src = fullSrc;
+      return;
+    }
+    e.target.style.display = 'none';
+  };
+}
+
 const TOKEN_KEY = 'mensa_token';
 
 export function getToken() {

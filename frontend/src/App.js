@@ -11,6 +11,7 @@ import { useToast } from './Toast';
 import {
   API, authHeaders, getToken, clearToken, formatRelativeDate, StarPicker,
   getVoterId, voteHeaders, ThemeToggle, toDateKey, getDietFilter, DIET_ORDER,
+  thumbSrc, thumbErrorHandler,
 } from './shared';
 
 const ICON_BASE = 'https://www.studierendenwerk-goettingen.de/fileadmin/templates/images/mensaspeiseplan/png/';
@@ -1235,9 +1236,10 @@ function DishCard({ meal, summary, user, onSignIn }) {
         <>
           <button type="button" className="dish__photo-btn"
             onClick={() => setEnlargedImage(`${API}${topPhoto}`)}>
-            <img className="dish__photo" src={`${API}${topPhoto}`}
+            <img className="dish__photo" src={`${API}${thumbSrc(topPhoto)}`}
               alt={t('ui.dishPhotoOf', { dish: displayName })}
-              loading="lazy" decoding="async" />
+              loading="lazy" decoding="async"
+              onError={thumbErrorHandler(`${API}${topPhoto}`)} />
           </button>
           {/* NOT "top rated": every photo sits at 0 until someone votes and
               ties go to the oldest, so a dish's only photo wins unvoted. The
@@ -1514,10 +1516,10 @@ function DishCard({ meal, summary, user, onSignIn }) {
                   <>
                     <button type="button" className="review__photo-btn"
                       onClick={() => setEnlargedImage(`${API}${r.photo_url}`)}>
-                      <img className="review__photo" src={`${API}${r.photo_url}`}
+                      <img className="review__photo" src={`${API}${thumbSrc(r.photo_url)}`}
                         alt={t('ui.dishPhotoOf', { dish: displayName })}
                         loading="lazy" decoding="async"
-                        onError={(e) => { e.target.style.display = 'none'; }} />
+                        onError={thumbErrorHandler(`${API}${r.photo_url}`)} />
                     </button>
                     <div className="review__photo-votes">
                       <button type="button" className="vote-btn" data-dir="up"

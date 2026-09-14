@@ -47,3 +47,10 @@ services:
       db-test:
         condition: service_healthy
     command: ["python", "-m", "pytest", "tests/", "-v", "-o", "cache_dir=/tmp/pytest_cache"]
+
+# Matches docker-compose.yml -- see the comment there. The test stack talks to
+# the internet during a build, so it wants the same MTU as the host interface.
+networks:
+  default:
+    driver_opts:
+      com.docker.network.driver.mtu: "1450"

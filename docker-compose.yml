@@ -93,5 +93,17 @@ services:
       - backend
       - frontend
 
+# ens3 is MTU 1450 -- GWDG runs an OpenStack VXLAN overlay -- but Docker defaults
+# every bridge it creates to 1500. nginx therefore advertised an MSS derived from
+# 1500, so the first full-size packet of each connection was too big to leave the
+# host: dropped, ICMP frag-needed back to the container, retransmitted smaller.
+# One stalled round trip per connection, on exactly the slow links that made this
+# site time out. Confirmed by probe on 2026-09-14: a 1422-byte DF payload passes
+# and 1450 does not. Keep this in step with the host interface.
+networks:
+  default:
+    driver_opts:
+      com.docker.network.driver.mtu: "1450"
+
 volumes:
   postgres_data:

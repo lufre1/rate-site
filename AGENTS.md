@@ -442,6 +442,29 @@ docker compose -p rate-site-dev --env-file .env.dev \
 
 **Never `docker compose down -v`** — `-v` deletes the `postgres_data` volume.
 
+**Changing a `networks:` option needs `--force-recreate`.** Editing one (the MTU
+went to 1450 on 2026-09-14) makes Compose delete and rebuild the network. It then
+recreates only the containers whose *own* config changed and merely **restarts**
+the rest — and a restarted container comes back attached to the new network with
+its compose service alias **gone**, answering only to `rate-site-db-1` and its
+container id. The backend then crash-looped on
+
+```
+could not translate host name "db" to address: Name or service not known
+```
+
+which reads like a database outage and is not one: `docker compose ps` shows db
+`Up (healthy)` throughout. Confirm it with
+
+```bash
+docker inspect rate-site-db-1 --format '{{range .NetworkSettings.Networks}}{{.DNSNames}}{{end}}'
+```
+
+A healthy container lists `db`; a de-aliased one does not. The fix is to recreate
+every container so each re-registers, which is why the raw invocation above
+carries `--force-recreate`. It bit prod and dev in turn that day, because the dev
+overlay inherits the base file's `networks:` block.
+
 ## How dev and prod are kept apart
 
 Merging the dev override into the prod project (forgetting `-p`) is what made the

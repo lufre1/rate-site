@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import { ToastProvider } from './Toast';
-import { API } from './shared';
+import { API, thumbSrc } from './shared';
 
 const MENSA = 'Testmensa';
 
@@ -160,7 +160,10 @@ test('a review with an uploaded photo renders the photo thumbnail', async () => 
   // Built against `API`, not a hardcoded host: the fallback only applies when
   // REACT_APP_API_URL is absent (which is the `npm test` case), while the
   // deployed bundle builds with it empty and emits a same-origin path.
-  expect(document.querySelector(`img[src="${API}${review.photo_url}"]`)).toBeInTheDocument();
+  // The grid asks for the 240px thumbnail, not the full photo -- serving
+  // originals into a 120px box is what made one page load 31 MB.
+  expect(document.querySelector(`img[src="${API}${thumbSrc(review.photo_url)}"]`))
+    .toBeInTheDocument();
 });
 
 test('comments use created_at instead of meal date for relative date display', async () => {
@@ -438,7 +441,7 @@ test('a photo upload takes over an empty dish\'s picture without another request
   await userEvent.click(screen.getByRole('button', { name: 'Veröffentlichen' }));
 
   await waitFor(() => {
-    expect(document.querySelector(`img.dish__photo[src="${API}${withPhoto.photo_url}"]`))
+    expect(document.querySelector(`img.dish__photo[src="${API}${thumbSrc(withPhoto.photo_url)}"]`))
       .toBeInTheDocument();
   });
   expect(topPhotoCalls).toBe(0);

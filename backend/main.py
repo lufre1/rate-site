@@ -30,7 +30,7 @@ log = logging.getLogger("api")
 
 from database import Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, User as DBUser, AuthToken as DBAuthToken, CommentVote as DBCommentVote, PhotoVote as DBPhotoVote, init_db, get_db, SessionLocal, POOL_CAPACITY
 import auth
-from images import strip_metadata
+from images import render_upload
 from scraper import scrape_menus, scrape_today
 
 app = FastAPI(
@@ -102,9 +102,16 @@ async def unhandled_exception(request: Request, exc: Exception):
 # Upload directory
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
 
+# Thumbnails live in a subdirectory under the same name as their original, so
+# /uploads/<name> and /uploads/thumbs/<name> are the same photo at two sizes and
+# the frontend can derive one URL from the other. StaticFiles serves the
+# subdirectory as-is; no extra mount and no database column.
+THUMB_DIR = os.path.join(UPLOAD_DIR, "thumbs")
+
 def ensure_upload_dir():
     """Ensure upload directory exists"""
     os.makedirs(UPLOAD_DIR, exist_ok=True)
+    os.makedirs(THUMB_DIR, exist_ok=True)
 
 # Must exist before the StaticFiles mount below (module import time), not just
 # at app startup -- otherwise running outside the docker-compose volume mount
@@ -623,10 +630,20 @@ def create_rating_with_photo(meal_id: int, rating: int = Form(..., ge=1, le=5), 
 
         # Photos are world-readable and cached for 30 days, so EXIF/XMP left
         # in the file is published: device model, capture time, and GPS if the
-        # camera recorded it. strip_metadata copies the pixel data through
-        # untouched -- see backend/images.py.
+        # camera recorded it. render_upload strips all of that AND resizes --
+        # originals used to be stored at full phone resolution and served into a
+        # 120px box, which is what made one page load 31 MB. See images.py.
+        display, thumb = render_upload(content, file_ext)
         with open(photo_path, 'wb') as f:
-            f.write(strip_metadata(content, file_ext))
+            f.write(display)
+
+        # A missing thumbnail is not an upload failure: render_upload returns
+        # None for anything it could not decode, and the frontend falls back to
+        # the full image. Losing the review over a thumbnail would be worse.
+        if thumb is not None:
+            ensure_upload_dir()
+            with open(os.path.join(THUMB_DIR, new_filename), 'wb') as f:
+                f.write(thumb)
 
         photo_url = f"/uploads/{new_filename}"
 
@@ -1515,9 +1532,11 @@ def delete_own_rating(
     db.query(DBPhotoVote).filter(DBPhotoVote.rating_id == rating.id).delete()
 
     # basename() so a crafted photo_url can't escape the upload directory.
-    photo_path = None
+    photo_path = thumb_path = None
     if rating.photo_url:
-        photo_path = os.path.join(UPLOAD_DIR, os.path.basename(rating.photo_url))
+        photo_name = os.path.basename(rating.photo_url)
+        photo_path = os.path.join(UPLOAD_DIR, photo_name)
+        thumb_path = os.path.join(THUMB_DIR, photo_name)
 
     db.delete(rating)
     db.commit()
@@ -1525,8 +1544,9 @@ def delete_own_rating(
     # Unlink only once the row is really gone. Removing the file first meant a
     # failed commit left a visible review pointing at a photo that no longer
     # existed.
-    if photo_path and os.path.isfile(photo_path):
-        os.remove(photo_path)
+    for path in (photo_path, thumb_path):
+        if path and os.path.isfile(path):
+            os.remove(path)
     return Response(status_code=204)
 
 

@@ -1,4 +1,6 @@
-import { toDateKey, parseServerDate, formatRelativeDate } from './shared';
+import {
+  toDateKey, parseServerDate, formatRelativeDate, thumbSrc, thumbErrorHandler,
+} from './shared';
 
 // These are the two date helpers that had UTC/local bugs. Both are pure, so they
 // are testable without rendering anything.
@@ -65,5 +67,49 @@ describe('formatRelativeDate', () => {
   test('counts whole days back', () => {
     const threeDaysAgo = new Date(Date.now() - 3 * 86400000).toISOString().replace('Z', '');
     expect(formatRelativeDate(threeDaysAgo, t)).toBe('dates.daysAgo:3');
+  });
+});
+
+// Uploads are stored twice -- the display copy under its own name and a 240px
+// version under /uploads/thumbs/ -- and the pairing is derived, not stored, so
+// this is the only thing keeping the two halves in agreement.
+describe('thumbSrc', () => {
+  test('points an upload path at its thumbnail', () => {
+    expect(thumbSrc('/uploads/abc123.jpg')).toBe('/uploads/thumbs/abc123.jpg');
+  });
+
+  test('leaves a non-upload path alone', () => {
+    expect(thumbSrc('/static/media/logo.png')).toBe('/static/media/logo.png');
+  });
+
+  test('passes null and undefined through', () => {
+    // Reviews without a photo carry photo_url: null.
+    expect(thumbSrc(null)).toBe(null);
+    expect(thumbSrc(undefined)).toBe(undefined);
+  });
+
+  test('does not rewrite a path that merely contains /uploads/', () => {
+    expect(thumbSrc('/api/v1/uploads/x.jpg')).toBe('/api/v1/uploads/x.jpg');
+  });
+});
+
+describe('thumbErrorHandler', () => {
+  const makeImg = () => ({ dataset: {}, style: {}, src: '/uploads/thumbs/a.jpg' });
+
+  test('falls back to the full photo the first time', () => {
+    // Uploads from before the backfill, and anything render_upload() could not
+    // decode, have no thumbnail.
+    const target = makeImg();
+    thumbErrorHandler('/uploads/a.jpg')({ target });
+    expect(target.src).toBe('/uploads/a.jpg');
+    expect(target.style.display).toBeUndefined();
+  });
+
+  test('hides the image if the full photo fails too', () => {
+    const target = makeImg();
+    const onError = thumbErrorHandler('/uploads/a.jpg');
+    onError({ target });
+    onError({ target });
+    expect(target.style.display).toBe('none');
   });
 });

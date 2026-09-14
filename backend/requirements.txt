@@ -7,5 +7,7 @@ beautifulsoup4
 requests
 apscheduler
 python-multipart
+# Uploads are resized on the way in -- see backend/images.py, render_upload().
+Pillow
 pytest
 httpx2

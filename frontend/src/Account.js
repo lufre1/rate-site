@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   API, authHeaders, setToken, clearToken, formatRelativeDate, StarPicker,
+  thumbSrc, thumbErrorHandler,
 } from './shared';
 import { useToast } from './Toast';
 
@@ -143,8 +144,9 @@ function RatingRow({ entry, onChanged }) {
         <>
           {entry.comment && <p className="review__text">{entry.comment}</p>}
           {entry.photo_url && (
-            <img className="review__photo" src={`${API}${entry.photo_url}`} alt=""
-              onError={e => { e.target.style.display = 'none'; }} />
+            <img className="review__photo" src={`${API}${thumbSrc(entry.photo_url)}`} alt=""
+              loading="lazy" decoding="async"
+              onError={thumbErrorHandler(`${API}${entry.photo_url}`)} />
           )}
           <div className="entry__actions">
             <button type="button" className="btn--quiet"
