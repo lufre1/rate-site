@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 import auth
 import main
-from database import SessionLocal, Mensa, Meal, AuthToken
+from database import SessionLocal, Mensa, Meal, AuthToken, Rating, SideRating, CommentVote
 
 GOOD_PW = "correct-horse-battery"
 
@@ -577,3 +577,178 @@ def test_purge_removes_only_lapsed_sessions(client):
         db.close()
 
     assert client.get("/api/v1/me", headers=bearer(live)).status_code == 200
+
+
+def test_auto_upvote_on_comment_creation(client, meal_id):
+    """#23 auto-upvote on comment creation, toggle vote, stars-only no vote."""
+    voter_id = "v_test_auto_upvote"
+
+    # Create a rating with comment + X-Voter-Id header
+    resp = client.post(
+        f"/api/v1/meals/{meal_id}/ratings",
+        json={"rating": 4, "comment": "first comment"},
+        headers=voter(voter_id)
+    )
+    assert resp.status_code == 201
+    rating_id = resp.json()["id"]
+
+    # Assert exactly one CommentVote row created with direction=1
+    db = SessionLocal()
+    try:
+        votes = db.query(CommentVote).filter(
+            CommentVote.rating_id == rating_id
+        ).all()
+        assert len(votes) == 1
+        assert votes[0].direction == 1
+        assert votes[0].voter_id == voter_id
+        # user_id should be None for anonymous
+        assert votes[0].user_id is None
+    finally:
+        db.close()
+
+    # Author toggles vote with same voter_id → score returns to 0
+    # Sending the same direction again removes the vote (toggle off)
+    resp = client.put(
+        f"/api/v1/ratings/{rating_id}/vote",
+        json={"direction": 1},
+        headers=voter(voter_id)
+    )
+    assert resp.status_code == 200
+
+    db = SessionLocal()
+    try:
+        votes = db.query(CommentVote).filter(
+            CommentVote.rating_id == rating_id
+        ).all()
+        assert len(votes) == 0  # Vote removed, no rows
+    finally:
+        db.close()
+
+    # Create a stars-only rating → no CommentVote
+    resp = client.post(
+        f"/api/v1/meals/{meal_id}/ratings",
+        json={"rating": 5},  # No comment
+        headers=voter(voter_id + "_2")
+    )
+    assert resp.status_code == 201
+    rating_id2 = resp.json()["id"]
+
+    db = SessionLocal()
+    try:
+        votes = db.query(CommentVote).filter(
+            CommentVote.rating_id == rating_id2
+        ).all()
+        assert len(votes) == 0  # No vote for stars-only rating
+    finally:
+        db.close()
+
+
+def test_rename_updates_existing_ratings(client, meal_id):
+    """#25 rename updates existing ratings and side_ratings."""
+    token = register(client, "renamer").json()["token"]
+
+    # Post ratings and side_ratings
+    client.patch(
+        "/api/v1/me/display-name",
+        json={"display_name": "Old Name"},
+        headers=bearer(token)
+    )
+
+    resp = client.post(
+        f"/api/v1/meals/{meal_id}/ratings",
+        json={"rating": 5, "comment": "rated"},
+        headers=bearer(token)
+    )
+    assert resp.status_code == 201
+    rating_id = resp.json()["id"]
+
+    resp = client.post(
+        f"/api/v1/meals/{meal_id}/side-ratings",
+        json={"side_name": "Reis", "rating": 4},
+        headers=bearer(token)
+    )
+    assert resp.status_code == 201
+    side_rating_id = resp.json()["id"]
+
+    # PATCH display name
+    resp = client.patch(
+        "/api/v1/me/display-name",
+        json={"display_name": "New Name"},
+        headers=bearer(token)
+    )
+    assert resp.status_code == 200
+
+    # Assert all user's ratings and side_ratings now show "New Name"
+    db = SessionLocal()
+    try:
+        rating = db.query(Rating).filter(Rating.id == rating_id).one()
+        assert rating.user_name == "New Name"
+
+        side = db.query(SideRating).filter(SideRating.id == side_rating_id).one()
+        assert side.user_name == "New Name"
+    finally:
+        db.close()
+
+    # Clear display name → all show username
+    client.patch(
+        "/api/v1/me/display-name",
+        json={"display_name": None},
+        headers=bearer(token)
+    )
+
+    db = SessionLocal()
+    try:
+        rating = db.query(Rating).filter(Rating.id == rating_id).one()
+        assert rating.user_name == "renamer"
+
+        side = db.query(SideRating).filter(SideRating.id == side_rating_id).one()
+        assert side.user_name == "renamer"
+    finally:
+        db.close()
+
+    # Another user's rows unchanged
+    other_token = register(client, "other").json()["token"]
+    client.patch(
+        "/api/v1/me/display-name",
+        json={"display_name": "Other Name"},
+        headers=bearer(other_token)
+    )
+
+    resp = client.post(
+        f"/api/v1/meals/{meal_id}/ratings",
+        json={"rating": 3, "comment": "other rated"},
+        headers=bearer(other_token)
+    )
+    assert resp.status_code == 201
+    other_rating_id = resp.json()["id"]
+
+    db = SessionLocal()
+    try:
+        other_rating = db.query(Rating).filter(Rating.id == other_rating_id).one()
+        assert other_rating.user_name == "Other Name"
+    finally:
+        db.close()
+
+
+def test_login_returns_display_name(client):
+    """#24 login returns display_name, register returns null."""
+    # Set a display name via PATCH /me/display-name
+    register_resp = register(client, "displayuser")
+    token = register_resp.json()["token"]
+    client.patch(
+        "/api/v1/me/display-name",
+        json={"display_name": "Display User"},
+        headers=bearer(token)
+    )
+
+    # Log out, logs in fresh
+    login = client.post("/api/v1/auth/login", json={"username": "displayuser", "password": GOOD_PW})
+    assert login.status_code == 200
+
+    # Assert login response carries display_name
+    assert login.json()["display_name"] == "Display User"
+
+    # Register response carries display_name=null
+    register_resp = client.post("/api/v1/auth/register", json={"username": "newuser", "password": GOOD_PW})
+    assert register_resp.status_code == 201
+    assert register_resp.json()["display_name"] is None

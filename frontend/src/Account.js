@@ -27,11 +27,8 @@ function AuthForm({ onAuth }) {
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data.detail || t('auth.failed'));
       setToken(data.token);
-      // The server does not return the display name on login, and the
-      // mensa_display_name localStorage key it used to be read from was never
-      // written by anything -- so this was always null. Profile picks the real
-      // value up from GET /api/v1/me.
-      onAuth({ username: data.username, display_name: null });
+      // The login response now carries the display name from the user record.
+      onAuth({ username: data.username, display_name: data.display_name || null });
     } catch (err) {
       setError(err.message || t('auth.failed'));
     } finally {

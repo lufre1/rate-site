@@ -173,3 +173,26 @@ export function voteHeaders() {
   const id = getVoterId();
   return id ? { 'X-Voter-Id': id } : {};
 }
+
+// -- diet filter -------------------------------------------------------
+const DIET_KEY = 'mensa_diet';
+export const DIET_ORDER = ['all', 'vegetarian', 'vegan'];
+
+export function getDietFilter() {
+  try {
+    const stored = localStorage.getItem(DIET_KEY);
+    return DIET_ORDER.includes(stored) ? stored : 'all';
+  } catch (e) {
+    return 'all';
+  }
+}
+
+export function setDietFilter(filter) {
+  try {
+    if (filter === 'all') {
+      localStorage.removeItem(DIET_KEY);
+    } else {
+      localStorage.setItem(DIET_KEY, filter);
+    }
+  } catch (e) { /* non-fatal: the choice just won't survive a reload */ }
+}

@@ -15,7 +15,7 @@ Runs against a private SQLite database created fresh for each test by the
 """
 import base64
 import os
-from datetime import date as date_cls
+from datetime import date as date_cls, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -76,6 +76,14 @@ def meal_id(client):
         return meal.id
     finally:
         db.close()
+
+
+def register(client, username, password="correct-horse-battery"):
+    return client.post("/api/v1/auth/register", json={"username": username, "password": password})
+
+
+def bearer(token):
+    return {"Authorization": f"Bearer {token}"}
 
 
 def test_create_rating_json(client, meal_id):
@@ -593,3 +601,178 @@ def test_comment_length_is_capped_on_every_write_path(client, meal_id):
         f"/api/v1/meals/{meal_id}/ratings-with-photo",
         data={"rating": "3", "comment": too_long},
     ).status_code == 422
+
+
+def test_calendar_ics_endpoint(client, meal_id):
+    """#31 calendar.ics endpoint returns valid iCalendar content."""
+    # Create a meal with a real Mensa row
+    db = SessionLocal()
+    try:
+        mensa = db.query(Mensa).filter(Mensa.name == "Testmensa").one()
+        meal = db.query(Meal).filter(Meal.id == meal_id).one()
+    finally:
+        db.close()
+
+    # GET the calendar
+    resp = client.get(f"/api/v1/meals/{meal_id}/calendar.ics")
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"] == "text/calendar; charset=utf-8"
+    assert "attachment" in resp.headers["content-disposition"]
+
+    body = resp.text
+    assert body.startswith("BEGIN:VCALENDAR")
+    assert body.strip().endswith("END:VCALENDAR")
+
+    # UID contains the meal name, mensa_id, date
+    assert f"{meal.name}" in body
+    assert str(meal.mensa_id) in body
+    assert str(meal.date) in body
+
+    # Long lines are folded (no line >75 octets)
+    for line in body.split("\r\n"):
+        assert len(line.encode("utf-8")) <= 75, f"Line too long: {line}"
+
+    # Commas are escaped as \,
+    assert "\\," in body
+
+    # Past-dated meal returns 404
+    past_meal = Meal(
+        name="Past Meal", name_de="Past Meal", type="main",
+        date=date_cls.today() - timedelta(days=1),
+        mensa_id=mensa.id, description="Old food"
+    )
+    db.add(past_meal)
+    db.commit()
+    db.refresh(past_meal)
+
+    resp = client.get(f"/api/v1/meals/{past_meal.id}/calendar.ics")
+    assert resp.status_code == 404
+
+
+def test_breakdown_is_owner_and_edited_at(client, meal_id):
+    """#16 breakdown endpoint returns is_owner and edited_at fields."""
+    token = register(client, "owner").json()["token"]
+
+    # Create a rating
+    resp = client.post(
+        f"/api/v1/meals/{meal_id}/ratings",
+        json={"rating": 4, "comment": "original"},
+        headers=bearer(token)
+    )
+    assert resp.status_code == 201
+    rating_id = resp.json()["id"]
+
+# GET breakdown with owner's auth
+    resp = client.get(f"/api/v1/meals/{meal_id}/ratings-breakdown", headers=bearer(token))
+    assert resp.status_code == 200
+    breakdown = resp.json()
+    my_row = next(r for r in breakdown["comments"] if r["id"] == rating_id)
+    assert my_row["is_owner"] is True
+    assert my_row.get("edited_at") is None  # Not edited yet
+
+    # PATCH to set edited_at
+    resp = client.patch(
+        f"/api/v1/ratings/{rating_id}",
+        json={"comment": "edited"},
+        headers=bearer(token)
+    )
+    assert resp.status_code == 200
+
+    # GET breakdown again - is_owner should still be true, edited_at present
+    resp = client.get(f"/api/v1/meals/{meal_id}/ratings-breakdown", headers=bearer(token))
+    assert resp.status_code == 200
+    breakdown = resp.json()
+    my_row = next(r for r in breakdown["comments"] if r["id"] == rating_id)
+    assert my_row["is_owner"] is True
+    assert my_row["edited_at"] is not None
+
+    # GET breakdown with different user
+    other_token = register(client, "other").json()["token"]
+    resp = client.get(f"/api/v1/meals/{meal_id}/ratings-breakdown", headers=bearer(other_token))
+    assert resp.status_code == 200
+    breakdown = resp.json()
+    my_row = next(r for r in breakdown["comments"] if r["id"] == rating_id)
+    assert my_row["is_owner"] is False
+
+
+def test_meals_favourite_field(client, meal_id):
+    """#27 meals endpoint returns favourite field based on rating patterns."""
+    # Create more meals for testing
+    db = SessionLocal()
+    try:
+        mensa = db.query(Mensa).filter(Mensa.name == "Testmensa").one()
+
+        # Meal 1: 1×5★ → favourite=false
+        meal1 = Meal(
+            name="Meal One", name_de="Meal One", type="main",
+            date=date_cls.today(), mensa_id=mensa.id, description="One"
+        )
+        db.add(meal1)
+        db.commit()
+        db.refresh(meal1)
+
+        # One 5-star rating
+        client.post(
+            f"/api/v1/meals/{meal1.id}/ratings",
+            json={"rating": 5, "comment": "great"},
+        )
+
+        # Meal 2: ≥5 ratings with ≥80% 4-5★ → favourite=true
+        meal2 = Meal(
+            name="Meal Two", name_de="Meal Two", type="main",
+            date=date_cls.today(), mensa_id=mensa.id, description="Two"
+        )
+        db.add(meal2)
+        db.commit()
+        db.refresh(meal2)
+
+        # 5 ratings: 4×5★, 1×4★ (100% 4-5★)
+        for _ in range(4):
+            client.post(
+                f"/api/v1/meals/{meal2.id}/ratings",
+                json={"rating": 5, "comment": "great"},
+            )
+        client.post(
+            f"/api/v1/meals/{meal2.id}/ratings",
+            json={"rating": 4, "comment": "good"},
+        )
+
+        # Meal 3: 5 ratings averaging 4.5 but <80% 4-5★ (polarised) → favourite=false
+        meal3 = Meal(
+            name="Meal Three", name_de="Meal Three", type="main",
+            date=date_cls.today(), mensa_id=mensa.id, description="Three"
+        )
+        db.add(meal3)
+        db.commit()
+        db.refresh(meal3)
+
+        # 5 ratings: 3×5★, 2×2★ (60% 4-5★, avg 4.5)
+        for _ in range(3):
+            client.post(
+                f"/api/v1/meals/{meal3.id}/ratings",
+                json={"rating": 5, "comment": "great"},
+            )
+        for _ in range(2):
+            client.post(
+                f"/api/v1/meals/{meal3.id}/ratings",
+                json={"rating": 2, "comment": "bad"},
+            )
+    finally:
+        db.close()
+
+    # GET /api/v1/meals
+    resp = client.get("/api/v1/meals")
+    assert resp.status_code == 200
+    meals = resp.json()
+
+    # Build lookup
+    meal_map = {m["name"]: m for m in meals}
+
+    # Meal 1: 1×5★ → favourite=false
+    assert meal_map["Meal One"]["favourite"] is False
+
+    # Meal 2: ≥5 ratings with ≥80% 4-5★ → favourite=true
+    assert meal_map["Meal Two"]["favourite"] is True
+
+    # Meal 3: 5 ratings averaging 4.5 but <80% 4-5★ (polarised) → favourite=false
+    assert meal_map["Meal Three"]["favourite"] is False

@@ -119,6 +119,7 @@ class Rating(Base):
     # Nullable: anonymous ratings stay supported, and every pre-accounts row is valid.
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     photo_url = Column(String, nullable=True)
+    edited_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=func.now())
     meal = relationship("Meal", back_populates="ratings")
 
@@ -274,6 +275,15 @@ def init_db():
             conn.execute(text("ALTER TABLE side_ratings ADD COLUMN user_id INTEGER REFERENCES users(id)"))
             conn.commit()
             log.info("Added user_id column to side_ratings table")
+        # Add edited_at column to ratings if missing (issue #16)
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='ratings' AND column_name='edited_at'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("ALTER TABLE ratings ADD COLUMN edited_at TIMESTAMP"))
+            conn.commit()
+            log.info("Added edited_at column to ratings table")
         # Add display_name column to users if missing
         result = conn.execute(text(
             "SELECT column_name FROM information_schema.columns "

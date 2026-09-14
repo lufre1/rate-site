@@ -49,6 +49,7 @@ function Datenschutz({ onBack }) {
           <li>{t('datenschutz.storageToken')}</li>
           <li>{t('datenschutz.storageTheme')}</li>
           <li>{t('datenschutz.storageVoter')}</li>
+          <li>{t('datenschutz.storageDiet')}</li>
         </ul>
         <p>{t('datenschutz.storageDelete')}</p>
 

@@ -10,7 +10,7 @@ import Stats from './Stats';
 import { useToast } from './Toast';
 import {
   API, authHeaders, getToken, clearToken, formatRelativeDate, StarPicker,
-  getVoterId, voteHeaders, ThemeToggle, toDateKey,
+  getVoterId, voteHeaders, ThemeToggle, toDateKey, getDietFilter, DIET_ORDER,
 } from './shared';
 
 const ICON_BASE = 'https://www.studierendenwerk-goettingen.de/fileadmin/templates/images/mensaspeiseplan/png/';
@@ -165,6 +165,9 @@ function App() {
   const [showStats, setShowStats] = useState(false);
   const [user, setUser] = useState(null);
   const [showAccount, setShowAccount] = useState(false);
+  const [dietFilter, setDietFilterState] = useState(getDietFilter);
+  // Temporarily disable filter for "show all" (local state, doesn't clear stored pref)
+  const [showAllDiet, setShowAllDiet] = useState(false);
 
   // Restore the session on load. A token the backend no longer recognises
   // (logged out elsewhere, DB reset) is dropped rather than left to 401 forever.
@@ -289,11 +292,33 @@ function App() {
     filter === 'all' ? t('ui.allMensas') : filter,
     sortMode === 'alpha' ? t('ui.sortAlphabetical') : null,
     includePast ? t('ui.includePast') : null,
+    dietFilter !== 'all' && !showAllDiet ? t(`ui.diet${dietFilter.charAt(0).toUpperCase() + dietFilter.slice(1)}`) : null,
   ].filter(Boolean).join(' \u00b7 ');
 
+  // MEAT_TAGS and VEGETARIAN tags for filtering
+  const MEAT_TAGS = ['fleisch.png', 'fisch.png', 'strohschwein.png', 'leinetalerrind.png'];
+  const VEGETARIAN_TAG = 'vegetarisch.png';
+  
   const filteredMenu = filter === 'all' ? menu : menu.filter(m => m.mensa === filter);
+  // Apply diet filter (inverted, fail-safe): untagged dishes always visible
+  const effectiveDietFilter = showAllDiet ? 'all' : dietFilter;
+  const filteredMenuWithDiet = effectiveDietFilter === 'all' 
+    ? filteredMenu 
+    : filteredMenu.filter(m => {
+        const tags = typeof m.tags === 'string' ? JSON.parse(m.tags) : (m.tags || []);
+        if (tags.length === 0) return true; // untagged always visible
+        if (effectiveDietFilter === 'vegan') {
+          // Hide if has any meat tag OR vegetarian tag
+          return !tags.some(t => MEAT_TAGS.includes(t) || t === VEGETARIAN_TAG);
+        }
+        if (effectiveDietFilter === 'vegetarian') {
+          // Hide if has any meat tag
+          return !tags.some(t => MEAT_TAGS.includes(t));
+        }
+        return true;
+      });
   const grouped = {};
-  filteredMenu.forEach(m => {
+  filteredMenuWithDiet.forEach(m => {
     const key = m.mensa + '|' + m.type;
     if (!grouped[key]) grouped[key] = [];
     grouped[key].push(m);
@@ -388,6 +413,24 @@ function App() {
             />
             {t('ui.includePast')}
           </label>
+
+          {/* Diet filter: three-way control */}
+          <div className="diet-filter">
+            <span className="diet-filter__label">{t('ui.dietFilter')}</span>
+            <div className="diet-filter__group" role="radiogroup" aria-label={t('ui.dietFilter')}>
+              {DIET_ORDER.map(opt => (
+                <button
+                  key={opt}
+                  type="button"
+                  className={`btn btn--ghost diet-filter__btn${dietFilter === opt ? ' diet-filter__btn--active' : ''}`}
+                  aria-pressed={dietFilter === opt}
+                  onClick={() => setDietFilterState(opt)}
+                >
+                  {t(`ui.diet${opt.charAt(0).toUpperCase() + opt.slice(1)}`)}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -399,8 +442,24 @@ function App() {
       <p className="sr-only" role="status">
         {searchResults.length > 0
           ? t('ui.foundResults', { count: searchResults.length, query: searchQuery })
-          : t('ui.dishCount', { count: filteredMenu.length })}
+          : t('ui.dishCount', { count: filteredMenuWithDiet.length })}
       </p>
+
+      {/* Hidden count line when diet filter hides dishes */}
+      {effectiveDietFilter !== 'all' && !showAllDiet && filteredMenu.length > filteredMenuWithDiet.length && (
+        <div className="diet-hidden">
+          <p className="diet-hidden__text">
+            {t('ui.dietHidden', { count: filteredMenu.length - filteredMenuWithDiet.length })}
+          </p>
+          <button
+            type="button"
+            className="btn--quiet diet-hidden__reveal"
+            onClick={() => setShowAllDiet(true)}
+          >
+            {t('ui.dietShowAll')}
+          </button>
+        </div>
+      )}
 
       <div>
         {searchLoading ? (
@@ -852,6 +911,10 @@ function DishCard({ meal, summary, user, onSignIn }) {
   // fetched, so the figures that arrived with the page still win.
   const [stats, setStats] = useState(null);
   const [scrollToId, setScrollToId] = useState(null);
+  // Inline editing state for reviews
+  const [editingId, setEditingId] = useState(null);
+  const [editRating, setEditRating] = useState(0);
+  const [editComment, setEditComment] = useState('');
   // `reviews` starts empty, so without these every expand flashed "Noch keine
   // Bewertungen" before the request landed -- and showed it forever if the
   // request failed, which is the same lie the menu empty state told.
@@ -884,7 +947,7 @@ function DishCard({ meal, summary, user, onSignIn }) {
   const loadBreakdown = useCallback(() => {
     setReviewsLoading(true);
     setReviewsError(false);
-    return fetch(`${API}/api/v1/meals/${meal.id}/ratings-breakdown`, { headers: voteHeaders() })
+    return fetch(`${API}/api/v1/meals/${meal.id}/ratings-breakdown`, { headers: { ...voteHeaders(), ...authHeaders() } })
       .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
       .then(data => {
         setReviews({ comments: data.comments || [] });
@@ -932,13 +995,13 @@ function DishCard({ meal, summary, user, onSignIn }) {
 
         response = await fetch(`${API}/api/v1/meals/${meal.id}/ratings-with-photo`, {
           method: 'POST',
-          headers: authHeaders(),
+          headers: { ...authHeaders(), ...voteHeaders() },
           body: formData,
         });
       } else {
         response = await fetch(`${API}/api/v1/meals/${meal.id}/ratings`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          headers: { 'Content-Type': 'application/json', ...authHeaders(), ...voteHeaders() },
           body: JSON.stringify({ rating, comment: comment || null }),
         });
       }
@@ -1132,6 +1195,9 @@ function DishCard({ meal, summary, user, onSignIn }) {
             {meal.is_available === false && (
               <span className="badge badge--upper badge--danger">{t('ui.notAvailable')}</span>
             )}
+            {meal.favourite && (
+              <span className="badge badge--upper badge--accent">{t('ui.favouriteBadge')}</span>
+            )}
             <IconTags tags={tags} />
           </span>
           {displayDescription && typeof displayDescription === 'string' && (
@@ -1151,6 +1217,17 @@ function DishCard({ meal, summary, user, onSignIn }) {
           <span className="dish__chevron" aria-hidden="true">{expanded ? '▲' : '▼'}</span>
         </span>
       </button>
+
+      {/* Calendar link: only for today or future meals */}
+      {String(meal.date) >= today() && (
+        <a
+          className="btn--quiet"
+          href={`${API}/api/v1/meals/${meal.id}/calendar.ics`}
+          download
+        >
+          {t('ui.addToCalendar')}
+        </a>
+      )}
 
       {/* Outside the toggle: a button inside a button is invalid markup, and as
           a bare <img onClick> this was unreachable by keyboard. */}
@@ -1172,96 +1249,6 @@ function DishCard({ meal, summary, user, onSignIn }) {
       {expanded && (
         <div className="dish__body">
           <p className="dish__note">{t('ui.ratingScopeNote')}</p>
-          {reviewsLoading && reviews.comments.length === 0 ? (
-            <div aria-hidden="true">
-              <div className="skeleton skeleton--sub" />
-              <div className="skeleton skeleton--meta" />
-            </div>
-          ) : reviewsError ? (
-            <p className="error-text">
-              {t('ui.reviewsLoadError')}{' '}
-              <button type="button" className="btn--quiet" onClick={loadBreakdown}>
-                {t('ui.retry')}
-              </button>
-            </p>
-          ) : reviews.comments.length === 0 ? (
-            <p className="muted-text">{t('ui.noReviews')}</p>
-          ) : (
-            reviews.comments.map(r => {
-              const mine = myReviewIds.includes(r.id);
-              return (
-              // `undefined`, not 'false': an absent attribute cannot match the
-              // CSS selector, unlike the data-unavailable="false" shape above.
-              <div key={r.id} className="review"
-                data-mine={mine ? 'true' : undefined}
-                ref={r.id === scrollToId ? myRowRef : null}>
-                <div className="review__head">
-                  <span className="review__author">{r.user_name || 'Anonymous'}</span>
-                  {mine && <span className="badge badge--accent">{t('ui.yourReview')}</span>}
-                  <span className="stars" aria-hidden="true">
-                    {'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}
-                  </span>
-                  <span className="sr-only">{t('ui.starLabel', { count: r.rating })}</span>
-                  {r.created_at && <span>{formatRelativeDate(r.created_at, t)}</span>}
-                  {r.is_recent && (
-                    <span className="badge badge--positive">({t('ui.recent')})</span>
-                  )}
-                </div>
-                {r.comment && <p className="review__text">{r.comment}</p>}
-                {/* Comment votes rate the review text only. An entry with a
-                    photo and no text has nothing to vote on here, and the
-                    endpoint rejects it. */}
-                {r.comment && (
-                  <div className="review__votes">
-                    <button type="button" className="vote-btn" data-dir="up"
-                      aria-pressed={r.vote_direction === 1}
-                      onClick={() => handleVote(r.id, 1)}
-                      title={t('ui.upvote')} aria-label={t('ui.upvote')}>
-                      <span aria-hidden="true">▲</span>
-                      {r.score > 0 ? `+${r.score}` : r.score}
-                    </button>
-                    <button type="button" className="vote-btn" data-dir="down"
-                      aria-pressed={r.vote_direction === -1}
-                      onClick={() => handleVote(r.id, -1)}
-                      title={t('ui.downvote')} aria-label={t('ui.downvote')}>
-                      <span aria-hidden="true">▼</span>
-                    </button>
-                  </div>
-                )}
-                {r.photo_url && (
-                  <>
-                    <button type="button" className="review__photo-btn"
-                      onClick={() => setEnlargedImage(`${API}${r.photo_url}`)}>
-                      <img className="review__photo" src={`${API}${r.photo_url}`}
-                        alt={t('ui.dishPhotoOf', { dish: displayName })}
-                        loading="lazy" decoding="async"
-                        onError={(e) => { e.target.style.display = 'none'; }} />
-                    </button>
-                    <div className="review__photo-votes">
-                      <button type="button" className="vote-btn" data-dir="up"
-                        aria-pressed={r.photo_vote_direction === 1}
-                        onClick={() => handlePhotoVote(r.id, 1)}
-                        title={t('ui.upvotePhoto')} aria-label={t('ui.upvotePhoto')}>
-                        <span aria-hidden="true">▲</span>
-                        {r.photo_score > 0 ? `+${r.photo_score}` : r.photo_score}
-                      </button>
-                      <button type="button" className="vote-btn" data-dir="down"
-                        aria-pressed={r.photo_vote_direction === -1}
-                        onClick={() => handlePhotoVote(r.id, -1)}
-                        title={t('ui.downvotePhoto')} aria-label={t('ui.downvotePhoto')}>
-                        <span aria-hidden="true">▼</span>
-                      </button>
-                      {topPhoto === r.photo_url && (
-                        <span className="badge badge--positive">{t('ui.topPhoto')}</span>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-              );
-            })
-          )}
-
           {/* Mounted unconditionally, like the search region above: a live
               region inserted TOGETHER with its text is not reliably announced.
               No timer clears it -- that is the whole point. */}
@@ -1407,6 +1394,154 @@ function DishCard({ meal, summary, user, onSignIn }) {
                 </>
               )}
             </form>
+          )}
+
+          {reviewsLoading && reviews.comments.length === 0 ? (
+            <div aria-hidden="true">
+              <div className="skeleton skeleton--sub" />
+              <div className="skeleton skeleton--meta" />
+            </div>
+          ) : reviewsError ? (
+            <p className="error-text">
+              {t('ui.reviewsLoadError')}{' '}
+              <button type="button" className="btn--quiet" onClick={loadBreakdown}>
+                {t('ui.retry')}
+              </button>
+            </p>
+          ) : reviews.comments.length === 0 ? (
+            <p className="muted-text">{t('ui.noReviews')}</p>
+          ) : (
+            reviews.comments.map(r => {
+              const mine = myReviewIds.includes(r.id);
+              return (
+              // `undefined`, not 'false': an absent attribute cannot match the
+              // CSS selector, unlike the data-unavailable="false" shape above.
+              <div key={r.id} className="review"
+                data-mine={mine ? 'true' : undefined}
+                ref={r.id === scrollToId ? myRowRef : null}>
+                <div className="review__head">
+                  <span className="review__author">{r.user_name || 'Anonymous'}</span>
+                  {mine && <span className="badge badge--accent">{t('ui.yourReview')}</span>}
+                  {r.is_owner && (
+                    <button
+                      type="button"
+                      className="btn--quiet"
+                      onClick={() => {
+                        setEditingId(r.id);
+                        setEditRating(r.rating);
+                        setEditComment(r.comment || '');
+                      }}
+                      aria-label={t('auth.edit')}
+                    >
+                      {t('auth.edit')}
+                    </button>
+                  )}
+                  <span className="stars" aria-hidden="true">
+                    {'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}
+                  </span>
+                  <span className="sr-only">{t('ui.starLabel', { count: r.rating })}</span>
+                  {r.created_at && <span>{formatRelativeDate(r.created_at, t)}</span>}
+                  {r.edited_at && <span className="muted-text"> ({t('ui.edited')})</span>}
+                  {r.is_recent && (
+                    <span className="badge badge--positive">({t('ui.recent')})</span>
+                  )}
+                </div>
+                {editingId === r.id ? (
+                  <form
+                    className="review__edit"
+                    onSubmit={e => {
+                      e.preventDefault();
+                      fetch(`${API}/api/v1/ratings/${r.id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+                        body: JSON.stringify({ rating: editRating, comment: editComment }),
+                      }).then(res => {
+                        if (res.ok) {
+                          loadBreakdown();
+                          setEditingId(null);
+                        } else {
+                          notify(t('auth.saveRatingFailed'));
+                        }
+                      });
+                    }}
+                  >
+                    <StarPicker value={editRating} onChange={setEditRating} size={18} />
+                    <textarea
+                      className="field field--textarea"
+                      value={editComment}
+                      onChange={e => setEditComment(e.target.value)}
+                      rows={2}
+                    />
+                    <div className="row-2">
+                      <button type="submit" className="btn btn--primary">{t('auth.save')}</button>
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
+                        onClick={() => {
+                          setEditingId(null);
+                          setEditRating(0);
+                          setEditComment('');
+                        }}
+                      >
+                        {t('auth.cancel')}
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <p className="review__text">{r.comment}</p>
+                )}
+                {/* Comment votes rate the review text only. An entry with a
+                    photo and no text has nothing to vote on here, and the
+                    endpoint rejects it. */}
+                {r.comment && (
+                  <div className="review__votes">
+                    <button type="button" className="vote-btn" data-dir="up"
+                      aria-pressed={r.vote_direction === 1}
+                      onClick={() => handleVote(r.id, 1)}
+                      title={t('ui.upvote')} aria-label={t('ui.upvote')}>
+                      <span aria-hidden="true">▲</span>
+                      {r.score > 0 ? `+${r.score}` : r.score}
+                    </button>
+                    <button type="button" className="vote-btn" data-dir="down"
+                      aria-pressed={r.vote_direction === -1}
+                      onClick={() => handleVote(r.id, -1)}
+                      title={t('ui.downvote')} aria-label={t('ui.downvote')}>
+                      <span aria-hidden="true">▼</span>
+                    </button>
+                  </div>
+                )}
+                {r.photo_url && (
+                  <>
+                    <button type="button" className="review__photo-btn"
+                      onClick={() => setEnlargedImage(`${API}${r.photo_url}`)}>
+                      <img className="review__photo" src={`${API}${r.photo_url}`}
+                        alt={t('ui.dishPhotoOf', { dish: displayName })}
+                        loading="lazy" decoding="async"
+                        onError={(e) => { e.target.style.display = 'none'; }} />
+                    </button>
+                    <div className="review__photo-votes">
+                      <button type="button" className="vote-btn" data-dir="up"
+                        aria-pressed={r.photo_vote_direction === 1}
+                        onClick={() => handlePhotoVote(r.id, 1)}
+                        title={t('ui.upvotePhoto')} aria-label={t('ui.upvotePhoto')}>
+                        <span aria-hidden="true">▲</span>
+                        {r.photo_score > 0 ? `+${r.photo_score}` : r.photo_score}
+                      </button>
+                      <button type="button" className="vote-btn" data-dir="down"
+                        aria-pressed={r.photo_vote_direction === -1}
+                        onClick={() => handlePhotoVote(r.id, -1)}
+                        title={t('ui.downvotePhoto')} aria-label={t('ui.downvotePhoto')}>
+                        <span aria-hidden="true">▼</span>
+                      </button>
+                      {topPhoto === r.photo_url && (
+                        <span className="badge badge--positive">{t('ui.topPhoto')}</span>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+              );
+            })
           )}
         </div>
       )}

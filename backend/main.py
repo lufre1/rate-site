@@ -6,7 +6,7 @@ from typing import Optional, List
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, case
 import uvicorn
 from anyio import to_thread
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -150,6 +150,12 @@ def resolve_language(r, lang: str):
 # not invalidate rows already stored above it.
 COMMENT_MAX_LENGTH = 1000
 
+# Community favourite badge thresholds (issue #27)
+# A dish needs at least BADGE_MIN_RATINGS (5) and at least BADGE_GOOD_SHARE (80%)
+# of ratings >= 4 stars to get the badge.
+BADGE_MIN_RATINGS = 5
+BADGE_GOOD_SHARE = 0.8
+
 
 class RatingInput(BaseModel):
     rating: int = Field(ge=1, le=5)
@@ -215,6 +221,8 @@ class MealOut(BaseModel):
     date: date
     avg_rating: float
     rating_count: int
+    good_count: int = 0
+    favourite: bool = False
     is_available: bool
     class Config:
         from_attributes = True
@@ -225,6 +233,7 @@ class RatingOut(BaseModel):
     comment: Optional[str]
     user_name: Optional[str]
     photo_url: Optional[str] = None
+    edited_at: Optional[datetime] = None
     class Config:
         from_attributes = True
 
@@ -248,6 +257,8 @@ class CommentDisplay(BaseModel):
     date: date
     created_at: datetime
     photo_url: Optional[str] = None
+    edited_at: Optional[datetime] = None
+    is_owner: bool = False
     is_recent: bool = False
     score: int = 0
     vote_direction: Optional[int] = None
@@ -272,6 +283,7 @@ class CredentialsInput(BaseModel):
 class TokenOut(BaseModel):
     token: str
     username: str
+    display_name: Optional[str] = None
 
 class MeOut(BaseModel):
     username: str
@@ -476,6 +488,7 @@ def get_meals(date: date = Query(None), lang: str = "de", request: Request = Non
         DBMeal.mensa_id.label('agg_mensa_id'),
         func.avg(DBRating.rating).label('avg_rating'),
         func.count(DBRating.id).label('rating_count'),
+        func.count(case((DBRating.rating >= 4, 1))).label('good_count'),
     ).join(DBRating, DBRating.meal_id == DBMeal.id
     ).group_by(DBMeal.name, DBMeal.mensa_id).subquery()
 
@@ -494,6 +507,7 @@ def get_meals(date: date = Query(None), lang: str = "de", request: Request = Non
         DBMeal.is_available,
         func.coalesce(rating_agg.c.avg_rating, 0).label('avg_rating'),
         func.coalesce(rating_agg.c.rating_count, 0).label('rating_count'),
+        func.coalesce(rating_agg.c.good_count, 0).label('good_count'),
     ).join(DBMensa, DBMeal.mensa_id == DBMensa.id).outerjoin(
         rating_agg, (rating_agg.c.agg_name == DBMeal.name) & (rating_agg.c.agg_mensa_id == DBMeal.mensa_id)
     )
@@ -519,6 +533,11 @@ def get_meals(date: date = Query(None), lang: str = "de", request: Request = Non
             continue
         seen.add(key)
 
+        rating_count = r.rating_count if r.rating_count else 0
+        favourite = bool(
+            rating_count >= BADGE_MIN_RATINGS
+            and (r.good_count / rating_count) >= BADGE_GOOD_SHARE
+        )
         out.append(MealOut(
             id=r.id,
             name=name,
@@ -528,14 +547,16 @@ def get_meals(date: date = Query(None), lang: str = "de", request: Request = Non
             mensa=r.mensa,
             date=r.date,
             avg_rating=round(float(r.avg_rating), 1),
-            rating_count=r.rating_count if r.rating_count else 0,
+            rating_count=rating_count,
+            good_count=r.good_count,
+            favourite=favourite,
             is_available=r.is_available,
         ))
 
     return out
 
 @app.post("/api/v1/meals/{meal_id}/ratings", status_code=201, tags=["Ratings"])
-def create_rating(meal_id: int, data: RatingInput, db: Session = Depends(get_db), user: Optional[DBUser] = Depends(auth.optional_user)):
+def create_rating(meal_id: int, data: RatingInput, db: Session = Depends(get_db), user: Optional[DBUser] = Depends(auth.optional_user), voter_id: Optional[str] = Header(None, alias="X-Voter-Id")):
     # Check if meal exists
     meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
     if not meal:
@@ -550,13 +571,23 @@ def create_rating(meal_id: int, data: RatingInput, db: Session = Depends(get_db)
         user_id=user_id,
     )
     db.add(rating)
+    db.flush()  # Get rating.id before commit
+    # Auto-upvote the author's comment if voter_id was supplied and comment is non-empty
+    if data.comment and voter_id:
+        vote = DBCommentVote(
+            rating_id=rating.id,
+            voter_id=voter_id,
+            user_id=user_id,
+            direction=1,
+        )
+        db.add(vote)
     db.commit()
     db.refresh(rating)
     return rating
 
 
 @app.post("/api/v1/meals/{meal_id}/ratings-with-photo", status_code=201, tags=["Ratings"])
-def create_rating_with_photo(meal_id: int, rating: int = Form(..., ge=1, le=5), comment: Optional[str] = Form(None, max_length=COMMENT_MAX_LENGTH), photo: Optional[UploadFile] = File(None), db: Session = Depends(get_db), user: Optional[DBUser] = Depends(auth.optional_user)):
+def create_rating_with_photo(meal_id: int, rating: int = Form(..., ge=1, le=5), comment: Optional[str] = Form(None, max_length=COMMENT_MAX_LENGTH), photo: Optional[UploadFile] = File(None), db: Session = Depends(get_db), user: Optional[DBUser] = Depends(auth.optional_user), voter_id: Optional[str] = Header(None, alias="X-Voter-Id")):
     """Create a rating with optional photo upload"""
     # Check if meal exists
     meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
@@ -609,6 +640,16 @@ def create_rating_with_photo(meal_id: int, rating: int = Form(..., ge=1, le=5), 
         photo_url=photo_url,
     )
     db.add(rating_obj)
+    db.flush()  # Get rating.id before commit
+    # Auto-upvote the author's comment if voter_id was supplied and comment is non-empty
+    if comment and voter_id:
+        vote = DBCommentVote(
+            rating_id=rating_obj.id,
+            voter_id=voter_id,
+            user_id=user_id,
+            direction=1,
+        )
+        db.add(vote)
     db.commit()
     db.refresh(rating_obj)
     return rating_obj
@@ -793,7 +834,7 @@ def get_meals_summary(ids: str = Query(..., description="Comma-separated meal id
 
 
 @app.get("/api/v1/meals/{meal_id}/ratings-breakdown", response_model=dict, tags=["Ratings"])
-def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db), voter_id: Optional[str] = Header(None, alias="X-Voter-Id")):
+def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db), voter_id: Optional[str] = Header(None, alias="X-Voter-Id"), user: Optional[DBUser] = Depends(auth.optional_user)):
     """Get detailed rating breakdown with recent vs overall sections and comments."""
     # Check if meal exists
     meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
@@ -911,6 +952,8 @@ def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db), voter_id:
             date=r.date,
             created_at=r.Rating.created_at,
             photo_url=r.Rating.photo_url,
+            edited_at=r.Rating.edited_at,
+            is_owner=bool(user and r.Rating.user_id == user.id),
             score=comment_scores.get(r.Rating.id, 0),
             vote_direction=viewer_votes.get(r.Rating.id),
             photo_score=photo_scores.get(r.Rating.id, 0),
@@ -949,6 +992,8 @@ def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db), voter_id:
                 "date": c.date.isoformat(),
                 "created_at": c.created_at.isoformat() if c.created_at else None,
                 "photo_url": c.photo_url,
+                "edited_at": c.edited_at.isoformat() if c.edited_at else None,
+                "is_owner": c.is_owner,
                 "is_recent": c.date == today,
                 "score": c.score,
                 "vote_direction": c.vote_direction,
@@ -1260,7 +1305,7 @@ def register(data: CredentialsInput, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
-    return TokenOut(token=auth.issue_token(db, user), username=user.username)
+    return TokenOut(token=auth.issue_token(db, user), username=user.username, display_name=None)
 
 
 @app.post("/api/v1/auth/login", response_model=TokenOut, tags=["Auth"])
@@ -1271,7 +1316,7 @@ def login(data: CredentialsInput, db: Session = Depends(get_db)):
     # endpoint can't be used to enumerate which usernames exist.
     if not user or not auth.verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    return TokenOut(token=auth.issue_token(db, user), username=user.username)
+    return TokenOut(token=auth.issue_token(db, user), username=user.username, display_name=user.display_name)
 
 
 @app.post("/api/v1/auth/logout", status_code=204, tags=["Auth"])
@@ -1350,6 +1395,19 @@ def set_display_name(data: dict, user: DBUser = Depends(auth.current_user), db: 
             raise HTTPException(status_code=400, detail="display_name must contain only letters, digits, spaces, underscore, or hyphen")
     user.display_name = display_name
     db.add(user)
+    # Update existing ratings and side_ratings with the new display name.
+    # Anonymous rows (user_id IS NULL) are untouched.
+    if display_name is not None:
+        db.query(DBRating).filter(DBRating.user_id == user.id).update(
+            {DBRating.user_name: display_name}, synchronize_session=False)
+        db.query(DBSideRating).filter(DBSideRating.user_id == user.id).update(
+            {DBSideRating.user_name: display_name}, synchronize_session=False)
+    else:
+        # When display_name is cleared, fall back to username
+        db.query(DBRating).filter(DBRating.user_id == user.id).update(
+            {DBRating.user_name: user.username}, synchronize_session=False)
+        db.query(DBSideRating).filter(DBSideRating.user_id == user.id).update(
+            {DBSideRating.user_name: user.username}, synchronize_session=False)
     db.commit()
     db.refresh(user)
     count = db.query(func.count(DBRating.id)).filter(DBRating.user_id == user.id).scalar()
@@ -1426,10 +1484,15 @@ def update_own_rating(
     db: Session = Depends(get_db),
 ):
     rating = owned_rating(rating_id, user, db)
-    if data.rating is not None:
+    rating_changed = False
+    if data.rating is not None and data.rating != rating.rating:
         rating.rating = data.rating
-    if data.comment is not None:
+        rating_changed = True
+    if data.comment is not None and data.comment != rating.comment:
         rating.comment = data.comment
+        rating_changed = True
+    if rating_changed:
+        rating.edited_at = func.now()
     db.add(rating)
     db.commit()
     db.refresh(rating)
@@ -1701,6 +1764,115 @@ def get_top_photo(meal_id: int, db: Session = Depends(get_db)):
         return {"photo_url": None}
 
     return {"photo_url": top_photo.photo_url}
+
+@app.get("/api/v1/meals/{meal_id}/calendar.ics", tags=["Meals"])
+def get_meal_calendar(meal_id: int, db: Session = Depends(get_db)):
+    """Generate an iCalendar (.ics) file for a meal."""
+    from datetime import timezone as tz
+    meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
+    if not meal:
+        raise HTTPException(status_code=404, detail="Meal not found")
+    
+    today_berlin = datetime.now(ZoneInfo("Europe/Berlin")).date()
+    if meal.date < today_berlin:
+        raise HTTPException(status_code=404, detail="Meal date is in the past")
+    
+    # Generate slug from name (lowercase, non-alphanumerics to hyphen)
+    import re
+    slug = re.sub(r'[^a-z0-9]+', '-', meal.name.lower()).strip('-')
+    
+    # Build UID
+    uid = f"{meal.name}.{meal.mensa_id}.{meal.date}@mensa-rating"
+    
+    # DTSTAMP in UTC
+    dtstamp = datetime.now(tz.utc).strftime('%Y%m%dT%H%M%SZ')
+    
+    # DTSTART/DTEND: 11:30-14:00 Europe/Berlin on meal date
+    start_dt = datetime(meal.date.year, meal.date.month, meal.date.day, 11, 30, 0, tzinfo=ZoneInfo("Europe/Berlin"))
+    end_dt = datetime(meal.date.year, meal.date.month, meal.date.day, 14, 0, 0, tzinfo=ZoneInfo("Europe/Berlin"))
+    dtstart = start_dt.astimezone(tz.utc).strftime('%Y%m%dT%H%M%SZ')
+    dtend = end_dt.astimezone(tz.utc).strftime('%Y%m%dT%H%M%SZ')
+    
+    # Get tags as text
+    tags_text = ""
+    if meal.tags:
+        try:
+            tags = json.loads(meal.tags) if isinstance(meal.tags, str) else meal.tags
+            if tags:
+                tags_text = " " + ", ".join(tags)
+        except:
+            pass
+    
+    # Build description
+    desc_parts = []
+    if meal.description:
+        desc_parts.append(meal.description)
+    if tags_text:
+        desc_parts.append(tags_text.strip())
+    desc_parts.append(f"https://c100-246.cloud.gwdg.de/meals/{meal.id}")
+    description = " ".join(desc_parts)
+    
+    # Build location
+    location = meal.mensa.name
+    
+    # Build summary
+    summary = f"{meal.name} — {meal.mensa.name}"
+    
+    # RFC 5545: escape backslash, semicolon, comma; newlines as \n
+    def ics_escape(text):
+        if not text:
+            return ""
+        text = text.replace('\\', '\\\\')
+        text = text.replace(';', '\\;')
+        text = text.replace(',', '\\,')
+        text = text.replace('\n', '\\n')
+        return text
+    
+    # Fold lines >75 octets
+    def fold_line(line):
+        """Fold a line into 75-octet chunks with continuation."""
+        if len(line.encode('utf-8')) <= 75:
+            return line
+        result = []
+        # Simple approach: split on spaces
+        words = line.split()
+        current = words[0]
+        for word in words[1:]:
+            if len((current + ' ' + word).encode('utf-8')) <= 75:
+                current += ' ' + word
+            else:
+                result.append(current)
+                current = word
+        result.append(current)
+        return '\r\n '.join(result)
+    
+    # Build the iCalendar content
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Mensa Rating//DE",
+        "BEGIN:VEVENT",
+        f"UID:{ics_escape(uid)}",
+        f"DTSTAMP:{dtstamp}",
+        f"DTSTART:{dtstart}",
+        f"DTEND:{dtend}",
+        f"SUMMARY:{ics_escape(summary)}",
+        f"LOCATION:{ics_escape(location)}",
+        f"DESCRIPTION:{ics_escape(description)}",
+        "END:VEVENT",
+        "END:VCALENDAR",
+    ]
+    
+    # Fold long lines
+    folded_lines = [fold_line(line) for line in lines]
+    content = '\r\n'.join(folded_lines) + '\r\n'
+    
+    return Response(
+        content=content,
+        media_type="text/calendar; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={slug}-{meal.date}.ics"}
+    )
+
 
 # Serves the photos written by create_rating_with_photo. StaticFiles handles
 # content types, conditional requests (ETag/Last-Modified) and range requests,
