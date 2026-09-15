@@ -168,6 +168,9 @@ function Profile({ user, onLogout, language, onUpdate }) {
   const [displayBusy, setDisplayBusy] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [contributionScore, setContributionScore] = useState(null);
+  const [leaderboardRank, setLeaderboardRank] = useState(null);
+  const [loadingScore, setLoadingScore] = useState(true);
 
   // "favourites" is not a separate store -- it is the same endpoint filtered to
   // the dishes this user actually rated 4 or 5.
@@ -189,6 +192,20 @@ function Profile({ user, onLogout, language, onUpdate }) {
   }, [tab, language]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Load contribution score and leaderboard position
+  useEffect(() => {
+    if (!user) return;
+    setLoadingScore(true);
+    fetch(`${API}/api/v1/leaderboard/me`, { headers: authHeaders() })
+      .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then(data => {
+        setContributionScore(data.score);
+        setLeaderboardRank(data.rank);
+        setLoadingScore(false);
+      })
+      .catch(() => setLoadingScore(false));
+  }, [user]);
 
   const saveDisplayName = async (value) => {
     setDisplayBusy(true);
@@ -286,6 +303,23 @@ function Profile({ user, onLogout, language, onUpdate }) {
             </button>
           )}
         </div>
+      </div>
+
+      <div className="card">
+        <h3>{t('leaderboard.contributionScore')}</h3>
+        {loadingScore ? (
+          <p className="muted-text">{t('leaderboard.loading')}</p>
+        ) : contributionScore !== null ? (
+          <div className="leaderboard-score-display">
+            <span className="leaderboard-score-value">{contributionScore}</span>
+            <span className="leaderboard-score-label">{t('leaderboard.points')}</span>
+            {leaderboardRank !== null && (
+              <span className="leaderboard-rank-badge">#{leaderboardRank}</span>
+            )}
+          </div>
+        ) : (
+          <p className="muted-text">{t('leaderboard.noData')}</p>
+        )}
       </div>
 
       <div className="tabs mt-4">

@@ -1,0 +1,238 @@
+import React from 'react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import Leaderboard from './Leaderboard';
+
+// Mock the i18n and shared modules
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key) => {
+      const translations = {
+        'leaderboard.title': 'Leaderboard',
+        'leaderboard.myPosition': 'Your Position',
+        'leaderboard.points': 'points',
+        'leaderboard.error': 'Error:',
+        'leaderboard.loading': 'Loading...',
+        'leaderboard.loadMore': 'Load more',
+        'ui.retry': 'Try again',
+        'ui.backHome': 'Back home',
+        'leaderboard.badges.platinum': 'Platinum',
+        'leaderboard.badges.gold': 'Gold',
+        'leaderboard.badges.silver': 'Silver',
+        'leaderboard.badges.bronze': 'Bronze',
+      };
+      return translations[key] || key;
+    }
+  })
+}));
+
+jest.mock('./shared', () => ({
+  API: 'http://localhost:8000',
+  authHeaders: () => ({ 'Authorization': 'Bearer test-token' }),
+  getToken: () => 'test-token'
+}));
+
+describe('Leaderboard', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    global.fetch = jest.fn();
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('renders leaderboard title', async () => {
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        users: [],
+        total: 0,
+        date: new Date().toISOString()
+      })
+    });
+
+    render(<Leaderboard onBack={jest.fn()} language="de" />);
+
+    expect(screen.getByText('Leaderboard')).toBeInTheDocument();
+  });
+
+  test('shows loading state', async () => {
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: () => new Promise(resolve => {
+        setTimeout(() => resolve({
+          users: [],
+          total: 0,
+          date: new Date().toISOString()
+        }), 100);
+      })
+    });
+
+    render(<Leaderboard onBack={jest.fn()} language="de" />);
+
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
+  });
+
+  test('displays leaderboard entries', async () => {
+    const mockUsers = [
+      {
+        user_id: 1,
+        username: 'topuser',
+        score: 100,
+        rank: 1,
+        badge: 'platinum'
+      },
+      {
+        user_id: 2,
+        username: 'seconduser',
+        score: 80,
+        rank: 2,
+        badge: 'gold'
+      }
+    ];
+
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        users: mockUsers,
+        total: 2,
+        date: new Date().toISOString()
+      })
+    });
+
+    render(<Leaderboard onBack={jest.fn()} language="de" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('topuser')).toBeInTheDocument();
+      expect(screen.getByText('seconduser')).toBeInTheDocument();
+      expect(screen.getByText('100 points')).toBeInTheDocument();
+      expect(screen.getByText('80 points')).toBeInTheDocument();
+    });
+  });
+
+  test('displays badge colors', async () => {
+    const mockUsers = [
+      {
+        user_id: 1,
+        username: 'platinumuser',
+        score: 100,
+        rank: 1,
+        badge: 'platinum'
+      }
+    ];
+
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        users: mockUsers,
+        total: 1,
+        date: new Date().toISOString()
+      })
+    });
+
+    render(<Leaderboard onBack={jest.fn()} language="de" />);
+
+    await waitFor(() => {
+      const badge = screen.getByText('Platinum');
+      expect(badge).toBeInTheDocument();
+    });
+  });
+
+  test('calls onBack when back button is clicked', async () => {
+    const onBack = jest.fn();
+
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        users: [],
+        total: 0,
+        date: new Date().toISOString()
+      })
+    });
+
+    render(<Leaderboard onBack={onBack} language="de" />);
+
+    const backBtn = screen.getByText('Back home');
+    fireEvent.click(backBtn);
+
+    expect(onBack).toHaveBeenCalled();
+  });
+
+  test('shows load more button when more data available', async () => {
+    const mockUsers = Array.from({ length: 20 }, (_, i) => ({
+      user_id: i,
+      username: `user${i}`,
+      score: 100 - i,
+      rank: i + 1,
+      badge: 'bronze'
+    }));
+
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        users: mockUsers,
+        total: 50,
+        date: new Date().toISOString()
+      })
+    });
+
+    render(<Leaderboard onBack={jest.fn()} language="de" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Load more')).toBeInTheDocument();
+    });
+  });
+
+  test('handles error state', async () => {
+    global.fetch.mockResolvedValue({
+      ok: false,
+      status: 500
+    });
+
+    render(<Leaderboard onBack={jest.fn()} language="de" />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Error:/)).toBeInTheDocument();
+    });
+  });
+
+  test('displays my position when user is logged in', async () => {
+    const mockMyPosition = {
+      user_id: 5,
+      username: 'me',
+      score: 50,
+      rank: 5,
+      badge: 'silver'
+    };
+
+    const mockLeaderboard = {
+      users: [],
+      total: 0,
+      date: new Date().toISOString()
+    };
+
+    let fetchCount = 0;
+    global.fetch.mockImplementation((url) => {
+      fetchCount++;
+      if (url.includes('/leaderboard/me')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(mockMyPosition)
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(mockLeaderboard)
+      });
+    });
+
+    render(<Leaderboard onBack={jest.fn()} language="de" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Your Position')).toBeInTheDocument();
+      expect(screen.getByText('me')).toBeInTheDocument();
+      expect(screen.getByText('50 points')).toBeInTheDocument();
+    });
+  });
+});

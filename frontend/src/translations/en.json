@@ -262,5 +262,21 @@
       "saturday": "Saturday",
       "sunday": "Sunday"
     }
+  },
+  "leaderboard": {
+    "title": "Leaderboard",
+    "myPosition": "Your Position",
+    "points": "points",
+    "error": "Failed to load leaderboard",
+    "loading": "Loading...",
+    "loadMore": "Load more",
+    "badges": {
+      "platinum": "Platinum",
+      "gold": "Gold",
+      "silver": "Silver",
+      "bronze": "Bronze"
+    },
+    "contributionScore": "Contribution Score",
+    "noData": "No public profiles yet"
   }
 }

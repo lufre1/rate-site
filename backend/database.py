@@ -143,6 +143,17 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     created_at = Column(DateTime, default=func.now())
 
+
+class LeaderboardScore(Base):
+    __tablename__ = "leaderboard_scores"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    date = Column(Date, index=True)
+    score = Column(Integer, default=0)
+    calculated_at = Column(DateTime, default=func.now())
+    
+    user = relationship("User", backref="leaderboard_scores")
+
 class AuthToken(Base):
     # Not "Session" -- that name is already sqlalchemy.orm.Session throughout this codebase.
     __tablename__ = "auth_tokens"
@@ -337,33 +348,23 @@ def init_db():
         # Add unique constraint to comment_votes for signed-in voters
         # Anonymous voters (user_id IS NULL) can still vote multiple times with
         # different voter_ids, but the same voter_id cannot vote twice.
-        result = conn.execute(text(
-            "SELECT constraint_name FROM information_schema.table_constraints "
-            "WHERE table_name='comment_votes' AND constraint_name='uq_comment_vote_user'"
-        ))
-        if not result.fetchone():
-            # Create partial unique index for signed-in users
-            conn.execute(text("""
-                CREATE UNIQUE INDEX uq_comment_vote_user 
-                ON comment_votes (rating_id, user_id) 
-                WHERE user_id IS NOT NULL
-            """))
-            conn.commit()
-            log.info("Added unique constraint uq_comment_vote_user to comment_votes")
+        # IF NOT EXISTS makes this idempotent across environments.
+        conn.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_comment_vote_user 
+            ON comment_votes (rating_id, user_id) 
+            WHERE user_id IS NOT NULL
+        """))
+        conn.commit()
+        log.info("Ensured unique index uq_comment_vote_user on comment_votes")
 
         # Also add unique constraint for anonymous voters on (rating_id, voter_id)
-        result = conn.execute(text(
-            "SELECT constraint_name FROM information_schema.table_constraints "
-            "WHERE table_name='comment_votes' AND constraint_name='uq_comment_vote_voter'"
-        ))
-        if not result.fetchone():
-            conn.execute(text("""
-                CREATE UNIQUE INDEX uq_comment_vote_voter 
-                ON comment_votes (rating_id, voter_id) 
-                WHERE user_id IS NULL
-            """))
-            conn.commit()
-            log.info("Added unique constraint uq_comment_vote_voter to comment_votes")
+        conn.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_comment_vote_voter 
+            ON comment_votes (rating_id, voter_id) 
+            WHERE user_id IS NULL
+        """))
+        conn.commit()
+        log.info("Ensured unique index uq_comment_vote_voter on comment_votes")
         # Create photo_votes table if not exists
         result = conn.execute(text(
             "SELECT table_name FROM information_schema.tables "
@@ -385,3 +386,22 @@ def init_db():
             conn.execute(text("CREATE INDEX ix_photo_votes_voter_id ON photo_votes (voter_id)"))
             conn.commit()
             log.info("Created photo_votes table")
+        # Create leaderboard_scores table if not exists
+        result = conn.execute(text(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name='leaderboard_scores'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("""
+                CREATE TABLE leaderboard_scores (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id),
+                    date DATE NOT NULL,
+                    score INTEGER DEFAULT 0,
+                    calculated_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX ix_leaderboard_scores_user_id ON leaderboard_scores (user_id)"))
+            conn.execute(text("CREATE INDEX ix_leaderboard_scores_date ON leaderboard_scores (date)"))
+            conn.commit()
+            log.info("Created leaderboard_scores table")

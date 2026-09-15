@@ -28,7 +28,7 @@ from logging_config import configure_logging, request_id_var
 configure_logging()
 log = logging.getLogger("api")
 
-from database import Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, User as DBUser, AuthToken as DBAuthToken, CommentVote as DBCommentVote, PhotoVote as DBPhotoVote, init_db, get_db, SessionLocal, POOL_CAPACITY
+from database import Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, User as DBUser, AuthToken as DBAuthToken, CommentVote as DBCommentVote, PhotoVote as DBPhotoVote, LeaderboardScore as DBLeaderboardScore, init_db, get_db, SessionLocal, POOL_CAPACITY
 import auth
 from images import render_upload
 from scraper import scrape_menus, scrape_today
@@ -376,6 +376,9 @@ def on_startup():
     # shares the single-threaded executor above.
     scheduler.add_job(purge_expired_tokens, 'cron', hour=4, minute=0, misfire_grace_time=3600)
 
+    # Leaderboard score recalculation - nightly at 05:00
+    scheduler.add_job(recalculate_leaderboard_scores_job, 'cron', hour=5, minute=0, misfire_grace_time=3600)
+
     # The first scrape is a scheduled job, not a blocking startup call. It used
     # to run inline here, so uvicorn served nothing until up to 14 fetches at a
     # 10s timeout had finished -- which is what `start_period: 180s` on the
@@ -384,6 +387,20 @@ def on_startup():
     scheduler.add_job(scrape_menus, 'date', run_date=datetime.now() + timedelta(seconds=15))
 
     scheduler.start()
+
+
+def recalculate_leaderboard_scores_job():
+    """Scheduler entry point for leaderboard score recalculation."""
+    from scoring import recalculate_all_leaderboard_scores
+    from datetime import date
+    db = SessionLocal()
+    try:
+        recalculate_all_leaderboard_scores(db, on_date=date.today())
+        log.info("Leaderboard scores recalculated")
+    except Exception:
+        log.exception("Leaderboard recalculation failed")
+    finally:
+        db.close()
 
 @app.get("/api/v1/health", include_in_schema=False)
 def health():
@@ -1582,6 +1599,28 @@ def delete_own_rating(
     for path in (photo_path, thumb_path):
         if path and os.path.isfile(path):
             os.remove(path)
+    
+    # Recalculate leaderboard score for the user who deleted their rating
+    from scoring import calculate_user_contribution_score
+    new_score = calculate_user_contribution_score(db, user.id)
+    
+    # Update or insert the leaderboard score
+    existing = db.query(DBLeaderboardScore).filter(
+        DBLeaderboardScore.user_id == user.id,
+        DBLeaderboardScore.date == date.today()
+    ).first()
+    
+    if existing:
+        existing.score = new_score
+    else:
+        score_entry = DBLeaderboardScore(
+            user_id=user.id,
+            date=date.today(),
+            score=new_score
+        )
+        db.add(score_entry)
+    db.commit()
+    
     return Response(status_code=204)
 
 
@@ -1927,6 +1966,65 @@ def get_meal_calendar(meal_id: int, db: Session = Depends(get_db)):
         media_type="text/calendar; charset=utf-8",
         headers={"Content-Disposition": f"attachment; filename={slug}-{meal.date}.ics"}
     )
+
+
+# ---------------------------------------------------------------- Leaderboard
+
+class LeaderboardEntry(BaseModel):
+    user_id: int
+    username: str
+    display_name: Optional[str] = None
+    score: int
+    rank: int
+    percentile: float
+    badge: str
+
+class LeaderboardResponse(BaseModel):
+    users: List[LeaderboardEntry]
+    total: int
+    date: str
+
+@app.get("/api/v1/leaderboard", response_model=LeaderboardResponse, tags=["Leaderboard"])
+def get_leaderboard(
+    limit: int = Query(100, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db)
+):
+    """Get the rater's leaderboard with contribution scores, ranks, and badges.
+    
+    - Only signed-in users are included (no anonymous)
+    - All-time leaderboard (not rolling)
+    - Percentile-based badges: Platinum (top 10%), Gold (top 25%), Silver (top 50%), Bronze (bottom 50%)
+    - Self-votes are excluded from scoring
+    - Daily point cap of 20 points
+    """
+    from scoring import get_leaderboard
+    return get_leaderboard(db, limit=limit, offset=offset)
+
+
+@app.get("/api/v1/leaderboard/me", response_model=LeaderboardEntry, tags=["Leaderboard"])
+def get_my_leaderboard_position(
+    user: DBUser = Depends(auth.current_user),
+    db: Session = Depends(get_db)
+):
+    """Get your position in the leaderboard."""
+    from scoring import get_user_leaderboard_info
+    result = get_user_leaderboard_info(db, user.id)
+    if not result:
+        raise HTTPException(status_code=404, detail="No leaderboard data found")
+    return result
+
+
+@app.post("/api/v1/leaderboard/recalculate", status_code=204, tags=["Leaderboard"])
+def recalculate_leaderboard_scores(
+    db: Session = Depends(get_db),
+    user: DBUser = Depends(auth.current_user)
+):
+    """Recalculate all leaderboard scores (admin operation)."""
+    from scoring import recalculate_all_leaderboard_scores
+    from datetime import date
+    recalculate_all_leaderboard_scores(db, on_date=date.today())
+    return Response(status_code=204)
 
 
 # Serves the photos written by create_rating_with_photo. StaticFiles handles

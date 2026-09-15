@@ -262,5 +262,21 @@
       "saturday": "Samstag",
       "sunday": "Sonntag"
     }
+  },
+  "leaderboard": {
+    "title": "Rangliste",
+    "myPosition": "Deine Position",
+    "points": "Punkte",
+    "error": "Fehler beim Laden der Rangliste",
+    "loading": "Lade...",
+    "loadMore": "Mehr laden",
+    "badges": {
+      "platinum": "Platin",
+      "gold": "Gold",
+      "silver": "Silber",
+      "bronze": "Bronze"
+    },
+    "contributionScore": "Beitragspunkte",
+    "noData": "Noch keine öffentlichen Profile"
   }
 }

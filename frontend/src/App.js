@@ -7,6 +7,7 @@ import Impressum from './Impressum';
 import Datenschutz from './Datenschutz';
 import Account from './Account';
 import Stats from './Stats';
+import Leaderboard from './Leaderboard';
 import { useToast } from './Toast';
 import {
   API, authHeaders, getToken, clearToken, formatRelativeDate, StarPicker,
@@ -164,6 +165,7 @@ function App() {
   const [showImpressum, setShowImpressum] = useState(false);
   const [showDatenschutz, setShowDatenschutz] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [user, setUser] = useState(null);
   const [showAccount, setShowAccount] = useState(false);
   const [dietFilter, setDietFilterState] = useState(getDietFilter);
@@ -223,6 +225,7 @@ function App() {
     setShowAccount(false);
     setShowImpressum(false);
     setShowDatenschutz(false);
+    setShowLeaderboard(false);
   };
 
   // Only one secondary view is ever open, so opening one closes the others.
@@ -232,6 +235,7 @@ function App() {
     setShowAccount(view === 'account');
     setShowImpressum(view === 'impressum');
     setShowDatenschutz(view === 'datenschutz');
+    setShowLeaderboard(view === 'leaderboard');
   };
 
   useEffect(() => {
@@ -582,6 +586,11 @@ function App() {
             {t('stats.title')}
           </button>
           <button type="button" className="nav-btn"
+            aria-pressed={showLeaderboard}
+            onClick={() => openView(showLeaderboard ? null : 'leaderboard')}>
+            {t('leaderboard.title')}
+          </button>
+          <button type="button" className="nav-btn"
             aria-pressed={showAccount}
             onClick={() => openView(showAccount ? null : 'account')}>
             {user ? (user.display_name || user.username) : t('auth.login')}
@@ -601,6 +610,8 @@ function App() {
             onBack={goHome}
             language={language}
           />
+        ) : showLeaderboard ? (
+          <Leaderboard onBack={goHome} language={language} />
         ) : showImpressum ? (
           <Impressum onBack={goHome} />
         ) : showDatenschutz ? (

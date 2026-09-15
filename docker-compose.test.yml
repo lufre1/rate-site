@@ -31,6 +31,8 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      args:
+        INSTALL_DEV: "true"
     environment:
       # conftest.py reads TEST_DATABASE_URL. DATABASE_URL is deliberately unset:
       # the suite must never inherit one.

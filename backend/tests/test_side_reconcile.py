@@ -17,11 +17,11 @@ DAY = date(2026, 9, 11)
 
 @pytest.fixture()
 def db(sqlite_db):
-    session = sqlite_db()
-    session.add(DBMensa(name='Zentralmensa'))
-    session.commit()
-    yield session
-    session.close()
+    db = sqlite_db()  # create a session from the sessionmaker
+    db.add(DBMensa(name='Zentralmensa'))
+    db.commit()
+    yield db
+    db.close()
 
 
 @pytest.fixture()
