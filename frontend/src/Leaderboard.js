@@ -10,21 +10,9 @@ function Leaderboard({ onBack, language, user }) {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [myPosition, setMyPosition] = useState(null);
-  const [lastLanguage, setLastLanguage] = useState(language);
 
   const LIMIT = 20;
   const loadedRef = useRef(false);
-
-  // Reset state when language changes to prevent appending duplicate pages
-  useEffect(() => {
-    if (lastLanguage !== language) {
-      setUsers([]);
-      setOffset(0);
-      setHasMore(true);
-      setLastLanguage(language);
-      loadedRef.current = false;
-    }
-  }, [language, lastLanguage]);
 
   useEffect(() => {
     loadLeaderboard();

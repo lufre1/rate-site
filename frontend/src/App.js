@@ -611,7 +611,7 @@ function App() {
             language={language}
           />
         ) : showLeaderboard ? (
-          <Leaderboard onBack={goHome} language={language} user={user} />
+          <Leaderboard key={language} onBack={goHome} language={language} user={user} />
         ) : showImpressum ? (
           <Impressum onBack={goHome} />
         ) : showDatenschutz ? (
