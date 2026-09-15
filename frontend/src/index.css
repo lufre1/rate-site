@@ -8,6 +8,7 @@
 @import './styles/tokens.css';
 @import './styles/base.css';
 @import './styles/components.css';
+@import './styles/leaderboard.css';
 
 html {
   font-size: 16px; /* base: 1rem = 16px */

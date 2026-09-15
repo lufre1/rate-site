@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { API, authHeaders, getToken } from './shared';
 
-function Leaderboard({ onBack, language }) {
+function Leaderboard({ onBack, language, user }) {
   const { t } = useTranslation();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -10,8 +10,21 @@ function Leaderboard({ onBack, language }) {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [myPosition, setMyPosition] = useState(null);
+  const [lastLanguage, setLastLanguage] = useState(language);
 
   const LIMIT = 20;
+  const loadedRef = useRef(false);
+
+  // Reset state when language changes to prevent appending duplicate pages
+  useEffect(() => {
+    if (lastLanguage !== language) {
+      setUsers([]);
+      setOffset(0);
+      setHasMore(true);
+      setLastLanguage(language);
+      loadedRef.current = false;
+    }
+  }, [language, lastLanguage]);
 
   useEffect(() => {
     loadLeaderboard();
@@ -19,14 +32,27 @@ function Leaderboard({ onBack, language }) {
   }, [offset, language]);
 
   const loadLeaderboard = async () => {
+    if (loadedRef.current && offset === 0) {
+      // Already loaded initial page, skip duplicate
+      return;
+    }
+    
     setLoading(true);
     setError(null);
     try {
       const response = await fetch(`${API}/api/v1/leaderboard?limit=${LIMIT}&offset=${offset}`);
       if (!response.ok) throw new Error('Failed to load leaderboard');
       const data = await response.json();
-      setUsers(prev => [...prev, ...data.users]);
+      
+      // When offset is 0, replace users; otherwise append
+      if (offset === 0) {
+        setUsers(data.users);
+      } else {
+        setUsers(prev => [...prev, ...data.users]);
+      }
+      
       setHasMore(data.users.length === LIMIT);
+      loadedRef.current = true;
     } catch (err) {
       setError(err.message);
     } finally {
@@ -71,6 +97,28 @@ function Leaderboard({ onBack, language }) {
     }
   };
 
+  // Group users by badge tier
+  const getTierForBadge = (badge) => {
+    const order = ['platinum', 'gold', 'silver', 'bronze'];
+    return order.indexOf(badge);
+  };
+
+  const getTierLabel = (badge) => {
+    switch (badge) {
+      case 'platinum': return t('leaderboard.tier.platinum');
+      case 'gold': return t('leaderboard.tier.gold');
+      case 'silver': return t('leaderboard.tier.silver');
+      case 'bronze': return t('leaderboard.tier.bronze');
+      default: return badge;
+    }
+  };
+
+  // Check if current user matches a leaderboard entry
+  const isCurrentUser = (entry) => {
+    if (!user || !user.user_id) return false;
+    return entry.user_id === user.user_id;
+  };
+
   return (
     <div className="page--narrow">
       <h2 className="view-title">{t('leaderboard.title')}</h2>
@@ -86,6 +134,7 @@ function Leaderboard({ onBack, language }) {
               <span className="leaderboard-badge" style={{ backgroundColor: getBadgeColor(myPosition.badge) }}>
                 {getBadgeLabel(myPosition.badge)}
               </span>
+              {isCurrentUser(myPosition) && <span className="you-label">{t('leaderboard.you')}</span>}
             </div>
             <span className="leaderboard-score">{myPosition.score} {t('leaderboard.points')}</span>
           </div>
@@ -94,28 +143,58 @@ function Leaderboard({ onBack, language }) {
 
       {/* Error state */}
       {error && (
-        <div className="error-text">
-          {t('leaderboard.error')} {error}
+        <div className="leaderboard-error">
+          <span>{t('leaderboard.error')}</span>
+          <span>{error}</span>
           <button type="button" className="btn--quiet" onClick={loadLeaderboard}>
             {t('ui.retry')}
           </button>
         </div>
       )}
 
-      {/* Leaderboard list */}
-      <div className="leaderboard-list">
-        {users.map((user, index) => (
-          <div key={user.user_id} className="leaderboard-entry">
-            <span className="leaderboard-rank">#{user.rank}</span>
-            <div className="leaderboard-user">
-              <span className="leaderboard-username">{user.username}</span>
-              <span className="leaderboard-badge" style={{ backgroundColor: getBadgeColor(user.badge) }}>
-                {getBadgeLabel(user.badge)}
-              </span>
-            </div>
-            <span className="leaderboard-score">{user.score} {t('leaderboard.points')}</span>
-          </div>
-        ))}
+      {/* Leaderboard table */}
+      <div className="leaderboard-table-container">
+        <table className="leaderboard-table">
+          <thead>
+            <tr>
+              <th className="numeric">{t('leaderboard.columns.rank')}</th>
+              <th>{t('leaderboard.columns.name')}</th>
+              <th className="numeric">{t('leaderboard.columns.tokens')}</th>
+              <th className="numeric">{t('leaderboard.columns.tokens30d')}</th>
+              <th className="numeric">{t('leaderboard.columns.rank30d')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {/* Group users by tier */}
+            {['platinum', 'gold', 'silver', 'bronze'].map((tier) => {
+              const tierUsers = users.filter(u => u.badge === tier);
+              if (tierUsers.length === 0) return null;
+
+              return (
+                <React.Fragment key={tier}>
+                  <tr className="tier-header" data-tier={tier}>
+                    <td colSpan={5}>{getTierLabel(tier)}</td>
+                  </tr>
+                  {tierUsers.map((userEntry, index) => (
+                    <tr 
+                      key={userEntry.user_id} 
+                      className={isCurrentUser(userEntry) ? 'is-me' : ''}
+                    >
+                      <td className="numeric leaderboard-rank">#{userEntry.rank}</td>
+                      <td className="leaderboard-username">
+                        {userEntry.username}
+                        {isCurrentUser(userEntry) && <span className="you-label">{t('leaderboard.you')}</span>}
+                      </td>
+                      <td className="numeric leaderboard-score">{userEntry.score}</td>
+                      <td className="numeric placeholder-dash">–</td>
+                      <td className="numeric placeholder-dash">–</td>
+                    </tr>
+                  ))}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
       {/* Loading more */}

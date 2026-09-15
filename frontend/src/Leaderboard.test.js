@@ -19,6 +19,16 @@ jest.mock('react-i18next', () => ({
         'leaderboard.badges.gold': 'Gold',
         'leaderboard.badges.silver': 'Silver',
         'leaderboard.badges.bronze': 'Bronze',
+        'leaderboard.tier.platinum': 'Platinum Tier',
+        'leaderboard.tier.gold': 'Gold Tier',
+        'leaderboard.tier.silver': 'Silver Tier',
+        'leaderboard.tier.bronze': 'Bronze Tier',
+        'leaderboard.columns.rank': 'Rank',
+        'leaderboard.columns.name': 'Name',
+        'leaderboard.columns.tokens': 'Tokens',
+        'leaderboard.columns.tokens30d': 'Tokens (30d)',
+        'leaderboard.columns.rank30d': 'Rank (30d)',
+        'leaderboard.you': 'You',
       };
       return translations[key] || key;
     }
@@ -106,8 +116,8 @@ describe('Leaderboard', () => {
     await waitFor(() => {
       expect(screen.getByText('topuser')).toBeInTheDocument();
       expect(screen.getByText('seconduser')).toBeInTheDocument();
-      expect(screen.getByText('100 points')).toBeInTheDocument();
-      expect(screen.getByText('80 points')).toBeInTheDocument();
+      expect(screen.getByText('100')).toBeInTheDocument();
+      expect(screen.getByText('80')).toBeInTheDocument();
     });
   });
 
@@ -122,13 +132,31 @@ describe('Leaderboard', () => {
       }
     ];
 
-    global.fetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({
-        users: mockUsers,
-        total: 1,
-        date: new Date().toISOString()
-      })
+    const mockMyPosition = {
+      user_id: 1,
+      username: 'platinumuser',
+      score: 100,
+      rank: 1,
+      badge: 'platinum'
+    };
+
+    let fetchCount = 0;
+    global.fetch.mockImplementation((url) => {
+      fetchCount++;
+      if (url.includes('/leaderboard/me')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(mockMyPosition)
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          users: mockUsers,
+          total: 1,
+          date: new Date().toISOString()
+        })
+      });
     });
 
     render(<Leaderboard onBack={jest.fn()} language="de" />);
@@ -232,7 +260,7 @@ describe('Leaderboard', () => {
     await waitFor(() => {
       expect(screen.getByText('Your Position')).toBeInTheDocument();
       expect(screen.getByText('me')).toBeInTheDocument();
-      expect(screen.getByText('50 points')).toBeInTheDocument();
+      expect(screen.getByText(/50/)).toBeInTheDocument();
     });
   });
 });

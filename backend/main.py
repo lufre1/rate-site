@@ -1061,7 +1061,7 @@ def create_side_rating(meal_id: int, data: SideRatingInput, db: Session = Depend
     return side_rating
 
 @app.get("/api/v1/meals/{meal_id}/side-ratings", response_model=List[SideRatingOut], tags=["Ratings"])
-def get_side_ratings(meal_id: int, db: Session = Depends(get_db)):
+def get_side_ratings(meal_id: int, db: Session = Depends(get_db), lang: str = "de"):
     meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
     if not meal:
         raise HTTPException(status_code=404, detail="Meal not found")
@@ -1096,7 +1096,8 @@ def get_side_ratings(meal_id: int, db: Session = Depends(get_db)):
     ).join(DBMeal, DBSideRating.meal_id == DBMeal.id
     ).filter(DBMeal.id.in_(recent_meal_ids)
     ).group_by(DBSideRating.side_name).all()
-# Merge recent and overall data
+    
+    # Merge recent and overall data
     recent_map = {r.side_name: r for r in recent_results}
     
     side_ratings_out = []
@@ -1118,6 +1119,40 @@ def get_side_ratings(meal_id: int, db: Session = Depends(get_db)):
                 recent_avg=0,
                 recent_count=0
             ))
+    
+    # Language resolution: when lang="en", look up the side's name_en from the Meal table
+    # by matching on name/date/mensa, falling back to the German side_name
+    if lang == "en":
+        for entry in side_ratings_out:
+            # Try to find a meal with this side name to get the English translation
+            # First try today's meals
+            meal_lookup = db.query(DBMeal).filter(
+                DBMeal.name == entry.side_name,
+                DBMeal.date == today,
+                DBMeal.mensa_id == meal.mensa_id
+            ).first()
+            
+            if meal_lookup and meal_lookup.name_en:
+                # Use the meal's name_en as the side name
+                entry.side_name = meal_lookup.name_en
+            else:
+                # Fallback: look up from the original meal's date (not just today)
+                meal_lookup = db.query(DBMeal).filter(
+                    DBMeal.name == entry.side_name,
+                    DBMeal.mensa_id == meal.mensa_id
+                ).first()
+                
+                if meal_lookup and meal_lookup.name_en:
+                    entry.side_name = meal_lookup.name_en
+                elif meal.name_en:
+                    # Try to find a matching meal with the same name_en
+                    fallback_meal = db.query(DBMeal).filter(
+                        DBMeal.name_en == meal.name_en,
+                        DBMeal.mensa_id == meal.mensa_id
+                    ).first()
+                    if fallback_meal and fallback_meal.name_en:
+                        # The side name should already be in English from the original meal
+                        pass  # Keep the German side_name if we can't find a match
     
     return side_ratings_out
 
@@ -1601,6 +1636,9 @@ def delete_own_rating(
             os.remove(path)
     
     # Recalculate leaderboard score for the user who deleted their rating
+    # The recalculate function naturally excludes the deleted rating
+    # If the deleted rating was the first photo of a dish, the FLAG_PLANTER_REWARD
+    # will be automatically deducted since the photo no longer exists
     from scoring import calculate_user_contribution_score
     new_score = calculate_user_contribution_score(db, user.id)
     

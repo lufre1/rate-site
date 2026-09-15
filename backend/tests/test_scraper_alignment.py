@@ -218,6 +218,48 @@ def test_leading_mit_part_is_rejected():
     assert _extract_side_parts('Apfelstrudel, mit Puderzucker') == ['Apfelstrudel']
 
 
+# --- SIDE_TRANSLATIONS tests -----------------------------------------------
+
+from scraper import SIDE_TRANSLATIONS
+
+
+def test_side_translations_covers_known_sides():
+    """SIDE_TRANSLATIONS should cover common side names that appear in menus."""
+    # These are common sides that should have translations
+    expected_sides = [
+        'Reis', 'Bratkartoffeln', 'Kartoffelsalat', 'Salat', 'Pommes',
+        'Fladenbrot', 'Baguette', 'Nudeln', 'Mais', 'Erbsen', 'Blumenkohl',
+        'Brokkoli', 'Kohlrabi', 'Spinat', 'Kohl', 'Sauerkraut', 'Kürbis',
+        'Zucchini', 'Paprika', 'Tomate', 'Karotte', 'Gurke', 'Rucola',
+        'Eisbergsalat', 'Romainesalat', 'Feldsalat', 'Mischsalat', 'Wurzelsalat',
+        'Kopfsalat', 'Lattich', 'Mangold', 'Weißkohl', 'Rotkohl', 'Grünkohl',
+        'Wirsing', 'Kraut', 'Kohlrabi', 'Rosenkohl', 'Kürbiskerne',
+        'Sonnenblumenkerne', 'Mandeln', 'Walnüsse', 'Haselnüsse', 'Pekannüsse',
+        'Cashewnüsse', 'Paranüsse', 'Macadamianüsse', 'Pinienkerne',
+        'Leinsamen', 'Chiasamen', 'Hanfsamen', 'Quinoa', 'Hirse', 'Dinkel',
+        'Emmer', 'Einkorn', 'Gerste', 'Hafer', 'Amaranth', 'Buchweizen',
+        'Hülsenfrüchte', 'Linsen', 'Kichererbsen', 'Kidneybohnen',
+        'Schwarze Bohnen', 'Weiße Bohnen', 'Sojabohnen', 'Fava Bohnen'
+    ]
+    
+    for side in expected_sides:
+        assert side in SIDE_TRANSLATIONS, f"Missing translation for side: {side}"
+        assert SIDE_TRANSLATIONS[side], f"Empty translation for side: {side}"
+
+
+def test_side_translations_have_english_values():
+    """All translations should have non-empty English values."""
+    for german, english in SIDE_TRANSLATIONS.items():
+        assert english and len(english) > 0, f"Empty English translation for {german}"
+
+
+def test_side_translations_are_different_from_german():
+    """English translations should be different from German names."""
+    for german, english in SIDE_TRANSLATIONS.items():
+        assert german.lower() != english.lower(), \
+            f"English translation should differ from German for {german}"
+
+
 def test_oder_inside_a_word_is_untouched():
     assert _extract_side_parts('moderne Beilage') == ['moderne Beilage']
 

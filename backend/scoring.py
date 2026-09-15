@@ -7,11 +7,16 @@ This module implements the contribution score calculation with the following rul
 - Self-votes excluded from scoring
 - All-time leaderboard (not rolling)
 - Scores cached in leaderboard_scores table with nightly refresh
+- Additive rewards for:
+  - FLAG_PLANTER_REWARD: first photo of a dish (+20)
+  - BEST_PHOTO_REWARD: highest photo-voted photo per dish, >=5 votes (+50)
+  - BEST_COMMENT_REWARD: highest comment-voted comment per dish, >=5 votes (+50)
+  - CONTINUITY_REWARD: >=15 contributions in a calendar month (+30)
 """
 
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
-from sqlalchemy import func, case, text, or_
+from sqlalchemy import func, case, text, or_, and_
 from sqlalchemy.orm import Session
 
 from database import Rating, User, CommentVote, PhotoVote, Meal, LeaderboardScore
@@ -25,6 +30,14 @@ BADGE_PLATINUM_THRESHOLD = 0.10  # Top 10%
 BADGE_GOLD_THRESHOLD = 0.25    # Top 25%
 BADGE_SILVER_THRESHOLD = 0.50  # Top 50%
 
+# Additive rewards (all multiples of 10)
+FLAG_PLANTER_REWARD = 20
+BEST_PHOTO_REWARD = 50
+BEST_COMMENT_REWARD = 50
+CONTINUITY_QUOTA = 15
+CONTINUITY_REWARD = 30
+MIN_BEST_VOTES = 5
+
 
 def calculate_user_contribution_score(db: Session, user_id: int, on_date: date = None) -> int:
     """Calculate a user's contribution score up to the given date.
@@ -34,6 +47,7 @@ def calculate_user_contribution_score(db: Session, user_id: int, on_date: date =
     - Each qualifying rating gives 1 point
     - Max 20 points per day
     - Self-votes (user voting on their own rating) are excluded
+    - Additive rewards for flag planting, best photo/comment, and continuity
     """
     if on_date is None:
         on_date = datetime.now(ZoneInfo("Europe/Berlin")).date()
@@ -42,14 +56,16 @@ def calculate_user_contribution_score(db: Session, user_id: int, on_date: date =
     # that have a comment or photo
     # Use text() for SQLite-compatible date arithmetic
     from sqlalchemy import text
+    # SQLite uses date() without interval; PostgreSQL uses interval '1 day'
+    # We use a subquery approach that works in both
     user_ratings = db.query(Rating).filter(
         Rating.user_id == user_id,
-        Rating.created_at < text("date(:on_date + interval '1 day')"),
+        func.date(Rating.created_at) <= on_date,
         or_(
             Rating.comment.isnot(None),
             Rating.photo_url.isnot(None)
         )
-    ).params(on_date=on_date).all()
+    ).all()
     
     # Track points per day
     daily_points = {}
@@ -63,11 +79,119 @@ def calculate_user_contribution_score(db: Session, user_id: int, on_date: date =
         daily_points[rating_date] += 1
     
     # Apply daily cap
-    total_score = 0
+    base_score = 0
     for day_points in daily_points.values():
-        total_score += min(day_points, DAILY_POINT_CAP)
+        base_score += min(day_points, DAILY_POINT_CAP)
     
-    return total_score
+    # Calculate additive rewards
+    additive_score = 0
+    
+    # FLAG_PLANTER_REWARD: first photo of each dish
+    # Find the earliest photo rating for each dish
+    # Use created_at with id as tiebreaker for SQLite compatibility
+    first_photos = db.query(
+        Rating.meal_id,
+        func.min(Rating.created_at).label('first_at'),
+        func.min(Rating.id).label('first_id')
+    ).filter(
+        Rating.user_id == user_id,
+        Rating.photo_url.isnot(None)
+    ).group_by(Rating.meal_id).all()
+    
+    for fp in first_photos:
+        # Check if this is still the first photo (no earlier photo exists)
+        # Use func.date() for SQLite-compatible date comparison
+        earliest = db.query(Rating.id).filter(
+            Rating.meal_id == fp.meal_id,
+            Rating.photo_url.isnot(None),
+            or_(
+                func.date(Rating.created_at) < func.date(fp.first_at),
+                and_(
+                    func.date(Rating.created_at) == func.date(fp.first_at),
+                    Rating.id < fp.first_id
+                )
+            )
+        ).first()
+        if earliest is None:
+            additive_score += FLAG_PLANTER_REWARD
+    
+    # BEST_PHOTO_REWARD: highest photo_votes winner per dish, >= MIN_BEST_VOTES
+    # Get photo votes for user's photos
+    photo_votes_subq = db.query(
+        PhotoVote.rating_id,
+        func.sum(case((PhotoVote.direction == 1, 1), else_=0)).label('upvotes')
+    ).group_by(PhotoVote.rating_id).subquery()
+    
+    best_photos = db.query(
+        Rating.meal_id,
+        func.max(photo_votes_subq.c.upvotes).label('max_upvotes')
+    ).join(
+        photo_votes_subq, Rating.id == photo_votes_subq.c.rating_id
+    ).filter(
+        Rating.user_id == user_id,
+        Rating.photo_url.isnot(None)
+    ).group_by(Rating.meal_id).all()
+    
+    for bp in best_photos:
+        if bp.max_upvotes >= MIN_BEST_VOTES:
+            # Verify this is the highest voted photo for this dish
+            highest = db.query(Rating.id).join(
+                photo_votes_subq, Rating.id == photo_votes_subq.c.rating_id
+            ).filter(
+                Rating.meal_id == bp.meal_id,
+                Rating.photo_url.isnot(None),
+                photo_votes_subq.c.upvotes > bp.max_upvotes
+            ).first()
+            if highest is None:
+                additive_score += BEST_PHOTO_REWARD
+    
+    # BEST_COMMENT_REWARD: highest comment_votes winner per dish, >= MIN_BEST_VOTES
+    comment_votes_subq = db.query(
+        CommentVote.rating_id,
+        func.sum(case((CommentVote.direction == 1, 1), else_=0)).label('upvotes')
+    ).group_by(CommentVote.rating_id).subquery()
+    
+    best_comments = db.query(
+        Rating.meal_id,
+        func.max(comment_votes_subq.c.upvotes).label('max_upvotes')
+    ).join(
+        comment_votes_subq, Rating.id == comment_votes_subq.c.rating_id
+    ).filter(
+        Rating.user_id == user_id,
+        Rating.comment.isnot(None)
+    ).group_by(Rating.meal_id).all()
+    
+    for bc in best_comments:
+        if bc.max_upvotes >= MIN_BEST_VOTES:
+            # Verify this is the highest voted comment for this dish
+            highest = db.query(Rating.id).join(
+                comment_votes_subq, Rating.id == comment_votes_subq.c.rating_id
+            ).filter(
+                Rating.meal_id == bc.meal_id,
+                Rating.comment.isnot(None),
+                comment_votes_subq.c.upvotes > bc.max_upvotes
+            ).first()
+            if highest is None:
+                additive_score += BEST_COMMENT_REWARD
+    
+    # CONTINUITY_REWARD: >=15 contributions in a calendar month
+    # Count all ratings with comments or photos per month
+    monthly_contributions = db.query(
+        func.strftime('%Y-%m', func.date(Rating.created_at)).label('month'),
+        func.count(Rating.id).label('count')
+    ).filter(
+        Rating.user_id == user_id,
+        or_(
+            Rating.comment.isnot(None),
+            Rating.photo_url.isnot(None)
+        )
+    ).group_by(func.strftime('%Y-%m', func.date(Rating.created_at))).all()
+    
+    for mc in monthly_contributions:
+        if mc.count >= CONTINUITY_QUOTA:
+            additive_score += CONTINUITY_REWARD
+    
+    return base_score + additive_score
 
 
 def get_leaderboard_entry(db: Session, user: User, on_date: date = None):
@@ -120,8 +244,8 @@ def get_leaderboard_entry(db: Session, user: User, on_date: date = None):
     ).join(
         Rating, User.id == Rating.user_id
     ).filter(
-        Rating.created_at < text("date(:on_date + interval '1 day')")
-    ).params(on_date=on_date).group_by(User.id, User.username, User.display_name).all()
+        func.date(Rating.created_at) <= on_date
+    ).group_by(User.id, User.username, User.display_name).all()
     
     # Sort by score descending
     sorted_users = sorted(
@@ -233,49 +357,59 @@ def get_leaderboard(db: Session, on_date: date = None, limit: int = 100, offset:
     if on_date is None:
         on_date = datetime.now(ZoneInfo("Europe/Berlin")).date()
     
-    # Get all users with their scores
-    user_scores = db.query(
-        User.id,
-        User.username,
-        User.display_name,
-        func.sum(
-            case(
-                (
-                    or_(
-                        Rating.comment.isnot(None),
-                        Rating.photo_url.isnot(None)
-                    ),
-                    1
-                ),
-                else_=0
-            )
-        ).label('score')
-    ).join(
-        Rating, User.id == Rating.user_id
+    # Get all users who have ratings with comments or photos
+    users_with_ratings = db.query(func.distinct(User.id)).join(
+        Rating
     ).filter(
-        Rating.created_at < text("date(:on_date + interval '1 day')")
-    ).params(on_date=on_date).group_by(User.id, User.username, User.display_name).all()
+        User.id == Rating.user_id,
+        or_(
+            Rating.comment.isnot(None),
+            Rating.photo_url.isnot(None)
+        )
+    ).all()
+    
+    # Calculate scores for each user using the full scoring function
+    leaderboard = []
+    for (user_id,) in users_with_ratings:
+        score = calculate_user_contribution_score(db, user_id, on_date)
+        
+        # Get rank and percentile
+        rank = db.query(func.count(func.distinct(User.id))).join(
+            Rating
+        ).filter(
+            User.id == Rating.user_id,
+            or_(
+                Rating.comment.isnot(None),
+                Rating.photo_url.isnot(None)
+            )
+        ).scalar()
+        
+        leaderboard.append({
+            'user_id': user_id,
+            'score': score,
+            'rank': rank
+        })
     
     # Sort by score descending
-    sorted_users = sorted(
-        user_scores,
-        key=lambda x: x.score if x.score else 0,
+    sorted_leaderboard = sorted(
+        leaderboard,
+        key=lambda x: x['score'] if x['score'] else 0,
         reverse=True
     )
     
-    total_users = len(sorted_users)
-    
     # Calculate ranks and badges
-    leaderboard = []
+    total_users = len(sorted_leaderboard)
     current_rank = 1
     prev_score = None
     
-    for i, u in enumerate(sorted_users):
-        score = u.score if u.score else 0
+    for i, entry in enumerate(sorted_leaderboard):
+        score = entry['score'] if entry['score'] else 0
         
         # Update rank if score changed
         if prev_score is not None and score < prev_score:
             current_rank = i + 1
+        
+        prev_score = score
         
         # Calculate percentile - rank 1 should have highest percentile (near 1.0)
         if total_users > 0:
@@ -293,20 +427,34 @@ def get_leaderboard(db: Session, on_date: date = None, limit: int = 100, offset:
         else:
             badge = 'bronze'
         
-        leaderboard.append({
-            'user_id': u.id,
-            'username': u.display_name or u.username,
-            'display_name': u.display_name,
-            'score': score,
-            'rank': current_rank,
-            'percentile': percentile,
-            'badge': badge
+        entry['rank'] = current_rank
+        entry['percentile'] = percentile
+        entry['badge'] = badge
+    
+    # Get user details
+    user_ids = [e['user_id'] for e in sorted_leaderboard]
+    user_details = db.query(User.id, User.username, User.display_name).filter(
+        User.id.in_(user_ids)
+    ).all()
+    
+    user_map = {u.id: {'username': u.username, 'display_name': u.display_name} for u in user_details}
+    
+    # Build final leaderboard
+    final_leaderboard = []
+    for entry in sorted_leaderboard:
+        details = user_map.get(entry['user_id'], {'username': f'user_{entry["user_id"]}', 'display_name': None})
+        final_leaderboard.append({
+            'user_id': entry['user_id'],
+            'username': details['display_name'] or details['username'],
+            'display_name': details['display_name'],
+            'score': entry['score'],
+            'rank': entry['rank'],
+            'percentile': entry['percentile'],
+            'badge': entry['badge']
         })
-        
-        prev_score = score
     
     # Apply pagination
-    paginated = leaderboard[offset:offset + limit]
+    paginated = final_leaderboard[offset:offset + limit]
     
     return {
         'users': paginated,
@@ -364,8 +512,8 @@ def get_user_leaderboard_info(db: Session, user_id: int, on_date: date = None):
     ).join(
         Rating, User.id == Rating.user_id
     ).filter(
-        Rating.created_at < text("date(:on_date + interval '1 day')")
-    ).params(on_date=on_date).group_by(User.id).all()
+        func.date(Rating.created_at) <= on_date
+    ).group_by(User.id).all()
     
     user_rank = 1
     for i, (uid, score) in enumerate(user_scores):

@@ -171,14 +171,14 @@ class TestCalculateUserContributionScore:
 
     def test_photo_only_counts(self, sqlite_db, user_factory, rating_factory, vote_factory):
         """Test that a rating with only a photo also counts."""
-        from scoring import calculate_user_contribution_score
+        from scoring import calculate_user_contribution_score, FLAG_PLANTER_REWARD
         
         user = user_factory("testuser2")
         rating = rating_factory(user, photo_url="/uploads/test.jpg")
         
-        # User should have 1 point
+        # User should have 1 point + FLAG_PLANTER_REWARD for first photo
         score = calculate_user_contribution_score(sqlite_db(), user.id)
-        assert score == 1
+        assert score == FLAG_PLANTER_REWARD + 1
 
     def test_stars_only_no_point(self, sqlite_db, user_factory, rating_factory, vote_factory):
         """Test that a rating with only stars (no comment/photo) doesn't count."""
@@ -193,7 +193,7 @@ class TestCalculateUserContributionScore:
 
     def test_daily_cap(self, sqlite_db, user_factory, rating_factory, vote_factory):
         """Test that daily point cap is 20."""
-        from scoring import calculate_user_contribution_score
+        from scoring import calculate_user_contribution_score, CONTINUITY_REWARD
         
         user = user_factory("testuser4")
         
@@ -201,9 +201,9 @@ class TestCalculateUserContributionScore:
         for i in range(25):
             rating_factory(user, comment=f"Comment {i}")
         
-        # User should have max 20 points (daily cap)
+        # User should have capped 20 points + CONTINUITY_REWARD (25 >= 15 quota)
         score = calculate_user_contribution_score(sqlite_db(), user.id)
-        assert score == 20
+        assert score == 20 + CONTINUITY_REWARD
 
     def test_multiple_days_no_cap(self, sqlite_db, user_factory, rating_factory, vote_factory):
         """Test that ratings on different days accumulate."""
@@ -480,3 +480,249 @@ class TestRecalculateAllLeaderboardScores:
         # Verify score was updated
         score_entry = sqlite_db().query(LeaderboardScore).filter_by(user_id=user.id).first()
         assert score_entry.score == 7  # Updated to 7 ratings
+
+
+class TestAdditiveRewards:
+    """Tests for additive rewards in contribution scoring."""
+
+    def test_flag_plantener_reward_first_photo(self, sqlite_db, user_factory, rating_factory, vote_factory):
+        """FLAG_PLANTER_REWARD awarded to first photo uploader of a dish."""
+        from scoring import calculate_user_contribution_score, FLAG_PLANTER_REWARD
+        
+        user = user_factory("first_photographer")
+        mensa = sqlite_db().query(Mensa).first()
+        if not mensa:
+            mensa = Mensa(name="Zentralmensa")
+            sqlite_db().add(mensa)
+            sqlite_db().commit()
+        
+        # Create a meal
+        meal = Meal(
+            name="Testgericht",
+            name_de="Testgericht",
+            type="main",
+            date=date.today(),
+            mensa_id=mensa.id,
+            description="Reis, Salat"
+        )
+        sqlite_db().add(meal)
+        sqlite_db().commit()
+        
+        # First user uploads photo
+        rating = rating_factory(user, photo_url="/uploads/photo1.jpg", meal_name="Testgericht")
+        
+        # Score should include FLAG_PLANTER_REWARD
+        score = calculate_user_contribution_score(sqlite_db(), user.id)
+        assert score == FLAG_PLANTER_REWARD + 1  # 1 for the rating, FLAG_PLANTER_REWARD for first photo
+
+    def test_flag_plantener_reward_not_awarded_twice(self, sqlite_db, user_factory, rating_factory, vote_factory):
+        """FLAG_PLANTER_REWARD not awarded if user uploads multiple photos of same dish."""
+        from scoring import calculate_user_contribution_score, FLAG_PLANTER_REWARD
+        
+        user = user_factory("photographer")
+        mensa = sqlite_db().query(Mensa).first()
+        if not mensa:
+            mensa = Mensa(name="Zentralmensa")
+            sqlite_db().add(mensa)
+            sqlite_db().commit()
+        
+        # Create a meal
+        meal = Meal(
+            name="Testgericht",
+            name_de="Testgericht",
+            type="main",
+            date=date.today(),
+            mensa_id=mensa.id,
+            description="Reis, Salat"
+        )
+        sqlite_db().add(meal)
+        sqlite_db().commit()
+        
+        # User uploads first photo
+        rating_factory(user, photo_url="/uploads/photo1.jpg", meal_name="Testgericht")
+        
+        # User uploads second photo of same dish
+        rating_factory(user, photo_url="/uploads/photo2.jpg", meal_name="Testgericht")
+        
+        # Score should include FLAG_PLANTER_REWARD only once
+        score = calculate_user_contribution_score(sqlite_db(), user.id)
+        assert score == FLAG_PLANTER_REWARD + 2  # 2 for ratings, FLAG_PLANTER_REWARD once
+
+    def test_flag_plantener_reward_not_awarded_when_photo_deleted(self, sqlite_db, user_factory, rating_factory, vote_factory):
+        """FLAG_PLANTER_REWARD not awarded when the photo is deleted."""
+        from scoring import calculate_user_contribution_score, FLAG_PLANTER_REWARD
+        from datetime import date as date_cls
+        
+        db = sqlite_db()
+        try:
+            # Create user1
+            user = User(
+                username="photographer",
+                display_name="Photographer",
+                password_hash=auth.hash_password("test-password-123")
+            )
+            db.add(user)
+            db.commit()
+            
+            # Create mensa if needed
+            mensa = db.query(Mensa).first()
+            if not mensa:
+                mensa = Mensa(name="Zentralmensa")
+                db.add(mensa)
+                db.commit()
+            
+            # Create a meal
+            meal = Meal(
+                name="Testgericht",
+                name_de="Testgericht",
+                type="main",
+                date=date_cls.today(),
+                mensa_id=mensa.id,
+                description="Reis, Salat"
+            )
+            db.add(meal)
+            db.commit()
+            
+            # User uploads first photo
+            rating1 = Rating(
+                meal_id=meal.id,
+                rating=5,
+                comment=None,
+                user_name=user.username,
+                user_id=user.id,
+                photo_url="/uploads/photo1.jpg"
+            )
+            db.add(rating1)
+            db.commit()
+            
+            # Create user2
+            user2 = User(
+                username="other_user",
+                display_name="Other User",
+                password_hash=auth.hash_password("test-password-123")
+            )
+            db.add(user2)
+            db.commit()
+            
+            # User2 uploads a photo
+            rating2 = Rating(
+                meal_id=meal.id,
+                rating=5,
+                comment=None,
+                user_name=user2.username,
+                user_id=user2.id,
+                photo_url="/uploads/photo2.jpg"
+            )
+            db.add(rating2)
+            db.commit()
+            
+            # Delete first user's rating
+            db.delete(rating1)
+            db.commit()
+            
+            # User2 should now get FLAG_PLANTER_REWARD
+            score2 = calculate_user_contribution_score(db, user2.id)
+            assert score2 == FLAG_PLANTER_REWARD + 1
+        finally:
+            db.close()
+
+    def test_best_photo_reward(self, sqlite_db, user_factory, rating_factory, vote_factory):
+        """BEST_PHOTO_REWARD awarded when a photo has >= MIN_BEST_VOTES upvotes."""
+        from scoring import calculate_user_contribution_score, BEST_PHOTO_REWARD, FLAG_PLANTER_REWARD, MIN_BEST_VOTES
+        
+        user = user_factory("photographer")
+        mensa = sqlite_db().query(Mensa).first()
+        if not mensa:
+            mensa = Mensa(name="Zentralmensa")
+            sqlite_db().add(mensa)
+            sqlite_db().commit()
+        
+        # Create a meal
+        meal = Meal(
+            name="Testgericht",
+            name_de="Testgericht",
+            type="main",
+            date=date.today(),
+            mensa_id=mensa.id,
+            description="Reis, Salat"
+        )
+        sqlite_db().add(meal)
+        sqlite_db().commit()
+        
+        # User uploads photo
+        rating = rating_factory(user, photo_url="/uploads/photo1.jpg", meal_name="Testgericht")
+        
+        # Create MIN_BEST_VOTES upvotes from different users
+        for i in range(MIN_BEST_VOTES):
+            voter = user_factory(f"voter_{i}")
+            vote_factory['photo'](rating, voter, direction=1)
+        
+        # Score should include BEST_PHOTO_REWARD + FLAG_PLANTER_REWARD (first photo)
+        score = calculate_user_contribution_score(sqlite_db(), user.id)
+        assert score == BEST_PHOTO_REWARD + FLAG_PLANTER_REWARD + 1  # 1 + 50 + 20
+
+    def test_best_comment_reward(self, sqlite_db, user_factory, rating_factory, vote_factory):
+        """BEST_COMMENT_REWARD awarded when a comment has >= MIN_BEST_VOTES upvotes."""
+        from scoring import calculate_user_contribution_score, BEST_COMMENT_REWARD, MIN_BEST_VOTES
+        
+        user = user_factory("commenter")
+        mensa = sqlite_db().query(Mensa).first()
+        if not mensa:
+            mensa = Mensa(name="Zentralmensa")
+            sqlite_db().add(mensa)
+            sqlite_db().commit()
+        
+        # Create a meal
+        meal = Meal(
+            name="Testgericht",
+            name_de="Testgericht",
+            type="main",
+            date=date.today(),
+            mensa_id=mensa.id,
+            description="Reis, Salat"
+        )
+        sqlite_db().add(meal)
+        sqlite_db().commit()
+        
+        # User posts comment
+        rating = rating_factory(user, comment="Great food!", meal_name="Testgericht")
+        
+        # Create MIN_BEST_VOTES upvotes from different users
+        for i in range(MIN_BEST_VOTES):
+            voter = user_factory(f"voter_{i}")
+            vote_factory['comment'](rating, voter, direction=1)
+        
+        # Score should include BEST_COMMENT_REWARD
+        score = calculate_user_contribution_score(sqlite_db(), user.id)
+        assert score == BEST_COMMENT_REWARD + 1  # 1 for the rating, BEST_COMMENT_REWARD for best comment
+
+    def test_continuity_reward(self, sqlite_db, user_factory, rating_factory, vote_factory):
+        """CONTINUITY_REWARD awarded for >=15 contributions in a calendar month."""
+        from scoring import calculate_user_contribution_score, CONTINUITY_REWARD, CONTINUITY_QUOTA
+        
+        user = user_factory("regular")
+        mensa = sqlite_db().query(Mensa).first()
+        if not mensa:
+            mensa = Mensa(name="Zentralmensa")
+            sqlite_db().add(mensa)
+            sqlite_db().commit()
+        
+        # Create a meal
+        meal = Meal(
+            name="Testgericht",
+            name_de="Testgericht",
+            type="main",
+            date=date.today(),
+            mensa_id=mensa.id,
+            description="Reis, Salat"
+        )
+        sqlite_db().add(meal)
+        sqlite_db().commit()
+        
+        # Create CONTINUITY_QUOTA ratings with comments in the same month
+        for i in range(CONTINUITY_QUOTA):
+            rating_factory(user, comment=f"Comment {i}", meal_name="Testgericht")
+        
+        # Score should include CONTINUITY_REWARD
+        score = calculate_user_contribution_score(sqlite_db(), user.id)
+        assert score == CONTINUITY_REWARD + CONTINUITY_QUOTA  # QUOTA points + CONTINUITY_REWARD

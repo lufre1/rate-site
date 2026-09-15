@@ -277,6 +277,20 @@
       "bronze": "Bronze"
     },
     "contributionScore": "Beitragspunkte",
-    "noData": "Noch keine öffentlichen Profile"
+    "noData": "Noch keine öffentlichen Profile",
+    "columns": {
+      "rank": "#",
+      "name": "Name",
+      "tokens": "Connoisseur Tokens",
+      "tokens30d": "Tokens (30d)",
+      "rank30d": "Rank (30d)"
+    },
+    "tier": {
+      "platinum": "Platin",
+      "gold": "Gold",
+      "silver": "Silber",
+      "bronze": "Bronze"
+    },
+    "you": "Du"
   }
 }

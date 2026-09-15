@@ -51,6 +51,106 @@ ALIAS_MAP = {
     "bistro_hawk": "Bistro HAWK",
 }
 
+# Side dish translations (German -> English)
+# Common sides that appear in the menu descriptions
+SIDE_TRANSLATIONS = {
+    "Reis": "Rice",
+    "Bratkartoffeln": "Fried Potatoes",
+    "Kartoffelsalat": "Potato Salad",
+    "Salat": "Salad",
+    "Pommes": "Fries",
+    "Pommes frites": "Fries",
+    "Fladenbrot": "Flatbread",
+    "Baguette": "French Bread",
+    "Weißbrot": "White Bread",
+    "Vollkornbrot": "Whole Grain Bread",
+    "Dinkelbrot": "Spelt Bread",
+    "Kartoffel": "Potato",
+    "Kartoffelpüree": "Mashed Potatoes",
+    "Kartoffelbrei": "Mashed Potatoes",
+    "Nudeln": "Pasta",
+    "Spaghetti": "Spaghetti Pasta",
+    "Tagliatelle": "Tagliatelle Pasta",
+    "Penne": "Penne Pasta",
+    "Rigatoni": "Rigatoni Pasta",
+    "Maccheroni": "Macaroni",
+    "Gnocchi": "Gnocchi Dumplings",
+    "Polenta": "Cornmeal Polenta",
+    "Mais": "Corn",
+    "Erbsen": "Peas",
+    "Blumenkohl": "Cauliflower",
+    "Brokkoli": "Broccoli",
+    "Grüner Blumenkohl": "Green Cauliflower",
+    "Kürbis": "Pumpkin",
+    "Zucchini": "Zucchini Squash",
+    "Paprika": "Bell Pepper",
+    "Tomate": "Tomato",
+    "Karotte": "Carrot",
+    "Rote Beete": "Beetroot",
+    "Rettich": "Radish",
+    "Sellerie": "Celery",
+    "Lauch": "Leek",
+    "Porree": "Leek",
+    "Zwiebel": "Onion",
+    "Knoblauch": "Garlic",
+    "Gurke": "Cucumber",
+    "Salatgurke": "Cucumber",
+    "Rucola": "Arugula",
+    "Eisbergsalat": "Iceberg Lettuce",
+    "Romainesalat": "Romaine Lettuce",
+    "Feldsalat": "Field Salad",
+    "Mischsalat": "Mixed Salad",
+    "Wurzelsalat": "Root Salad",
+    "Kopfsalat": "Head Lettuce",
+    "Blaulauter": "Blue Lettuce",
+    "Lattich": "Lettuce",
+    "Spinat": "Spinach",
+    "Mangold": "Swiss Chard",
+    "Kohl": "Cabbage",
+    "Weißkohl": "White Cabbage",
+    "Rotkohl": "Red Cabbage",
+    "Grünkohl": "Kale",
+    "Wirsing": "Savoy Cabbage",
+    "Kraut": "Cabbage",
+    "Sauerkraut": "Fermented Cabbage",
+    "Fermentiertes Kraut": "Fermented Cabbage",
+    "Kohlrabi": "Kohlrabi Turnip",
+    "Rosenkohl": "Brussels Sprouts",
+    "Kürbiskerne": "Pumpkin Seeds",
+    "Sonnenblumenkerne": "Sunflower Seeds",
+    "Mandeln": "Almonds",
+    "Walnüsse": "Walnuts",
+    "Haselnüsse": "Hazelnuts",
+    "Pekannüsse": "Pecans",
+    "Cashewnüsse": "Cashews",
+    "Paranüsse": "Brazil Nuts",
+    "Macadamianüsse": "Macadamia Nuts",
+    "Pinienkerne": "Pine Nuts",
+    "Leinsamen": "Flax Seeds",
+    "Chiasamen": "Chia Seeds",
+    "Hanfsamen": "Hemp Seeds",
+    "Quinoa": "Quinoa Grain",
+    "Hirse": "Millet",
+    "Dinkel": "Spelt",
+    "Emmer": "Emmer Grain",
+    "Einkorn": "Einkorn Grain",
+    "Gerste": "Barley",
+    "Hafer": "Oats",
+    "Amaranth": "Amaranth Grain",
+    "Buchweizen": "Buckwheat",
+    "Hülsenfrüchte": "Legumes",
+    "Linsen": "Lentils",
+    "Kichererbsen": "Chickpeas",
+    "Kidneybohnen": "Kidney Beans",
+    "Schwarze Bohnen": "Black Beans",
+    "Weiße Bohnen": "White Beans",
+    "Sojabohnen": "Soy Beans",
+    "Erbsen": "Peas",
+    "Fava Bohnen": "Fava Beans",
+    "Wicken": "Vetch",
+    "Lupinen": "Lupins",
+}
+
 # Last Minute boilerplate, in either language. The type cell usually says
 # "Last Minute", but CGiN's English page puts this text in the Grillfest row.
 LAST_MINUTE_RE = re.compile(
@@ -469,6 +569,9 @@ def _extract_and_create_sides(db, mensa_obj, date_obj, description, seen_sides):
     Records every name it handles in `seen_sides[(mensa_id, date)]`, which keeps
     two mains that share a side from racing to insert it, and tells _reconcile
     which sides this run still stands behind.
+    
+    Uses SIDE_TRANSLATIONS to set name_en for known sides.
+    Backfills existing side rows where name_en equals the German text.
     """
     mensa_key = (mensa_obj.id, date_obj)
     if mensa_key not in seen_sides:
@@ -484,13 +587,23 @@ def _extract_and_create_sides(db, mensa_obj, date_obj, description, seen_sides):
             DBMeal.date == date_obj,
             DBMeal.mensa_id == mensa_obj.id,
         ).first()
+        
         if exists:
+            # Backfill: if name_en equals German text and we have a translation,
+            # update name_en to the English version
+            if side_name in SIDE_TRANSLATIONS:
+                if exists.name_en == side_name or exists.name_en is None:
+                    exists.name_en = SIDE_TRANSLATIONS[side_name]
+                    db.add(exists)
             continue
+
+        # Use translation if available, otherwise fall back to German
+        name_en = SIDE_TRANSLATIONS.get(side_name, side_name)
 
         db.add(DBMeal(
             name=side_name,
             name_de=side_name,
-            name_en=side_name,
+            name_en=name_en,
             description=None,
             description_de=None,
             description_en=None,
