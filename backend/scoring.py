@@ -14,7 +14,7 @@ This module implements the contribution score calculation with the following rul
   - CONTINUITY_REWARD: >=15 contributions in a calendar month (+30)
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from sqlalchemy import func, case, text, or_, and_
 from sqlalchemy.orm import Session
@@ -39,6 +39,11 @@ CONTINUITY_REWARD = 30
 MIN_BEST_VOTES = 5
 
 
+def _dialect(db: Session) -> str:
+    """Return the SQLAlchemy dialect name ('postgresql' or 'sqlite')."""
+    return db.bind.dialect.name
+
+
 def calculate_user_contribution_score(db: Session, user_id: int, on_date: date = None) -> int:
     """Calculate a user's contribution score up to the given date.
     
@@ -58,9 +63,15 @@ def calculate_user_contribution_score(db: Session, user_id: int, on_date: date =
     from sqlalchemy import text
     # SQLite uses date() without interval; PostgreSQL uses interval '1 day'
     # We use a subquery approach that works in both
+    # Build date condition dialect-aware
+    if _dialect(db) == "postgresql":
+        cutoff = datetime.combine(on_date, datetime.min.time()) + timedelta(days=1)
+        date_cond = Rating.created_at < cutoff
+    else:
+        date_cond = func.date(Rating.created_at) <= on_date
     user_ratings = db.query(Rating).filter(
         Rating.user_id == user_id,
-        func.date(Rating.created_at) <= on_date,
+        date_cond,
         or_(
             Rating.comment.isnot(None),
             Rating.photo_url.isnot(None)
@@ -100,14 +111,22 @@ def calculate_user_contribution_score(db: Session, user_id: int, on_date: date =
     
     for fp in first_photos:
         # Check if this is still the first photo (no earlier photo exists)
-        # Use func.date() for SQLite-compatible date comparison
+        # Build date condition dialect-aware
+        if _dialect(db) == "postgresql":
+            # PostgreSQL: compare datetime directly
+            date_before = Rating.created_at < fp.first_at
+            date_equal = Rating.created_at == fp.first_at
+        else:
+            # SQLite: use func.date() for date-only comparison
+            date_before = func.date(Rating.created_at) < func.date(fp.first_at)
+            date_equal = func.date(Rating.created_at) == func.date(fp.first_at)
         earliest = db.query(Rating.id).filter(
             Rating.meal_id == fp.meal_id,
             Rating.photo_url.isnot(None),
             or_(
-                func.date(Rating.created_at) < func.date(fp.first_at),
+                date_before,
                 and_(
-                    func.date(Rating.created_at) == func.date(fp.first_at),
+                    date_equal,
                     Rating.id < fp.first_id
                 )
             )
@@ -176,8 +195,13 @@ def calculate_user_contribution_score(db: Session, user_id: int, on_date: date =
     
     # CONTINUITY_REWARD: >=15 contributions in a calendar month
     # Count all ratings with comments or photos per month
+    # Build month expression dialect-aware
+    if _dialect(db) == "postgresql":
+        month_expr = func.to_char(Rating.created_at, 'YYYY-MM')
+    else:
+        month_expr = func.strftime('%Y-%m', func.date(Rating.created_at))
     monthly_contributions = db.query(
-        func.strftime('%Y-%m', func.date(Rating.created_at)).label('month'),
+        month_expr.label('month'),
         func.count(Rating.id).label('count')
     ).filter(
         Rating.user_id == user_id,
@@ -185,7 +209,7 @@ def calculate_user_contribution_score(db: Session, user_id: int, on_date: date =
             Rating.comment.isnot(None),
             Rating.photo_url.isnot(None)
         )
-    ).group_by(func.strftime('%Y-%m', func.date(Rating.created_at))).all()
+    ).group_by(month_expr).all()
     
     for mc in monthly_contributions:
         if mc.count >= CONTINUITY_QUOTA:
@@ -225,6 +249,12 @@ def get_leaderboard_entry(db: Session, user: User, on_date: date = None):
     
     # Calculate rank based on score
     # Get all users with their scores
+    # Build date condition dialect-aware
+    if _dialect(db) == "postgresql":
+        cutoff = datetime.combine(on_date, datetime.min.time()) + timedelta(days=1)
+        date_cond = Rating.created_at < cutoff
+    else:
+        date_cond = func.date(Rating.created_at) <= on_date
     all_user_scores = db.query(
         User.id,
         User.username,
@@ -244,7 +274,7 @@ def get_leaderboard_entry(db: Session, user: User, on_date: date = None):
     ).join(
         Rating, User.id == Rating.user_id
     ).filter(
-        func.date(Rating.created_at) <= on_date
+        date_cond
     ).group_by(User.id, User.username, User.display_name).all()
     
     # Sort by score descending
@@ -495,6 +525,12 @@ def get_user_leaderboard_info(db: Session, user_id: int, on_date: date = None):
     ).all()
     
     # Recalculate properly
+    # Build date condition dialect-aware
+    if _dialect(db) == "postgresql":
+        cutoff = datetime.combine(on_date, datetime.min.time()) + timedelta(days=1)
+        date_cond = Rating.created_at < cutoff
+    else:
+        date_cond = func.date(Rating.created_at) <= on_date
     user_scores = db.query(
         User.id,
         func.sum(
@@ -512,7 +548,7 @@ def get_user_leaderboard_info(db: Session, user_id: int, on_date: date = None):
     ).join(
         Rating, User.id == Rating.user_id
     ).filter(
-        func.date(Rating.created_at) <= on_date
+        date_cond
     ).group_by(User.id).all()
     
     user_rank = 1
