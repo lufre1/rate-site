@@ -164,6 +164,11 @@ COMMENT_MAX_LENGTH = 1000
 BADGE_MIN_RATINGS = 5
 BADGE_GOOD_SHARE = 0.8
 
+# Rewind community ranking (issue #28): a shrunken mean that pulls small
+# samples toward a neutral prior so a handful of enthusiastic ratings cannot
+# define the week. BADGE_MIN_RATINGS (#27) is reused as the prior weight.
+REWIND_PRIOR_MEAN = 3.0
+
 
 class RatingInput(BaseModel):
     rating: int = Field(ge=1, le=5)
@@ -2052,10 +2057,16 @@ def get_rewind(
             if len(rs) < 3:
                 continue
             avg = sum(x.rating for x in rs) / len(rs)
-            candidates.append((name, mensa_id, avg, len(rs)))
-        candidates.sort(key=lambda c: (-c[2], -c[3], c[0]))
+            # Shrunken mean: shrinks small samples toward a neutral prior so a
+            # few enthusiastic ratings cannot outrank a broadly-liked dish
+            # (issue #28). Reuses #27's BADGE_MIN_RATINGS as the prior weight.
+            weighted = (sum(x.rating for x in rs) + BADGE_MIN_RATINGS * REWIND_PRIOR_MEAN) / (
+                len(rs) + BADGE_MIN_RATINGS
+            )
+            candidates.append((name, mensa_id, avg, weighted, len(rs)))
+        candidates.sort(key=lambda c: (-c[3], -c[4], c[0]))
         out_dishes = []
-        for (name, mensa_id, avg, count) in candidates[:5]:
+        for (name, mensa_id, avg, weighted, count) in candidates[:5]:
             key = (name, mensa_id)
             # resolve display name from any row of the dish
             sample = next(x for x in dishes[key])

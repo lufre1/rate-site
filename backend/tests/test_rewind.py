@@ -163,6 +163,38 @@ def test_community_weekly_min_3_gate(client):
     assert "Gericht B" not in dish_names
 
 
+def test_community_ranking_uses_weighted_mean(client):
+    """A broadly-liked dish outranks a small-sample enthusiastic one (issue #28).
+
+    A raw mean would put the 3x5-star dish first; the shrunken mean pulls it
+    toward the neutral prior so the 8-rating dish wins.
+    """
+    now = datetime.utcnow()
+    window_start = compute_window_start("week", now)
+
+    db = SessionLocal()
+    try:
+        mensa = create_mensa(db, "Zentralmensa")
+        # Enthusiast: 3 ratings, all 5 stars (raw mean 5.0)
+        meal_e = create_meal(db, mensa.id, name="Enthusiast", name_de="Enthusiast")
+        for h in range(1, 4):
+            create_rating(db, meal_e.id, 5, created_at=window_start + timedelta(hours=h))
+        # Beloved: 8 ratings, six 5s and two 4s (raw mean 4.75)
+        meal_b = create_meal(db, mensa.id, name="Beloved", name_de="Beloved")
+        for h, star in enumerate([5, 5, 5, 5, 5, 5, 4, 4], start=1):
+            create_rating(db, meal_b.id, star, created_at=window_start + timedelta(hours=h))
+    finally:
+        db.close()
+
+    resp = client.get("/api/v1/rewind?period=week&scope=community&lang=de")
+    assert resp.status_code == 200
+    data = resp.json()
+    names = [d["name"] for d in data["dishes"]]
+    # Beloved (8 ratings) must outrank Enthusiast (3 ratings) despite the lower raw mean.
+    assert names[0] == "Beloved"
+    assert names.index("Beloved") < names.index("Enthusiast")
+
+
 def test_window_filtering_excludes_last_week(client):
     """A rating from last week is excluded from the weekly rewind."""
     now = datetime.utcnow()

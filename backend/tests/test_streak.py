@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 import auth
 import main
 import database
-from database import SessionLocal, Mensa, Meal, Rating, User
+from database import SessionLocal, Mensa, Meal, Rating, User, CommentVote, PhotoVote
 
 GOOD_PW = "correct-horse-battery"
 
@@ -136,6 +136,38 @@ def test_basic_consecutive_streak(client):
     assert data["current"] == 3
     assert data["best"] == 3
     assert data["active"] is True
+
+
+def test_votes_do_not_extend_streak(client):
+    """Only ratings count; repeated votes never extend a streak (issue #32).
+
+    The user rates Monday only. Repeated comment and photo votes on that
+    rating must not push the streak past 1.
+    """
+    db = SessionLocal()
+    try:
+        mensa_id = make_mensa(db, "Zentralmensa")
+        today = date_cls.today()
+        mon = today - timedelta(days=today.weekday())  # Monday of this week
+        make_meal(db, mensa_id, "Montag", mon)
+
+        user_id, token = make_user(client, "carol")
+        rating_id = make_rating(
+            db, user_id, 1, created_at=datetime(mon.year, mon.month, mon.day, 12, 0)
+        )
+        # Repeatedly vote on the same rating -- must not extend the streak.
+        for v in range(5):
+            db.add(CommentVote(rating_id=rating_id, voter_id=f"cv{v}", direction=1))
+            db.add(PhotoVote(rating_id=rating_id, voter_id=f"pv{v}", direction=1))
+        db.commit()
+    finally:
+        db.close()
+
+    resp = client.get("/api/v1/me/streak", headers=bearer(token))
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["current"] == 1
+    assert data["best"] == 1
 
 
 def test_sunday_gap_does_not_break_streak(client):
