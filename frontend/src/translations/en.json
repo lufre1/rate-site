@@ -99,7 +99,13 @@
     "confirmTitle": "This is how your review will be published:",
     "confirmPublish": "Publish",
     "confirmBack": "Back to editing",
-    "confirmNoComment": "(no comment)"
+    "confirmNoComment": "(no comment)",
+    "shareTitle": "Share this site",
+    "shareButton": "Share this site",
+    "shareUrl": "Website address",
+    "shareCopy": "Copy",
+    "shareCopied": "Copied ✓",
+    "shareNative": "Share…"
   },
   "mealTypes": {
     "main": "Main",
@@ -292,5 +298,26 @@
       "bronze": "Bronze"
     },
     "you": "You"
+  },
+  "streak": {
+    "title": "Rating streak",
+    "current": "{{days}} days in a row",
+    "best": "Best: {{days}} days",
+    "atRisk": "Rate today to keep your streak",
+    "none": "No streak yet – rate your first dish today!"
+  },
+  "rewind": {
+    "title": "Rewind",
+    "week": "This week",
+    "month": "This month",
+    "community": "Community",
+    "personal": "Your week",
+    "notEnough": "Not enough ratings for a rewind yet.",
+    "yourDishes": "Your dishes",
+    "topDishes": "Top dishes",
+    "ratedCount": "You rated {{n}} dishes",
+    "servedCount": "{{n}} dishes rated",
+    "loading": "Loading…",
+    "error": "Could not load the rewind."
   }
 }

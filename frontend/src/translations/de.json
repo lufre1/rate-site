@@ -99,7 +99,13 @@
     "confirmTitle": "So wird deine Bewertung veröffentlicht:",
     "confirmPublish": "Veröffentlichen",
     "confirmBack": "Zurück zum Bearbeiten",
-    "confirmNoComment": "(kein Kommentar)"
+    "confirmNoComment": "(kein Kommentar)",
+    "shareTitle": "Seite teilen",
+    "shareButton": "Seite teilen",
+    "shareUrl": "Webadresse",
+    "shareCopy": "Kopieren",
+    "shareCopied": "Kopiert ✓",
+    "shareNative": "Teilen…"
   },
   "mealTypes": {
     "main": "Hauptgericht",
@@ -292,5 +298,26 @@
       "bronze": "Bronze"
     },
     "you": "Du"
+  },
+  "streak": {
+    "title": "Bewertungs-Serie",
+    "current": "{{days}} Tage in Folge",
+    "best": "Rekord: {{days}} Tage",
+    "atRisk": "Heute noch bewerten, um die Serie zu halten",
+    "none": "Noch keine Serie – bewerte heute dein erstes Gericht!"
+  },
+  "rewind": {
+    "title": "Rückblick",
+    "week": "Diese Woche",
+    "month": "Dieser Monat",
+    "community": "Gemeinschaft",
+    "personal": "Deine Woche",
+    "notEnough": "Noch zu wenig Bewertungen für einen Rückblick.",
+    "yourDishes": "Deine Gerichte",
+    "topDishes": "Beliebteste Gerichte",
+    "ratedCount": "Du hast {{n}} Gerichte bewertet",
+    "servedCount": "{{n}} Gerichte bewertet",
+    "loading": "Lade…",
+    "error": "Rückblick konnte nicht geladen werden."
   }
 }

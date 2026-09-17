@@ -8,6 +8,7 @@ import Datenschutz from './Datenschutz';
 import Account from './Account';
 import Stats from './Stats';
 import Leaderboard from './Leaderboard';
+import Rewind from './Rewind';
 import { useToast } from './Toast';
 import {
   API, authHeaders, getToken, clearToken, formatRelativeDate, StarPicker,
@@ -166,8 +167,10 @@ function App() {
   const [showDatenschutz, setShowDatenschutz] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showRewind, setShowRewind] = useState(false);
   const [user, setUser] = useState(null);
   const [showAccount, setShowAccount] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [dietFilter, setDietFilterState] = useState(getDietFilter);
   // Temporarily disable filter for "show all" (local state, doesn't clear stored pref)
   const [showAllDiet, setShowAllDiet] = useState(false);
@@ -226,6 +229,7 @@ function App() {
     setShowImpressum(false);
     setShowDatenschutz(false);
     setShowLeaderboard(false);
+    setShowRewind(false);
   };
 
   // Only one secondary view is ever open, so opening one closes the others.
@@ -236,6 +240,7 @@ function App() {
     setShowImpressum(view === 'impressum');
     setShowDatenschutz(view === 'datenschutz');
     setShowLeaderboard(view === 'leaderboard');
+    setShowRewind(view === 'rewind');
   };
 
   useEffect(() => {
@@ -591,9 +596,19 @@ function App() {
             {t('leaderboard.title')}
           </button>
           <button type="button" className="nav-btn"
+            aria-pressed={showRewind}
+            onClick={() => openView(showRewind ? null : 'rewind')}>
+            {t('rewind.title')}
+          </button>
+          <button type="button" className="nav-btn"
             aria-pressed={showAccount}
             onClick={() => openView(showAccount ? null : 'account')}>
             {user ? (user.display_name || user.username) : t('auth.login')}
+          </button>
+          <button type="button" className="nav-btn"
+            onClick={() => setShareOpen(true)}
+            aria-label={t('ui.shareButton')} title={t('ui.shareButton')}>
+            <span aria-hidden="true">🔗</span>
           </button>
           <ThemeToggle />
         </nav>
@@ -612,6 +627,8 @@ function App() {
           />
         ) : showLeaderboard ? (
           <Leaderboard key={language} onBack={goHome} language={language} user={user} />
+        ) : showRewind ? (
+          <Rewind onBack={goHome} language={language} user={user} onEnlarge={setEnlargedImage} />
         ) : showImpressum ? (
           <Impressum onBack={goHome} />
         ) : showDatenschutz ? (
@@ -639,6 +656,18 @@ function App() {
           </a>
         </div>
       </footer>
+
+      {shareOpen && (
+        <Lightbox src="/qr.png" alt={t('ui.shareTitle')}
+          onClose={() => setShareOpen(false)}>
+          <div className="share-panel">
+            <p className="share-panel__url" aria-label={t('ui.shareUrl')}>
+              {window.location.origin}
+            </p>
+            <ShareActions />
+          </div>
+        </Lightbox>
+      )}
     </div>
   );
 }
@@ -762,7 +791,7 @@ function RatingLine({ avg, count, label, tone }) {
 // inside, focus moved in and returned on close, Tab kept in, and a visible
 // way out. Previously the only exit was tapping the sliver of backdrop around
 // a 90vw/90vh image -- the image itself stops propagation.
-function Lightbox({ src, alt, onClose }) {
+function Lightbox({ src, alt, onClose, children }) {
   const { t } = useTranslation();
   const closeRef = useRef(null);
   const dialogRef = useRef(null);
@@ -808,8 +837,43 @@ function Lightbox({ src, alt, onClose }) {
       >
         <span aria-hidden="true">&times;</span>
       </button>
-      <img className="lightbox__img" src={src} alt={alt}
-        onClick={(e) => e.stopPropagation()} />
+      {children ? (
+        <div className="lightbox__content" onClick={(e) => e.stopPropagation()}>
+          <img className="lightbox__img lightbox__img--compact" src={src} alt={alt}
+            onClick={(e) => e.stopPropagation()} />
+          {children}
+        </div>
+      ) : (
+        <img className="lightbox__img" src={src} alt={alt}
+          onClick={(e) => e.stopPropagation()} />
+      )}
+    </div>
+  );
+}
+
+function ShareActions() {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.origin);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (e) { /* clipboard unavailable (e.g. insecure context) — leave the text selectable */ }
+  };
+  const nativeShare = async () => {
+    try { await navigator.share({ url: window.location.origin }); } catch (e) { /* user cancelled */ }
+  };
+  return (
+    <div className="share-panel__actions">
+      <button type="button" className="btn btn--primary btn--sm" onClick={copy}>
+        {copied ? t('ui.shareCopied') : t('ui.shareCopy')}
+      </button>
+      {typeof navigator !== 'undefined' && typeof navigator.share === 'function' && (
+        <button type="button" className="btn btn--ghost btn--sm" onClick={nativeShare}>
+          {t('ui.shareNative')}
+        </button>
+      )}
     </div>
   );
 }

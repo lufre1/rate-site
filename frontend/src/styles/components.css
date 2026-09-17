@@ -1030,8 +1030,56 @@
 .tag-icon--sm { width: 12px; height: 12px; }
 
 /* ==================================================================
-   Stats
-   ================================================================== */
+    Rewind
+    ================================================================== */
+
+.rewind-card {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  margin-bottom: var(--space-3);
+}
+
+.rewind-card__photo {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  cursor: zoom-in;
+  flex-shrink: 0;
+}
+
+.rewind-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.rewind-card__name {
+  font-weight: 600;
+}
+
+.rewind-card__sub {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.rewind-card__comment {
+  font-size: var(--text-sm);
+}
+
+.rewind-toggle {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+/* ==================================================================
+    Stats
+    ================================================================== */
 
 .stats-grid {
   display: grid;
@@ -1305,9 +1353,40 @@
   cursor: default;
 }
 
+.lightbox__content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+}
+.lightbox__img--compact {
+  max-width: min(60vw, 280px);
+  max-height: min(60vw, 280px);
+  width: auto;
+  height: auto;
+}
+.share-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  color: #fff;
+}
+.share-panel__url {
+  font-size: var(--text-md);
+  user-select: all;
+  word-break: break-all;
+  text-align: center;
+  margin: 0;
+}
+.share-panel__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
 /* ==================================================================
-   Loading skeletons
-   ================================================================== */
+    Loading skeletons
+    ================================================================== */
 
 .skeleton {
   position: relative;
@@ -1495,6 +1574,22 @@
 }
 
 .entry__sub { font-size: var(--text-xs); color: var(--text-muted); }
+
+/* ==================================================================
+    Streak display
+    ================================================================== */
+
+.streak-display {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.streak-flame { font-size: var(--text-xl); }
+.streak-value { font-size: var(--text-xl); font-weight: 700; }
+.streak-label { color: var(--text-muted); }
+.streak-best { color: var(--text-muted); font-size: var(--text-sm); }
+.streak-atrisk { color: #d99a2b; font-size: var(--text-sm); }
 
 .entry__actions {
   display: flex;

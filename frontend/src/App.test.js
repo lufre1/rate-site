@@ -483,3 +483,69 @@ test('a failed vote says so instead of doing nothing', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Schließen' }));
   expect(screen.queryByText('Stimme konnte nicht gespeichert werden.')).not.toBeInTheDocument();
 });
+
+test('the share button opens a dialog with QR code and URL', async () => {
+  global.fetch = jest.fn((url) => {
+    if (url.includes('/mensas')) return jsonResponse([MENSA]);
+    if (url.includes('/meals-summary')) return jsonResponse({});
+    if (url.includes('/meals?')) return jsonResponse([]);
+    return jsonResponse([]);
+  });
+
+  renderApp();
+
+  // Click the share button (using the aria-label text)
+  await userEvent.click(screen.getByRole('button', { name: /Seite teilen/ }));
+
+  // Verify the QR code image is present
+  expect(screen.getByRole('img', { name: /Seite teilen/ })).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: /Seite teilen/ })).toHaveAttribute('src', '/qr.png');
+
+  // Verify the URL text is visible
+  expect(screen.getByText(window.location.origin)).toBeInTheDocument();
+});
+
+test('pressing Escape closes the share dialog', async () => {
+  global.fetch = jest.fn((url) => {
+    if (url.includes('/mensas')) return jsonResponse([MENSA]);
+    if (url.includes('/meals-summary')) return jsonResponse({});
+    if (url.includes('/meals?')) return jsonResponse([]);
+    return jsonResponse([]);
+  });
+
+  renderApp();
+
+  // Open the share dialog
+  await userEvent.click(screen.getByRole('button', { name: /Seite teilen/ }));
+  expect(screen.getByRole('img', { name: /Seite teilen/ })).toBeInTheDocument();
+
+  // Press Escape
+  await userEvent.keyboard('{Escape}');
+  expect(screen.queryByRole('img', { name: /Seite teilen/ })).not.toBeInTheDocument();
+});
+
+test('the copy button copies the URL to clipboard', async () => {
+  const mockWriteText = jest.fn().mockResolvedValue(undefined);
+  navigator.clipboard = { writeText: mockWriteText };
+
+  global.fetch = jest.fn((url) => {
+    if (url.includes('/mensas')) return jsonResponse([MENSA]);
+    if (url.includes('/meals-summary')) return jsonResponse({});
+    if (url.includes('/meals?')) return jsonResponse([]);
+    return jsonResponse([]);
+  });
+
+  renderApp();
+
+  // Open the share dialog
+  await userEvent.click(screen.getByRole('button', { name: /Seite teilen/ }));
+
+  // Click the copy button
+  await userEvent.click(screen.getByRole('button', { name: /Kopieren/ }));
+
+  // Verify the clipboard was called with the origin URL
+  expect(mockWriteText).toHaveBeenCalledWith(window.location.origin);
+
+  // Verify the "Kopiert ✓" message appears
+  expect(screen.getByRole('button', { name: /Kopiert ✓/ })).toBeInTheDocument();
+});

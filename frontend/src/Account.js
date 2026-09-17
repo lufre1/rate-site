@@ -171,6 +171,8 @@ function Profile({ user, onLogout, language, onUpdate }) {
   const [contributionScore, setContributionScore] = useState(null);
   const [leaderboardRank, setLeaderboardRank] = useState(null);
   const [loadingScore, setLoadingScore] = useState(true);
+  const [streak, setStreak] = useState(null);
+  const [streakLoading, setStreakLoading] = useState(true);
 
   // "favourites" is not a separate store -- it is the same endpoint filtered to
   // the dishes this user actually rated 4 or 5.
@@ -205,6 +207,16 @@ function Profile({ user, onLogout, language, onUpdate }) {
         setLoadingScore(false);
       })
       .catch(() => setLoadingScore(false));
+  }, [user]);
+
+  // Load streak data
+  useEffect(() => {
+    if (!user) return;
+    setStreakLoading(true);
+    fetch(`${API}/api/v1/me/streak`, { headers: authHeaders() })
+      .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then(data => { setStreak(data); setStreakLoading(false); })
+      .catch(() => { setStreak(null); setStreakLoading(false); });
   }, [user]);
 
   const saveDisplayName = async (value) => {
@@ -319,6 +331,25 @@ function Profile({ user, onLogout, language, onUpdate }) {
           </div>
         ) : (
           <p className="muted-text">{t('leaderboard.noData')}</p>
+        )}
+      </div>
+
+      <div className="card">
+        <h3>{t('streak.title')}</h3>
+        {streakLoading ? (
+          <p className="muted-text">{t('leaderboard.loading')}</p>
+        ) : streak && streak.current > 0 ? (
+          <div className="streak-display">
+            <span className="streak-flame" aria-hidden="true">🔥</span>
+            <span className="streak-value">{streak.current}</span>
+            <span className="streak-label">{t('streak.current', { days: streak.current })}</span>
+            <span className="streak-best">{t('streak.best', { days: streak.best })}</span>
+            {!streak.active && (
+              <span className="streak-atrisk">{t('streak.atRisk')}</span>
+            )}
+          </div>
+        ) : (
+          <p className="muted-text">{t('streak.none')}</p>
         )}
       </div>
 

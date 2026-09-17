@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional, List
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, case
@@ -15,6 +15,7 @@ import locale
 import os
 import uuid
 import re
+from collections import defaultdict
 from datetime import datetime
 
 import logging
@@ -297,6 +298,13 @@ class MeOut(BaseModel):
     display_name: Optional[str] = None
     rating_count: int
     created_at: Optional[datetime] = None
+
+
+class StreakOut(BaseModel):
+    current: int
+    best: int
+    active: bool
+
 
 class MyRatingOut(BaseModel):
     id: int
@@ -1566,6 +1574,71 @@ def get_my_ratings(
     return out
 
 
+@app.get("/api/v1/me/streak", response_model=StreakOut, tags=["Auth"])
+def get_my_streak(user: DBUser = Depends(auth.current_user), db: Session = Depends(get_db)):
+    """The caller's rating streak, counted in service days (not calendar days).
+
+    A service day is any date the site has a menu. A streak is a run of
+    consecutive service days on which the user rated, so a Sunday (no menu)
+    never breaks it. Only ratings count -- votes are deliberately excluded so
+    the vote signal is not turned into a daily chore.
+    """
+    from datetime import date as _date
+    today = datetime.now(ZoneInfo("Europe/Berlin")).date()
+
+    # Service days up to today (the meals table also holds the next ~6 future
+    # days from the scraper; those cannot be rated yet, so exclude them).
+    service_days = sorted(
+        d for (d,) in db.query(DBMeal.date).distinct().all() if d is not None and d <= today
+    )
+    if not service_days:
+        return StreakOut(current=0, best=0, active=False)
+
+    # Days this user rated, in Berlin time. func.date() returns a date object
+    # on Postgres but a "YYYY-MM-DD" string on SQLite, so normalise both.
+    local_date = _local_date(db.get_bind())
+    raw = [d for (d,) in db.query(local_date).filter(DBRating.user_id == user.id).distinct().all()]
+    def _to_date(d):
+        if d is None:
+            return None
+        if isinstance(d, datetime):
+            return d.date()
+        if isinstance(d, str):
+            return _date.fromisoformat(d[:10])
+        return d
+    rated_set = {d for d in (_to_date(x) for x in raw) if d is not None}
+    rated_set = {d for d in rated_set if d in set(service_days)}  # rated days are service days
+
+    if not rated_set:
+        return StreakOut(current=0, best=0, active=False)
+
+    pos = {day: i for i, day in enumerate(service_days)}
+
+    # current: consecutive rated service days ending at the most recent rated day
+    last_rated = max(rated_set)
+    current = 0
+    i = pos[last_rated]
+    while i >= 0 and service_days[i] in rated_set:
+        current += 1
+        i -= 1
+
+    # best: longest run of adjacent-in-service-sequence rated days, all history
+    best = 0
+    run = 0
+    for idx, day in enumerate(service_days):
+        if day in rated_set:
+            run = run + 1 if (idx > 0 and service_days[idx - 1] in rated_set) else 1
+            if run > best:
+                best = run
+        else:
+            run = 0
+
+    # active: the latest service day (<= today) is a rated day -> streak unbroken
+    active = service_days[-1] in rated_set
+
+    return StreakOut(current=current, best=best, active=active)
+
+
 def owned_rating(rating_id: int, user: DBUser, db: Session) -> DBRating:
     """Fetch a rating, or fail unless it belongs to this user.
 
@@ -1687,6 +1760,20 @@ def _local_dow(bind):
         # timezone('Europe/Berlin', tz) -> Berlin-local naive. Handles CET/CEST.
         col = func.timezone("Europe/Berlin", func.timezone("UTC", col))
     return func.extract("dow", col)
+
+
+def _local_date(bind):
+    """Berlin-local calendar date of Rating.created_at.
+
+    created_at is a naive TIMESTAMP holding UTC (the db container sets no TZ),
+    while the rest of this module reasons in Berlin time. Postgres can
+    reinterpret it; SQLite has no timezone database, so the test default
+    buckets on UTC -- same convention as _local_dow (see test_api_stats.py).
+    """
+    col = DBRating.created_at
+    if bind.dialect.name == "postgresql":
+        col = func.timezone("Europe/Berlin", func.timezone("UTC", col))
+    return func.date(col)
 
 
 @app.get("/api/v1/stats/overview", response_model=dict, tags=["Stats"])
@@ -1871,6 +1958,174 @@ def get_top_photo_global(db: Session = Depends(get_db)):
         "meal_name": top_photo.meal_name,
         "mensa": top_photo.mensa
     }
+
+
+@app.get("/api/v1/rewind", tags=["Rewind"])
+def get_rewind(
+    period: str = Query("week", pattern="^(week|month)$"),
+    scope: str = Query("community", pattern="^(community|me)$"),
+    lang: str = "de",
+    user: Optional[DBUser] = Depends(auth.optional_user),
+    db: Session = Depends(get_db),
+):
+    """Weekly or monthly rewind of best-liked dishes, personal or community."""
+    if lang not in ("de", "en"):
+        lang = "de"
+    if scope == "me" and user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    now_b = datetime.now(ZoneInfo("Europe/Berlin"))
+    if period == "week":
+        start_b = (now_b - timedelta(days=now_b.weekday())).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+    else:
+        start_b = now_b.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    start_utc = start_b.astimezone(timezone.utc).replace(tzinfo=None)
+
+    rows = db.query(
+        DBRating.id,
+        DBRating.rating,
+        DBRating.comment,
+        DBRating.photo_url,
+        DBRating.user_name,
+        DBRating.user_id,
+        DBRating.created_at,
+        DBMeal.name.label("dish_name"),
+        DBMeal.name_de.label("dish_name_de"),
+        DBMeal.name_en.label("dish_name_en"),
+        DBMeal.mensa_id,
+        DBMensa.name.label("mensa"),
+    ).join(DBMeal, DBRating.meal_id == DBMeal.id).join(
+        DBMensa, DBMeal.mensa_id == DBMensa.id
+    ).filter(DBRating.created_at >= start_utc).all()
+
+    if scope == "me":
+        rows = [r for r in rows if r.user_id == user.id]
+
+    def dish_name(r):
+        if lang == "en":
+            return r.dish_name_en or r.dish_name_de or r.dish_name
+        return r.dish_name_de or r.dish_name
+
+    dishes = defaultdict(list)
+    for r in rows:
+        dishes[(r.dish_name, r.mensa_id)].append(r)
+
+    # vote score maps for in-window ratings
+    def score_map(vote_model, ids):
+        if not ids:
+            return {}
+        return dict(
+            db.query(vote_model.rating_id, func.sum(vote_model.direction))
+            .filter(vote_model.rating_id.in_(ids))
+            .group_by(vote_model.rating_id)
+            .all()
+        )
+
+    photo_ids = [r.id for r in rows if r.photo_url]
+    photo_scores = score_map(DBPhotoVote, photo_ids)
+    comment_ids = [r.id for r in rows if r.comment]
+    comment_scores = score_map(DBCommentVote, comment_ids)
+
+    # best photo per dish (photo-vote score desc, ties oldest)
+    best_photo = {}
+    for r in sorted(
+        (r for r in rows if r.photo_url),
+        key=lambda r: (-photo_scores.get(r.id, 0), r.created_at, r.id),
+    ):
+        best_photo.setdefault((r.dish_name, r.mensa_id), r.photo_url)
+
+    # top 2 comments per dish (comment-vote score desc, ties older)
+    top_comments = defaultdict(list)
+    for r in sorted(
+        (r for r in rows if r.comment),
+        key=lambda r: (-comment_scores.get(r.id, 0), r.created_at, r.id),
+    ):
+        if len(top_comments[(r.dish_name, r.mensa_id)]) < 2:
+            top_comments[(r.dish_name, r.mensa_id)].append(r)
+
+    if scope == "community":
+        total_ratings = len(rows)
+        candidates = []
+        for (name, mensa_id), rs in dishes.items():
+            if len(rs) < 3:
+                continue
+            avg = sum(x.rating for x in rs) / len(rs)
+            candidates.append((name, mensa_id, avg, len(rs)))
+        candidates.sort(key=lambda c: (-c[2], -c[3], c[0]))
+        out_dishes = []
+        for (name, mensa_id, avg, count) in candidates[:5]:
+            key = (name, mensa_id)
+            # resolve display name from any row of the dish
+            sample = next(x for x in dishes[key])
+            out_dishes.append({
+                "name": dish_name(sample),
+                "mensa": sample.mensa,
+                "avg_rating": round(avg, 1),
+                "rating_count": count,
+                "photo_url": best_photo.get(key),
+                "comments": [
+                    {"text": c.comment, "author": c.user_name}
+                    for c in top_comments.get(key, [])
+                ],
+            })
+        return {
+            "period": period,
+            "scope": "community",
+            "enough": total_ratings >= 3,
+            "total_ratings": total_ratings,
+            "dishes_rated": len(dishes),
+            "dishes": out_dishes,
+        }
+
+    # scope == "me"
+    dishes_rated = len(dishes)
+    photos = sum(1 for r in rows if r.photo_url)
+    candidates = []
+    for (name, mensa_id), rs in dishes.items():
+        best_star = max(x.rating for x in rs)
+        most_recent = max(rs, key=lambda x: (x.created_at, x.id))
+        candidates.append((name, mensa_id, best_star, most_recent, rs))
+    # sort: best_star desc, then most_recent created_at desc (then id)
+    candidates = sorted(
+        candidates,
+        key=lambda c: (-c[2], -c[3].created_at.timestamp(), -c[3].id),
+    )
+    out_dishes = []
+    for (name, mensa_id, best_star, most_recent, rs) in candidates[:5]:
+        comment = next(
+            (
+                x.comment
+                for x in sorted(rs, key=lambda x: (x.created_at, x.id), reverse=True)
+                if x.comment
+            ),
+            None,
+        )
+        photo = next(
+            (
+                x.photo_url
+                for x in sorted(rs, key=lambda x: (x.created_at, x.id), reverse=True)
+                if x.photo_url
+            ),
+            None,
+        )
+        out_dishes.append({
+            "name": dish_name(most_recent),
+            "mensa": most_recent.mensa,
+            "rating": best_star,
+            "comment": comment,
+            "photo_url": photo,
+        })
+    return {
+        "period": period,
+        "scope": "me",
+        "enough": len(rows) >= 1,
+        "dishes_rated": dishes_rated,
+        "photos": photos,
+        "dishes": out_dishes,
+    }
+
 
 @app.get("/api/v1/mensas")
 def get_mensas(db: Session = Depends(get_db)):

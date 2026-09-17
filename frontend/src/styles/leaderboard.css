@@ -189,6 +189,7 @@
   font-size: var(--text-sm);
   font-weight: 600;
   text-transform: uppercase;
+  color: #292524;
 }
 
 .leaderboard-entry .leaderboard-score {
@@ -224,4 +225,115 @@
 
 .leaderboard-error .btn--quiet {
   margin-left: auto;
+}
+
+/* Dark mode visibility improvements */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    /* Base tier header - set readable default color and lighter background */
+    .leaderboard-table .tier-header {
+      color: var(--text-strong);
+      background: #2d2a28;
+    }
+
+    /* Tier section headers - proper tier colors with bold weight */
+    .leaderboard-table .tier-header.platinum {
+      color: #e5e4e2;
+      font-weight: 700;
+    }
+    .leaderboard-table .tier-header.gold {
+      color: #ffd700;
+      font-weight: 700;
+    }
+    .leaderboard-table .tier-header.silver {
+      color: #c0c0c0;
+      font-weight: 700;
+    }
+    .leaderboard-table .tier-header.bronze {
+      color: #cd7f32;
+      font-weight: 700;
+    }
+
+    /* Rank column - use --text instead of --text-muted */
+    .leaderboard-table .leaderboard-rank {
+      color: var(--text);
+    }
+
+    /* Score column - use --accent with bold weight */
+    .leaderboard-table .leaderboard-score {
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    /* Placeholder dashes - use --text, remove italic */
+    .leaderboard-table .placeholder-dash {
+      color: var(--text);
+      font-style: normal;
+    }
+
+    /* Table borders - use --border-strong for better row separation */
+    .leaderboard-table tbody tr {
+      border-bottom-color: var(--border-strong);
+    }
+
+    /* Mobile (30d) text - use --text instead of --text-muted */
+    .leaderboard-table thead tr th:nth-child(3)::after,
+    .leaderboard-table tbody tr td:nth-child(3)::after {
+      color: var(--text);
+    }
+  }
+}
+
+:root[data-theme="dark"] {
+  /* Base tier header - set readable default color and lighter background */
+  .leaderboard-table .tier-header {
+    color: var(--text-strong);
+    background: #2d2a28;
+  }
+
+  /* Tier section headers - proper tier colors with bold weight */
+  .leaderboard-table .tier-header.platinum {
+    color: #e5e4e2;
+    font-weight: 700;
+  }
+  .leaderboard-table .tier-header.gold {
+    color: #ffd700;
+    font-weight: 700;
+  }
+  .leaderboard-table .tier-header.silver {
+    color: #c0c0c0;
+    font-weight: 700;
+  }
+  .leaderboard-table .tier-header.bronze {
+    color: #cd7f32;
+    font-weight: 700;
+  }
+
+  /* Rank column - use --text instead of --text-muted */
+  .leaderboard-table .leaderboard-rank {
+    color: var(--text);
+  }
+
+  /* Score column - use --accent with bold weight */
+  .leaderboard-table .leaderboard-score {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* Placeholder dashes - use --text, remove italic */
+  .leaderboard-table .placeholder-dash {
+    color: var(--text);
+    font-style: normal;
+  }
+
+  /* Table borders - use --border-strong for better row separation */
+  .leaderboard-table tbody tr {
+    border-bottom-color: var(--border-strong);
+  }
+
+  /* Mobile (30d) text - use --text instead of --text-muted */
+  .leaderboard-table thead tr th:nth-child(3)::after,
+  .leaderboard-table tbody tr td:nth-child(3)::after {
+    color: var(--text);
+  }
 }
