@@ -173,6 +173,8 @@ function Profile({ user, onLogout, language, onUpdate }) {
   const [loadingScore, setLoadingScore] = useState(true);
   const [streak, setStreak] = useState(null);
   const [streakLoading, setStreakLoading] = useState(true);
+  const [isPublic, setIsPublic] = useState(null);
+  const [profileBusy, setProfileBusy] = useState(false);
 
   // "favourites" is not a separate store -- it is the same endpoint filtered to
   // the dishes this user actually rated 4 or 5.
@@ -218,6 +220,32 @@ function Profile({ user, onLogout, language, onUpdate }) {
       .then(data => { setStreak(data); setStreakLoading(false); })
       .catch(() => { setStreak(null); setStreakLoading(false); });
   }, [user]);
+
+  // Load the current profile-visibility flag. /me is the source of truth; the
+  // login response does not carry it, so we cannot rely on the `user` prop.
+  useEffect(() => {
+    if (!user) return;
+    fetch(`${API}/api/v1/me`, { headers: authHeaders() })
+      .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then(data => setIsPublic(!!data.is_public))
+      .catch(() => setIsPublic(false));
+  }, [user]);
+
+  const togglePublic = async () => {
+    if (profileBusy) return;
+    setProfileBusy(true);
+    const resp = await fetch(`${API}/api/v1/me/profile`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ is_public: !isPublic }),
+    }).catch(() => null);
+    setProfileBusy(false);
+    if (resp && resp.ok) {
+      setIsPublic(!isPublic);
+    } else {
+      notify(t('auth.profileToggleFailed'));
+    }
+  };
 
   const saveDisplayName = async (value) => {
     setDisplayBusy(true);
@@ -351,6 +379,16 @@ function Profile({ user, onLogout, language, onUpdate }) {
         ) : (
           <p className="muted-text">{t('streak.none')}</p>
         )}
+      </div>
+
+      <div className="card">
+        <h3>{t('auth.profileVisibility')}</h3>
+        <p className="muted-text">{t('auth.profileVisibilityHint')}</p>
+        <button type="button" className="btn btn--ghost btn--sm"
+          aria-pressed={isPublic}
+          onClick={togglePublic} disabled={profileBusy || isPublic === null}>
+          {profileBusy ? '…' : (isPublic ? t('auth.profilePublic') : t('auth.profilePrivate'))}
+        </button>
       </div>
 
       <div className="tabs mt-4">

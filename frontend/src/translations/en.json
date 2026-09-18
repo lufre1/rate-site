@@ -245,7 +245,12 @@
     "saveRatingFailed": "The change could not be saved.",
     "deleteRatingFailed": "The review could not be deleted.",
     "logoutIncomplete": "Signed out. The session on the server could not be ended.",
-    "loadRatingsFailed": "Your reviews could not be loaded."
+    "loadRatingsFailed": "Your reviews could not be loaded.",
+    "profileVisibility": "Public profile",
+    "profileVisibilityHint": "When public, other people can open your profile and see your ratings, comments and photos.",
+    "profilePublic": "Public – make private",
+    "profilePrivate": "Private – make public",
+    "profileToggleFailed": "The profile setting could not be changed."
   },
   "stats": {
     "title": "Statistics",
@@ -319,5 +324,13 @@
     "servedCount": "{{n}} dishes rated",
     "loading": "Loading…",
     "error": "Could not load the rewind."
+  },
+  "profile": {
+    "title": "Profile",
+    "loading": "Loading…",
+    "notFound": "This profile is private or does not exist.",
+    "ratingsCount": "{{count}} ratings",
+    "loadFailed": "The reviews could not be loaded.",
+    "noRatings": "No ratings yet."
   }
 }

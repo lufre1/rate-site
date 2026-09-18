@@ -476,6 +476,7 @@ def get_leaderboard(db: Session, on_date: date = None, limit: int = 100, offset:
         final_leaderboard.append({
             'user_id': entry['user_id'],
             'username': details['display_name'] or details['username'],
+            'real_username': details['username'],
             'display_name': details['display_name'],
             'score': entry['score'],
             'rank': entry['rank'],
@@ -577,6 +578,7 @@ def get_user_leaderboard_info(db: Session, user_id: int, on_date: date = None):
     return {
         'user_id': user_id,
         'username': user.display_name or user.username,
+        'real_username': user.username,
         'display_name': user.display_name,
         'score': user_score,
         'rank': user_rank,

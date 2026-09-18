@@ -142,6 +142,9 @@ class User(Base):
     display_name = Column(String, nullable=True)
     password_hash = Column(String, nullable=False)
     created_at = Column(DateTime, default=func.now())
+    # Public profiles (issue #30): private by default. A user opts in to being
+    # listed; until then their profile route 404s exactly like a nonexistent one.
+    is_public = Column(Boolean, nullable=False, default=False)
 
 
 class LeaderboardScore(Base):
@@ -304,6 +307,18 @@ def init_db():
             conn.execute(text("ALTER TABLE users ADD COLUMN display_name VARCHAR"))
             conn.commit()
             log.info("Added display_name column to users table")
+        # Add is_public column to users if missing (issue #30). NOT NULL with a
+        # FALSE default so every existing account is private on first run.
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='users' AND column_name='is_public'"
+        ))
+        if not result.fetchone():
+            conn.execute(text(
+                "ALTER TABLE users ADD COLUMN is_public BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            conn.commit()
+            log.info("Added is_public column to users table")
         # Add expires_at column to auth_tokens if missing, and retire every
         # session that predates token hashing.
         #

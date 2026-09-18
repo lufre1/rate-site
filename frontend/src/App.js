@@ -9,6 +9,7 @@ import Account from './Account';
 import Stats from './Stats';
 import Leaderboard from './Leaderboard';
 import Rewind from './Rewind';
+import Profile from './Profile';
 import { useToast } from './Toast';
 import {
   API, authHeaders, getToken, clearToken, formatRelativeDate, StarPicker,
@@ -168,6 +169,8 @@ function App() {
   const [showStats, setShowStats] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showRewind, setShowRewind] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [profileUsername, setProfileUsername] = useState(null);
   const [user, setUser] = useState(null);
   const [showAccount, setShowAccount] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -230,10 +233,13 @@ function App() {
     setShowDatenschutz(false);
     setShowLeaderboard(false);
     setShowRewind(false);
+    setShowProfile(false);
+    setProfileUsername(null);
   };
 
   // Only one secondary view is ever open, so opening one closes the others.
-  const openView = (view) => {
+  // 'profile' is the one view that carries a payload (the username to show).
+  const openView = (view, username) => {
     scrollToTop();
     setShowStats(view === 'stats');
     setShowAccount(view === 'account');
@@ -241,6 +247,8 @@ function App() {
     setShowDatenschutz(view === 'datenschutz');
     setShowLeaderboard(view === 'leaderboard');
     setShowRewind(view === 'rewind');
+    setShowProfile(view === 'profile');
+    setProfileUsername(view === 'profile' ? username : null);
   };
 
   useEffect(() => {
@@ -626,9 +634,12 @@ function App() {
             language={language}
           />
         ) : showLeaderboard ? (
-          <Leaderboard key={language} onBack={goHome} language={language} user={user} />
+          <Leaderboard key={language} onBack={goHome} language={language} user={user}
+            onOpenProfile={u => openView('profile', u)} />
         ) : showRewind ? (
           <Rewind onBack={goHome} language={language} user={user} />
+        ) : showProfile ? (
+          <Profile key={profileUsername} username={profileUsername} onBack={goHome} language={language} />
         ) : showImpressum ? (
           <Impressum onBack={goHome} />
         ) : showDatenschutz ? (

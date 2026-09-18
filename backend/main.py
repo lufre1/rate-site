@@ -303,6 +303,14 @@ class MeOut(BaseModel):
     display_name: Optional[str] = None
     rating_count: int
     created_at: Optional[datetime] = None
+    is_public: bool = False
+
+
+class PublicProfileOut(BaseModel):
+    username: str
+    display_name: Optional[str] = None
+    rating_count: int
+    created_at: Optional[datetime] = None
 
 
 class StreakOut(BaseModel):
@@ -1449,7 +1457,56 @@ def logout(authorization: Optional[str] = Header(None), db: Session = Depends(ge
 @app.get("/api/v1/me", response_model=MeOut, tags=["Auth"])
 def get_me(user: DBUser = Depends(auth.current_user), db: Session = Depends(get_db)):
     count = db.query(func.count(DBRating.id)).filter(DBRating.user_id == user.id).scalar()
-    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at)
+    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at, is_public=bool(user.is_public))
+
+
+@app.patch("/api/v1/me/profile", response_model=MeOut, tags=["Auth"])
+def set_profile_public(data: dict, user: DBUser = Depends(auth.current_user), db: Session = Depends(get_db)):
+    """Opt in to (or out of) a public profile. Toggling private takes effect
+    immediately -- the public route reads the flag on every request, so there is
+    no cached copy to invalidate."""
+    if "is_public" not in data or not isinstance(data["is_public"], bool):
+        raise HTTPException(status_code=400, detail="is_public must be a boolean")
+    user.is_public = data["is_public"]
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    count = db.query(func.count(DBRating.id)).filter(DBRating.user_id == user.id).scalar()
+    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at, is_public=bool(user.is_public))
+
+
+def _public_user_or_404(db: Session, username: str) -> DBUser:
+    """The user behind a public profile, or 404.
+
+    A private profile and a nonexistent one return the identical 404 -- a 403
+    would confirm the account exists, the same username-enumeration leak that
+    login is deliberately careful to avoid.
+    """
+    user = db.query(DBUser).filter(DBUser.username == username).first()
+    if user is None or not user.is_public:
+        raise HTTPException(status_code=404, detail="Not found")
+    return user
+
+
+@app.get("/api/v1/users/{username}", response_model=PublicProfileOut, tags=["Auth"])
+def get_public_profile(username: str, db: Session = Depends(get_db)):
+    """Another user's profile, only if they opted in. Anonymous ratings are
+    never linked: the ratings route below filters on user_id, not user_name."""
+    user = _public_user_or_404(db, username)
+    count = db.query(func.count(DBRating.id)).filter(DBRating.user_id == user.id).scalar()
+    return PublicProfileOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at)
+
+
+@app.get("/api/v1/users/{username}/ratings", response_model=List[MyRatingOut], tags=["Auth"])
+def get_public_profile_ratings(
+    username: str,
+    min_rating: int = Query(1, ge=1, le=5),
+    sort: str = Query("date", pattern="^(date|rating)$"),
+    lang: str = "de",
+    db: Session = Depends(get_db),
+):
+    user = _public_user_or_404(db, username)
+    return _ratings_for_user(db, user.id, min_rating, sort, lang)
 
 
 @app.delete("/api/v1/me", status_code=204, tags=["Auth"])
@@ -1508,8 +1565,8 @@ def set_display_name(data: dict, user: DBUser = Depends(auth.current_user), db: 
             display_name = None
         elif len(display_name) > 30:
             raise HTTPException(status_code=400, detail="display_name must be at most 30 characters")
-        elif not re.match(r"^[A-Za-z0-9 _-]+$", display_name):
-            raise HTTPException(status_code=400, detail="display_name must contain only letters, digits, spaces, underscore, or hyphen")
+        elif not re.match(r"^(?=.*[A-Za-z0-9])[A-Za-z0-9 _-]+$", display_name):
+            raise HTTPException(status_code=400, detail="display_name must contain only letters, digits, spaces, underscore, or hyphen, and at least one letter or digit")
     user.display_name = display_name
     db.add(user)
     # Update existing ratings and side_ratings with the new display name.
@@ -1531,19 +1588,12 @@ def set_display_name(data: dict, user: DBUser = Depends(auth.current_user), db: 
     return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at)
 
 
-@app.get("/api/v1/me/ratings", response_model=List[MyRatingOut], tags=["Auth"])
-def get_my_ratings(
-    min_rating: int = Query(1, ge=1, le=5),
-    sort: str = Query("date", pattern="^(date|rating)$"),
-    lang: str = "de",
-    user: DBUser = Depends(auth.current_user),
-    db: Session = Depends(get_db),
-):
-    """The caller's own ratings.
+def _ratings_for_user(db: Session, user_id: int, min_rating: int, sort: str, lang: str) -> List[MyRatingOut]:
+    """A user's ratings, filtered strictly on user_id.
 
-    Also backs the "favourites" view -- that is just this endpoint called with
-    ?min_rating=4&sort=rating, so there is no separate favourites table to keep
-    in sync with what people actually rated.
+    Shared by /me/ratings and the public profile route. Filtering on user_id
+    (never user_name) is what keeps anonymous rows -- user_id IS NULL -- out of
+    every profile, since the generated names are not identities.
     """
     if lang not in ("de", "en"):
         lang = "de"
@@ -1553,7 +1603,7 @@ def get_my_ratings(
     ).join(
         DBMensa, DBMeal.mensa_id == DBMensa.id
     ).filter(
-        DBRating.user_id == user.id,
+        DBRating.user_id == user_id,
         DBRating.rating >= min_rating,
     )
 
@@ -1577,6 +1627,23 @@ def get_my_ratings(
             created_at=r.Rating.created_at,
         ))
     return out
+
+
+@app.get("/api/v1/me/ratings", response_model=List[MyRatingOut], tags=["Auth"])
+def get_my_ratings(
+    min_rating: int = Query(1, ge=1, le=5),
+    sort: str = Query("date", pattern="^(date|rating)$"),
+    lang: str = "de",
+    user: DBUser = Depends(auth.current_user),
+    db: Session = Depends(get_db),
+):
+    """The caller's own ratings.
+
+    Also backs the "favourites" view -- that is just this endpoint called with
+    ?min_rating=4&sort=rating, so there is no separate favourites table to keep
+    in sync with what people actually rated.
+    """
+    return _ratings_for_user(db, user.id, min_rating, sort, lang)
 
 
 @app.get("/api/v1/me/streak", response_model=StreakOut, tags=["Auth"])
@@ -2277,6 +2344,9 @@ def get_meal_calendar(meal_id: int, db: Session = Depends(get_db)):
 class LeaderboardEntry(BaseModel):
     user_id: int
     username: str
+    # The real account name (not the display name) -- what the public profile
+    # route is keyed on. `username` above is the display value.
+    real_username: str
     display_name: Optional[str] = None
     score: int
     rank: int

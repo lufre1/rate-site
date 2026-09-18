@@ -102,6 +102,24 @@
   color: var(--text-strong);
 }
 
+/* Clickable username -> public profile. A button that reads as a link. */
+.leaderboard-username--link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: 500;
+  color: var(--accent);
+  cursor: pointer;
+  text-align: left;
+}
+
+.leaderboard-username--link:hover,
+.leaderboard-username--link:focus-visible {
+  text-decoration: underline;
+}
+
 /* Score column */
 .leaderboard-table .leaderboard-score {
   font-weight: 600;

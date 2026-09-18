@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { API, authHeaders, getToken } from './shared';
 
-function Leaderboard({ onBack, language, user }) {
+function Leaderboard({ onBack, language, user, onOpenProfile }) {
   const { t } = useTranslation();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -117,13 +117,16 @@ function Leaderboard({ onBack, language, user }) {
           <h3>{t('leaderboard.myPosition')}</h3>
           <div className="leaderboard-entry">
             <span className="leaderboard-rank">#{myPosition.rank}</span>
-            <div className="leaderboard-user">
-              <span className="leaderboard-username">{myPosition.username}</span>
-              <span className="leaderboard-badge" style={{ backgroundColor: getBadgeColor(myPosition.badge) }}>
-                {getBadgeLabel(myPosition.badge)}
-              </span>
-              {isCurrentUser(myPosition) && <span className="you-label">{t('leaderboard.you')}</span>}
-            </div>
+              <div className="leaderboard-user">
+                <button type="button" className="leaderboard-username leaderboard-username--link"
+                  onClick={() => onOpenProfile && onOpenProfile(myPosition.real_username)}>
+                  {myPosition.username}
+                </button>
+                <span className="leaderboard-badge" style={{ backgroundColor: getBadgeColor(myPosition.badge) }}>
+                  {getBadgeLabel(myPosition.badge)}
+                </span>
+                {isCurrentUser(myPosition) && <span className="you-label">{t('leaderboard.you')}</span>}
+              </div>
             <span className="leaderboard-score">{myPosition.score} {t('leaderboard.points')}</span>
           </div>
         </div>
@@ -170,7 +173,10 @@ function Leaderboard({ onBack, language, user }) {
                     >
                       <td className="numeric leaderboard-rank">#{userEntry.rank}</td>
                       <td className="leaderboard-username">
-                        {userEntry.username}
+                        <button type="button" className="leaderboard-username--link"
+                          onClick={() => onOpenProfile && onOpenProfile(userEntry.real_username)}>
+                          {userEntry.username}
+                        </button>
                         {isCurrentUser(userEntry) && <span className="you-label">{t('leaderboard.you')}</span>}
                       </td>
                       <td className="numeric leaderboard-score">{userEntry.score}</td>

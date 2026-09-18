@@ -245,7 +245,12 @@
     "saveRatingFailed": "Änderung konnte nicht gespeichert werden.",
     "deleteRatingFailed": "Bewertung konnte nicht gelöscht werden.",
     "logoutIncomplete": "Abgemeldet. Die Sitzung auf dem Server konnte nicht beendet werden.",
-    "loadRatingsFailed": "Deine Bewertungen konnten nicht geladen werden."
+    "loadRatingsFailed": "Deine Bewertungen konnten nicht geladen werden.",
+    "profileVisibility": "Öffentliches Profil",
+    "profileVisibilityHint": "Wenn öffentlich, können andere dein Profil öffnen und deine Bewertungen, Kommentare und Fotos sehen.",
+    "profilePublic": "Öffentlich – privat machen",
+    "profilePrivate": "Privat – öffentlich machen",
+    "profileToggleFailed": "Die Profil-Einstellung konnte nicht geändert werden."
   },
   "stats": {
     "title": "Statistiken",
@@ -319,5 +324,13 @@
     "servedCount": "{{n}} Gerichte bewertet",
     "loading": "Lade…",
     "error": "Rückblick konnte nicht geladen werden."
+  },
+  "profile": {
+    "title": "Profil",
+    "loading": "Lade…",
+    "notFound": "Dieses Profil ist privat oder existiert nicht.",
+    "ratingsCount": "{{count}} Bewertungen",
+    "loadFailed": "Die Bewertungen konnten nicht geladen werden.",
+    "noRatings": "Noch keine Bewertungen."
   }
 }
