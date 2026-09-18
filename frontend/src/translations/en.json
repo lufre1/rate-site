@@ -302,7 +302,26 @@
       "silver": "Silver",
       "bronze": "Bronze"
     },
-    "you": "You"
+    "you": "You",
+    "scoring": {
+      "title": "How the leaderboard works",
+      "baseTitle": "Base points",
+      "base": "Each rating with a comment or photo earns 1 point. A maximum of 20 points count per day.",
+      "rewardsTitle": "Bonus rewards",
+      "rewardFirstPhoto": "+20 points: You were the first to photograph a dish.",
+      "rewardBestPhoto": "+50 points: Your photo was voted the best for a dish (at least 5 votes).",
+      "rewardBestComment": "+50 points: Your comment was voted the best for a dish (at least 5 votes).",
+      "rewardContinuity": "+30 points: You rated at least 15 dishes in a calendar month.",
+      "badgesTitle": "Badges by rank",
+      "badgePlatinum": "Platinum: top 10% of raters",
+      "badgeGold": "Gold: top 25% of raters",
+      "badgeSilver": "Silver: top 50% of raters",
+      "badgeBronze": "Bronze: everyone else",
+      "climbTitle": "How to climb",
+      "climb": "Rate dishes regularly with a comment or photo and collect bonus rewards to climb the leaderboard.",
+      "anonymousTitle": "Anonymous ratings",
+      "anonymous": "Anonymous ratings don't count for the leaderboard. Sign in to earn points."
+    }
   },
   "streak": {
     "title": "Rating streak",

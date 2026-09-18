@@ -302,7 +302,26 @@
       "silver": "Silber",
       "bronze": "Bronze"
     },
-    "you": "Du"
+    "you": "Du",
+    "scoring": {
+      "title": "So funktioniert die Rangliste",
+      "baseTitle": "Basispunkte",
+      "base": "Jede Bewertung mit Kommentar oder Foto gibt 1 Punkt. Pro Tag zählen maximal 20 Punkte.",
+      "rewardsTitle": "Zusatzauszeichnungen",
+      "rewardFirstPhoto": "+20 Punkte: Du warst der Erste, der ein Gericht fotografiert hat.",
+      "rewardBestPhoto": "+50 Punkte: Dein Foto wurde für ein Gericht am häufigsten hochgewählt (mindestens 5 Stimmen).",
+      "rewardBestComment": "+50 Punkte: Dein Kommentar wurde für ein Gericht am häufigsten hochgewählt (mindestens 5 Stimmen).",
+      "rewardContinuity": "+30 Punkte: Du hast in einem Kalendermonat mindestens 15 Gerichte bewertet.",
+      "badgesTitle": "Abzeichen nach Rang",
+      "badgePlatinum": "Platin: Top 10 % der Rater",
+      "badgeGold": "Gold: Top 25 % der Rater",
+      "badgeSilver": "Silber: Top 50 % der Rater",
+      "badgeBronze": "Bronze: alle anderen",
+      "climbTitle": "So steigst du auf",
+      "climb": "Bewerte regelmäßig Gerichte mit Kommentar oder Foto und sammle Zusatzauszeichnungen, um in der Rangliste aufzusteigen.",
+      "anonymousTitle": "Anonyme Bewertungen",
+      "anonymous": "Anonyme Bewertungen zählen nicht für die Rangliste. Melde dich an, um Punkte zu sammeln."
+    }
   },
   "streak": {
     "title": "Bewertungs-Serie",

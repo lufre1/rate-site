@@ -207,6 +207,45 @@ function Leaderboard({ onBack, language, user, onOpenProfile }) {
         </div>
       )}
 
+      {/* Scoring legend -- collapsed by default, read once */}
+      <details className="scoring-legend">
+        <summary className="scoring-legend__summary">
+          {t('leaderboard.scoring.title')}
+        </summary>
+        <div className="scoring-legend__body">
+          <section>
+            <h3>{t('leaderboard.scoring.baseTitle')}</h3>
+            <p>{t('leaderboard.scoring.base')}</p>
+          </section>
+          <section>
+            <h3>{t('leaderboard.scoring.rewardsTitle')}</h3>
+            <ul>
+              <li>{t('leaderboard.scoring.rewardFirstPhoto')}</li>
+              <li>{t('leaderboard.scoring.rewardBestPhoto')}</li>
+              <li>{t('leaderboard.scoring.rewardBestComment')}</li>
+              <li>{t('leaderboard.scoring.rewardContinuity')}</li>
+            </ul>
+          </section>
+          <section>
+            <h3>{t('leaderboard.scoring.badgesTitle')}</h3>
+            <ul>
+              <li>{t('leaderboard.scoring.badgePlatinum')}</li>
+              <li>{t('leaderboard.scoring.badgeGold')}</li>
+              <li>{t('leaderboard.scoring.badgeSilver')}</li>
+              <li>{t('leaderboard.scoring.badgeBronze')}</li>
+            </ul>
+          </section>
+          <section>
+            <h3>{t('leaderboard.scoring.climbTitle')}</h3>
+            <p>{t('leaderboard.scoring.climb')}</p>
+          </section>
+          <section>
+            <h3>{t('leaderboard.scoring.anonymousTitle')}</h3>
+            <p>{t('leaderboard.scoring.anonymous')}</p>
+          </section>
+        </div>
+      </details>
+
       <button type="button" className="btn btn--primary mt-6" onClick={onBack}>
         {t('ui.backHome')}
       </button>

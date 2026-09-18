@@ -245,6 +245,71 @@
   margin-left: auto;
 }
 
+/* Scoring legend -- collapsible explanation of the scoring system */
+.scoring-legend {
+  margin-top: var(--space-6);
+  padding: 0 var(--space-3);
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
+}
+
+.scoring-legend__summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.scoring-legend__summary:hover,
+.scoring-legend__summary:focus-visible {
+  color: var(--text-strong);
+}
+
+.scoring-legend__body {
+  padding: 0 0 var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.scoring-legend__body section {
+  margin-bottom: var(--space-4);
+}
+
+.scoring-legend__body section:last-child {
+  margin-bottom: 0;
+}
+
+.scoring-legend__body h3 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.scoring-legend__body p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.scoring-legend__body ul {
+  margin: 0;
+  padding-left: var(--space-4);
+  line-height: 1.5;
+}
+
+.scoring-legend__body li {
+  margin-bottom: var(--space-1);
+}
+
+.scoring-legend__body li:last-child {
+  margin-bottom: 0;
+}
+
 /* Dark mode visibility improvements */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {

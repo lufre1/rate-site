@@ -29,6 +29,23 @@ jest.mock('react-i18next', () => ({
         'leaderboard.columns.tokens30d': 'Tokens (30d)',
         'leaderboard.columns.rank30d': 'Rank (30d)',
         'leaderboard.you': 'You',
+        'leaderboard.scoring.title': 'How the leaderboard works',
+        'leaderboard.scoring.baseTitle': 'Base points',
+        'leaderboard.scoring.base': 'Each rating with a comment or photo earns 1 point.',
+        'leaderboard.scoring.rewardsTitle': 'Bonus rewards',
+        'leaderboard.scoring.rewardFirstPhoto': '+20 points: first photo of a dish.',
+        'leaderboard.scoring.rewardBestPhoto': '+50 points: best photo for a dish.',
+        'leaderboard.scoring.rewardBestComment': '+50 points: best comment for a dish.',
+        'leaderboard.scoring.rewardContinuity': '+30 points: 15 dishes in a month.',
+        'leaderboard.scoring.badgesTitle': 'Badges by rank',
+        'leaderboard.scoring.badgePlatinum': 'Platinum: top 10% of raters',
+        'leaderboard.scoring.badgeGold': 'Gold: top 25% of raters',
+        'leaderboard.scoring.badgeSilver': 'Silver: top 50% of raters',
+        'leaderboard.scoring.badgeBronze': 'Bronze: everyone else',
+        'leaderboard.scoring.climbTitle': 'How to climb',
+        'leaderboard.scoring.climb': 'Rate dishes regularly to climb the leaderboard.',
+        'leaderboard.scoring.anonymousTitle': 'Anonymous ratings',
+        'leaderboard.scoring.anonymous': 'Anonymous ratings don\'t count for the leaderboard.',
       };
       return translations[key] || key;
     }
@@ -260,7 +277,48 @@ describe('Leaderboard', () => {
     await waitFor(() => {
       expect(screen.getByText('Your Position')).toBeInTheDocument();
       expect(screen.getByText('me')).toBeInTheDocument();
-      expect(screen.getByText(/50/)).toBeInTheDocument();
+      expect(screen.getByText('50 points')).toBeInTheDocument();
+    });
+  });
+
+  test('renders the scoring legend collapsed by default', async () => {
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        users: [],
+        total: 0,
+        date: new Date().toISOString()
+      })
+    });
+
+    render(<Leaderboard onBack={jest.fn()} language="de" />);
+
+    // The summary is always visible...
+    expect(screen.getByText('How the leaderboard works')).toBeInTheDocument();
+    // ...and the <details> starts collapsed (no `open` attribute).
+    const details = document.querySelector('.scoring-legend');
+    expect(details).toBeInTheDocument();
+    expect(details).not.toHaveAttribute('open');
+  });
+
+  test('expands the scoring legend when the summary is clicked', async () => {
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        users: [],
+        total: 0,
+        date: new Date().toISOString()
+      })
+    });
+
+    render(<Leaderboard onBack={jest.fn()} language="de" />);
+
+    const details = document.querySelector('.scoring-legend');
+    const summary = screen.getByText('How the leaderboard works');
+    fireEvent.click(summary);
+
+    await waitFor(() => {
+      expect(details).toHaveAttribute('open');
     });
   });
 });
