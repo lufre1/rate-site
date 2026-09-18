@@ -1,6 +1,6 @@
 // Bits used by both App.js and Account.js. Lives here rather than in App.js so
 // Account.js doesn't have to import from its own parent (a cycle).
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 // `??`, not `||`. Behind the reverse proxy the correct value is the EMPTY string
@@ -221,4 +221,66 @@ export function setDietFilter(filter) {
       localStorage.setItem(DIET_KEY, filter);
     }
   } catch (e) { /* non-fatal: the choice just won't survive a reload */ }
+}
+
+// Full-screen image overlay. Lives here (not in App.js) so both App.js and
+// Rewind.js can open one without importing from each other (a cycle).
+export function Lightbox({ src, alt, onClose, children }) {
+  const { t } = useTranslation();
+  const closeRef = useRef(null);
+  const dialogRef = useRef(null);
+
+  useEffect(() => {
+    const previous = document.activeElement;
+    closeRef.current?.focus();
+
+    const onKey = (e) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab') return;
+      // Only the close button is focusable, so Tab simply stays on it.
+      const focusable = dialogRef.current?.querySelectorAll('button');
+      if (!focusable || focusable.length === 0) return;
+      e.preventDefault();
+      focusable[0].focus();
+    };
+    document.addEventListener('keydown', onKey);
+
+    // The page behind must not scroll under a full-screen overlay.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previousOverflow;
+      // Return focus to whatever opened it, or the reader is dumped at the
+      // top of the tab order.
+      if (previous instanceof HTMLElement) previous.focus();
+    };
+  }, [onClose]);
+
+  return (
+    <div className="lightbox" role="dialog" aria-modal="true" aria-label={alt}
+      ref={dialogRef} onClick={onClose}>
+      <button
+        type="button"
+        ref={closeRef}
+        className="lightbox__close"
+        onClick={onClose}
+        title={t('ui.close')}
+        aria-label={t('ui.close')}
+      >
+        <span aria-hidden="true">&times;</span>
+      </button>
+      {children ? (
+        <div className="lightbox__content" onClick={(e) => e.stopPropagation()}>
+          <img className="lightbox__img lightbox__img--compact" src={src} alt={alt}
+            onClick={(e) => e.stopPropagation()} />
+          {children}
+        </div>
+      ) : (
+        <img className="lightbox__img" src={src} alt={alt}
+          onClick={(e) => e.stopPropagation()} />
+      )}
+    </div>
+  );
 }

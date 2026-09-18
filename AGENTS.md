@@ -1,5 +1,14 @@
 # Mensa Rating System — AGENTS.md
 
+## Environment marker
+
+**Check this first, before doing anything else.** A `.dev-instance` file at the repo root marks this checkout as the **dev** instance. It is gitignored and exists only on the dev host, so it never reaches prod via GitHub. Check for it to determine which environment you are in:
+
+- **present → dev**: port 8080, `mensa_dev` DB, `rate-site-dev` compose project, public URL `http://141.5.100.235:8080/`.
+- **absent → prod**: ports 80/443 (TLS), `mensa_db` DB, `rate-site` compose project, `c100-246.cloud.gwdg.de` (`141.5.100.246`).
+
+Never create or commit the `.dev-instance` file.
+
 ## Architecture
 
 - **Frontend**: React (Create React App, Nginx serve), **Backend**: FastAPI (Python 3.11), **DB**: PostgreSQL 15
@@ -15,7 +24,7 @@
   a localStorage key, the upload handling or the backup retention makes that
   page wrong.
 - **Language support**: Each meal stores `name_de`, `name_en`, `description_de`, `description_en`; API returns `lang` parameter (default `de`)
-- **Dev instance**: http://141.5.100.246:8080/ — all development updates applied here first. Start it with `./ops/dev-up.sh`. Dev has its own database (`mensa_dev`), its own uploads volume and its own proxy config; see "How dev and prod are kept apart".
+- **Dev instance**: http://141.5.100.235:8080/ — all development updates applied here first. Start it with `./ops/dev-up.sh`. Dev has its own database (`mensa_dev`), its own uploads volume and its own proxy config; see "How dev and prod are kept apart".
 
 ## Database Schema Details (Non-Obvious)
 
@@ -421,7 +430,7 @@ the same thing in either environment.
 
 - When developing a feature, **always test it on the dev/test instance first** — never push to prod.
 - **Always ask the user to push to prod**; never deploy to production yourself.
-- **Dev instance URL**: http://141.5.100.246:8080/ — all updates must be applied here first during development.
+- **Dev instance URL**: http://141.5.100.235:8080/ — all updates must be applied here first during development.
 - **Carefully update the docker container** on the dev instance, not the prod container, during development.
 
 Use exactly these invocations — mixing them is what made the prod proxy squat

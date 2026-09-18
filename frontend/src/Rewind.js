@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { API, authHeaders, thumbSrc, thumbErrorHandler } from './shared';
+import { API, authHeaders, thumbSrc, thumbErrorHandler, Lightbox } from './shared';
 
 function renderStars(rating) {
   const filled = Math.min(5, Math.max(0, Math.round(rating)));
@@ -17,13 +17,14 @@ function RewindShell({ children }) {
   );
 }
 
-function Rewind({ onBack, language, user, onEnlarge }) {
+function Rewind({ onBack, language, user }) {
   const { t } = useTranslation();
   const [period, setPeriod] = useState('week');
   const [community, setCommunity] = useState(null);
   const [personal, setPersonal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [enlargedImage, setEnlargedImage] = useState(null);
 
   useEffect(() => {
     setLoading(true);
@@ -121,7 +122,7 @@ function Rewind({ onBack, language, user, onEnlarge }) {
                         <button
                           type="button"
                           className="dish__photo-btn"
-                          onClick={() => onEnlarge(`${API}${dish.photo_url}`)}
+                          onClick={() => setEnlargedImage(`${API}${dish.photo_url}`)}
                         >
                           <img
                             className="dish__photo"
@@ -177,7 +178,7 @@ function Rewind({ onBack, language, user, onEnlarge }) {
                         <button
                           type="button"
                           className="dish__photo-btn"
-                          onClick={() => onEnlarge(`${API}${dish.photo_url}`)}
+                          onClick={() => setEnlargedImage(`${API}${dish.photo_url}`)}
                         >
                           <img
                             className="dish__photo"
@@ -212,6 +213,11 @@ function Rewind({ onBack, language, user, onEnlarge }) {
       <button type="button" className="btn btn--primary" onClick={onBack}>
         {t('ui.backHome')}
       </button>
+
+      {enlargedImage && (
+        <Lightbox src={enlargedImage} alt={t('ui.enlargedPhoto')}
+          onClose={() => setEnlargedImage(null)} />
+      )}
     </RewindShell>
   );
 }

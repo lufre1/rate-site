@@ -19,7 +19,7 @@ ENV CI=true
 ENV NODE_OPTIONS=--max-old-space-size=768
 
 COPY package*.json ./
-ARG REACT_APP_API_URL=http://localhost:8000
+ARG REACT_APP_API_URL=
 ENV REACT_APP_API_URL=${REACT_APP_API_URL}
 RUN npm install --no-audit --no-fund
 COPY . .

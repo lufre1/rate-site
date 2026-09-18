@@ -27,12 +27,20 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
-jest.mock('./shared', () => ({
-  API: 'http://localhost:8000',
-  authHeaders: () => ({ 'Authorization': 'Bearer test-token' }),
-  thumbSrc: (url) => url,
-  thumbErrorHandler: () => () => {}
-}));
+jest.mock('./shared', () => {
+  const React = require('react');
+  return {
+    API: 'http://localhost:8000',
+    authHeaders: () => ({ 'Authorization': 'Bearer test-token' }),
+    thumbSrc: (url) => url,
+    thumbErrorHandler: () => () => {},
+    Lightbox: ({ src, alt, onClose }) =>
+      React.createElement('div', { className: 'lightbox', role: 'dialog', 'aria-modal': 'true', 'aria-label': alt },
+        React.createElement('button', { type: 'button', className: 'lightbox__close', 'aria-label': 'close', onClick: onClose }, '×'),
+        React.createElement('img', { className: 'lightbox__img', src, alt })
+      )
+  };
+});
 
 describe('Rewind', () => {
   const originalFetch = global.fetch;
@@ -58,7 +66,7 @@ describe('Rewind', () => {
       })
     });
 
-    render(<Rewind onBack={jest.fn()} language="de" user={null} onEnlarge={jest.fn()} />);
+    render(<Rewind onBack={jest.fn()} language="de" user={null} />);
 
     await waitFor(() => {
       expect(screen.getByText('Rewind')).toBeInTheDocument();
@@ -78,7 +86,7 @@ describe('Rewind', () => {
       })
     });
 
-    render(<Rewind onBack={jest.fn()} language="de" user={null} onEnlarge={jest.fn()} />);
+    render(<Rewind onBack={jest.fn()} language="de" user={null} />);
 
     await waitFor(() => {
       expect(screen.getByText('This week')).toBeInTheDocument();
@@ -109,7 +117,7 @@ describe('Rewind', () => {
       })
     });
 
-    render(<Rewind onBack={jest.fn()} language="de" user={null} onEnlarge={jest.fn()} />);
+    render(<Rewind onBack={jest.fn()} language="de" user={null} />);
 
     await waitFor(() => {
       expect(screen.getByText('Test Dish')).toBeInTheDocument();
@@ -132,7 +140,7 @@ describe('Rewind', () => {
       })
     });
 
-    render(<Rewind onBack={jest.fn()} language="de" user={null} onEnlarge={jest.fn()} />);
+    render(<Rewind onBack={jest.fn()} language="de" user={null} />);
 
     await waitFor(() => {
       expect(screen.getByText('Not enough ratings for a rewind yet.')).toBeInTheDocument();
@@ -179,7 +187,7 @@ describe('Rewind', () => {
       });
     });
 
-    render(<Rewind onBack={jest.fn()} language="de" user={{ username: 'testuser' }} onEnlarge={jest.fn()} />);
+    render(<Rewind onBack={jest.fn()} language="de" user={{ username: 'testuser' }} />);
 
     await waitFor(() => {
       expect(screen.getByText('Your week')).toBeInTheDocument();
@@ -201,7 +209,7 @@ describe('Rewind', () => {
       })
     });
 
-    render(<Rewind onBack={jest.fn()} language="de" user={null} onEnlarge={jest.fn()} />);
+    render(<Rewind onBack={jest.fn()} language="de" user={null} />);
 
     await waitFor(() => {
       expect(screen.queryByText('Your week')).not.toBeInTheDocument();
@@ -223,7 +231,7 @@ describe('Rewind', () => {
       })
     });
 
-    render(<Rewind onBack={onBack} language="de" user={null} onEnlarge={jest.fn()} />);
+    render(<Rewind onBack={onBack} language="de" user={null} />);
 
     await waitFor(() => {
       expect(screen.getByText('Back home')).toBeInTheDocument();
@@ -267,7 +275,7 @@ describe('Rewind', () => {
       });
     });
 
-    render(<Rewind onBack={jest.fn()} language="de" user={null} onEnlarge={jest.fn()} />);
+    render(<Rewind onBack={jest.fn()} language="de" user={null} />);
 
     // Wait for the toggle buttons to be rendered (initial waitFor on 'Rewind' passes immediately while loading)
     await waitFor(() => {
@@ -300,7 +308,7 @@ describe('Rewind', () => {
       })
     });
 
-    render(<Rewind onBack={jest.fn()} language="de" user={null} onEnlarge={jest.fn()} />);
+    render(<Rewind onBack={jest.fn()} language="de" user={null} />);
 
     expect(screen.getByText('Loading…')).toBeInTheDocument();
   });
@@ -311,10 +319,49 @@ describe('Rewind', () => {
       status: 500
     });
 
-    render(<Rewind onBack={jest.fn()} language="de" user={null} onEnlarge={jest.fn()} />);
+    render(<Rewind onBack={jest.fn()} language="de" user={null} />);
 
     await waitFor(() => {
       expect(screen.getByText(/Could not load the rewind\./)).toBeInTheDocument();
     });
+  });
+
+  test('opens the lightbox when a dish photo is clicked', async () => {
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        period: 'week',
+        scope: 'community',
+        enough: true,
+        total_ratings: 100,
+        dishes_rated: 10,
+        dishes: [
+          {
+            id: 1,
+            name: 'Test Dish',
+            mensa: 'Zentralmensa',
+            avg_rating: 4.5,
+            rating_count: 20,
+            photo_url: '/uploads/test.jpg',
+            comments: []
+          }
+        ]
+      })
+    });
+
+    const { container } = render(<Rewind onBack={jest.fn()} language="de" user={null} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Test Dish')).toBeInTheDocument();
+    });
+
+    const photoBtn = container.querySelector('.dish__photo-btn');
+    fireEvent.click(photoBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+    expect(screen.getByRole('dialog').querySelector('img').src)
+      .toBe('http://localhost:8000/uploads/test.jpg');
   });
 });

@@ -13,7 +13,7 @@ import { useToast } from './Toast';
 import {
   API, authHeaders, getToken, clearToken, formatRelativeDate, StarPicker,
   getVoterId, voteHeaders, ThemeToggle, toDateKey, getDietFilter, DIET_ORDER,
-  thumbSrc, thumbErrorHandler,
+  thumbSrc, thumbErrorHandler, Lightbox,
 } from './shared';
 
 const ICON_BASE = 'https://www.studierendenwerk-goettingen.de/fileadmin/templates/images/mensaspeiseplan/png/';
@@ -628,7 +628,7 @@ function App() {
         ) : showLeaderboard ? (
           <Leaderboard key={language} onBack={goHome} language={language} user={user} />
         ) : showRewind ? (
-          <Rewind onBack={goHome} language={language} user={user} onEnlarge={setEnlargedImage} />
+          <Rewind onBack={goHome} language={language} user={user} />
         ) : showImpressum ? (
           <Impressum onBack={goHome} />
         ) : showDatenschutz ? (
@@ -782,71 +782,6 @@ function RatingLine({ avg, count, label, tone }) {
       <span className="rating-line__label" data-tone={tone}>
         {label} {avg.toFixed(1)} ({count})
       </span>
-    </div>
-  );
-}
-
-// aria-modal="true" tells assistive tech that everything outside is
-// unavailable, so this has to actually behave that way: something focusable
-// inside, focus moved in and returned on close, Tab kept in, and a visible
-// way out. Previously the only exit was tapping the sliver of backdrop around
-// a 90vw/90vh image -- the image itself stops propagation.
-function Lightbox({ src, alt, onClose, children }) {
-  const { t } = useTranslation();
-  const closeRef = useRef(null);
-  const dialogRef = useRef(null);
-
-  useEffect(() => {
-    const previous = document.activeElement;
-    closeRef.current?.focus();
-
-    const onKey = (e) => {
-      if (e.key === 'Escape') { onClose(); return; }
-      if (e.key !== 'Tab') return;
-      // Only the close button is focusable, so Tab simply stays on it.
-      const focusable = dialogRef.current?.querySelectorAll('button');
-      if (!focusable || focusable.length === 0) return;
-      e.preventDefault();
-      focusable[0].focus();
-    };
-    document.addEventListener('keydown', onKey);
-
-    // The page behind must not scroll under a full-screen overlay.
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = previousOverflow;
-      // Return focus to whatever opened it, or the reader is dumped at the
-      // top of the tab order.
-      if (previous instanceof HTMLElement) previous.focus();
-    };
-  }, [onClose]);
-
-  return (
-    <div className="lightbox" role="dialog" aria-modal="true" aria-label={alt}
-      ref={dialogRef} onClick={onClose}>
-      <button
-        type="button"
-        ref={closeRef}
-        className="lightbox__close"
-        onClick={onClose}
-        title={t('ui.close')}
-        aria-label={t('ui.close')}
-      >
-        <span aria-hidden="true">&times;</span>
-      </button>
-      {children ? (
-        <div className="lightbox__content" onClick={(e) => e.stopPropagation()}>
-          <img className="lightbox__img lightbox__img--compact" src={src} alt={alt}
-            onClick={(e) => e.stopPropagation()} />
-          {children}
-        </div>
-      ) : (
-        <img className="lightbox__img" src={src} alt={alt}
-          onClick={(e) => e.stopPropagation()} />
-      )}
     </div>
   );
 }
