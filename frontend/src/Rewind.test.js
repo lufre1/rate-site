@@ -355,7 +355,7 @@ describe('Rewind', () => {
       expect(screen.getByText('Test Dish')).toBeInTheDocument();
     });
 
-    const photoBtn = container.querySelector('.dish__photo-btn');
+    const photoBtn = container.querySelector('.rewind-card__photo-btn');
     fireEvent.click(photoBtn);
 
     await waitFor(() => {

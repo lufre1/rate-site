@@ -1033,21 +1033,50 @@
     Rewind
     ================================================================== */
 
+.rewind-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
 .rewind-card {
   display: flex;
+  align-items: flex-start;
   gap: var(--space-3);
   padding: var(--space-3);
-  border-radius: var(--radius-lg);
   background: var(--surface-card);
-  margin-bottom: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
+}
+
+.rewind-card__pos {
+  min-width: 2rem;
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.rewind-card__pos[data-medal="0"] { color: var(--star); }
+.rewind-card__pos[data-medal="1"] { color: var(--text-muted); }
+.rewind-card__pos[data-medal="2"] { color: var(--accent-on-soft); }
+
+.rewind-card__photo-btn {
+  display: block;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+  line-height: 0;
+  flex-shrink: 0;
 }
 
 .rewind-card__photo {
   width: 96px;
   height: 96px;
   object-fit: cover;
-  border-radius: var(--radius-md);
-  cursor: zoom-in;
+  border-radius: var(--radius);
   flex-shrink: 0;
 }
 
@@ -1055,16 +1084,31 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  flex: 1;
   min-width: 0;
 }
 
 .rewind-card__name {
+  font-size: var(--text-md);
   font-weight: 600;
+  color: var(--text-strong);
 }
 
 .rewind-card__sub {
   color: var(--text-muted);
   font-size: var(--text-sm);
+}
+
+.rewind-card__score {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.rewind-card__count {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
 }
 
 .rewind-card__comment {

@@ -98,34 +98,20 @@ function Rewind({ onBack, language, user }) {
           {personal.enough ? (
             <div>
               {personal.dishes && personal.dishes.length > 0 ? (
-                <div className="rank-list">
+                <div className="rewind-list">
                   {personal.dishes.map((dish, index) => (
-                    <div key={dish.id || index} className="rank">
-                      <div className="rank__pos" data-medal={index}>
+                    <div key={dish.id || index} className="rewind-card">
+                      <div className="rewind-card__pos" data-medal={index}>
                         {index + 1}
-                      </div>
-                      <div className="rank__body">
-                        <div className="rank__name">{dish.name}</div>
-                        <div className="rank__sub">{dish.mensa}</div>
-                      </div>
-                      <div className="rank__score">
-                        <div className="stars stars--lg">
-                          {renderStars(dish.rating)} {dish.rating.toFixed(1)}
-                        </div>
-                        {dish.comment && (
-                          <div className="rank__count">
-                            <span className="review__text">{dish.comment}</span>
-                          </div>
-                        )}
                       </div>
                       {dish.photo_url && (
                         <button
                           type="button"
-                          className="dish__photo-btn"
+                          className="rewind-card__photo-btn"
                           onClick={() => setEnlargedImage(`${API}${dish.photo_url}`)}
                         >
                           <img
-                            className="dish__photo"
+                            className="rewind-card__photo"
                             src={`${API}${thumbSrc(dish.photo_url)}`}
                             alt=""
                             loading="lazy"
@@ -134,6 +120,20 @@ function Rewind({ onBack, language, user }) {
                           />
                         </button>
                       )}
+                      <div className="rewind-card__body">
+                        <div className="rewind-card__name">{dish.name}</div>
+                        <div className="rewind-card__sub">{dish.mensa}</div>
+                        <div className="rewind-card__score">
+                          <div className="stars stars--lg">
+                            {renderStars(dish.rating)} {dish.rating.toFixed(1)}
+                          </div>
+                        </div>
+                        {dish.comment && (
+                          <div className="rewind-card__comment">
+                            <span className="review__text">{dish.comment}</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -156,32 +156,20 @@ function Rewind({ onBack, language, user }) {
           {community.enough ? (
             <div>
               {community.dishes && community.dishes.length > 0 ? (
-                <div className="rank-list">
+                <div className="rewind-list">
                   {community.dishes.map((dish, index) => (
-                    <div key={dish.id || index} className="rank">
-                      <div className="rank__pos" data-medal={index}>
+                    <div key={dish.id || index} className="rewind-card">
+                      <div className="rewind-card__pos" data-medal={index}>
                         {index + 1}
-                      </div>
-                      <div className="rank__body">
-                        <div className="rank__name">{dish.name}</div>
-                        <div className="rank__sub">{dish.mensa}</div>
-                      </div>
-                      <div className="rank__score">
-                        <div className="stars stars--lg">
-                          {renderStars(dish.avg_rating)} {dish.avg_rating.toFixed(1)}
-                        </div>
-                        <div className="rank__count">
-                          {t('stats.ratings', { count: dish.rating_count })}
-                        </div>
                       </div>
                       {dish.photo_url && (
                         <button
                           type="button"
-                          className="dish__photo-btn"
+                          className="rewind-card__photo-btn"
                           onClick={() => setEnlargedImage(`${API}${dish.photo_url}`)}
                         >
                           <img
-                            className="dish__photo"
+                            className="rewind-card__photo"
                             src={`${API}${thumbSrc(dish.photo_url)}`}
                             alt=""
                             loading="lazy"
@@ -190,13 +178,25 @@ function Rewind({ onBack, language, user }) {
                           />
                         </button>
                       )}
-                      {dish.comments && dish.comments.length > 0 && (
-                        <div className="rank__count">
-                          <span className="review__text">
-                            {dish.comments[0].text} — {dish.comments[0].author}
-                          </span>
+                      <div className="rewind-card__body">
+                        <div className="rewind-card__name">{dish.name}</div>
+                        <div className="rewind-card__sub">{dish.mensa}</div>
+                        <div className="rewind-card__score">
+                          <div className="stars stars--lg">
+                            {renderStars(dish.avg_rating)} {dish.avg_rating.toFixed(1)}
+                          </div>
+                          <div className="rewind-card__count">
+                            {t('stats.ratings', { count: dish.rating_count })}
+                          </div>
                         </div>
-                      )}
+                        {dish.comments && dish.comments.length > 0 && (
+                          <div className="rewind-card__comment">
+                            <span className="review__text">
+                              {dish.comments[0].text} — {dish.comments[0].author}
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
