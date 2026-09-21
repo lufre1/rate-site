@@ -158,6 +158,18 @@ def resolve_language(r, lang: str):
 # not invalidate rows already stored above it.
 COMMENT_MAX_LENGTH = 1000
 
+# Comment flairs (issue #35): one optional label per comment. The frontend
+# mirrors this list in FLAIRS (App.js); the display text is translated, so the
+# stored value is a stable slug, not a user-visible string.
+FLAIRS = ("recommendation", "warning", "do-not-eat", "unexpected")
+
+
+def _valid_flair(flair: Optional[str]) -> None:
+    """400 on an unknown flair. None (absent or explicit null) is always fine."""
+    if flair is not None and flair not in FLAIRS:
+        raise HTTPException(status_code=400, detail=f"flair must be one of: {', '.join(FLAIRS)}")
+
+
 # Community favourite badge thresholds (issue #27)
 # A dish needs at least BADGE_MIN_RATINGS (5) and at least BADGE_GOOD_SHARE (80%)
 # of ratings >= 4 stars to get the badge.
@@ -174,6 +186,7 @@ class RatingInput(BaseModel):
     rating: int = Field(ge=1, le=5)
     comment: Optional[str] = Field(default=None, max_length=COMMENT_MAX_LENGTH)
     user_name: Optional[str] = None
+    flair: Optional[str] = None
 
 class SideRatingInput(BaseModel):
     side_name: str
@@ -247,6 +260,7 @@ class RatingOut(BaseModel):
     user_name: Optional[str]
     photo_url: Optional[str] = None
     edited_at: Optional[datetime] = None
+    flair: Optional[str] = None
     class Config:
         from_attributes = True
 
@@ -277,6 +291,7 @@ class CommentDisplay(BaseModel):
     vote_direction: Optional[int] = None
     photo_score: int = 0
     photo_vote_direction: Optional[int] = None
+    flair: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -333,6 +348,8 @@ class MyRatingOut(BaseModel):
 class RatingUpdate(BaseModel):
     rating: Optional[int] = Field(None, ge=1, le=5)
     comment: Optional[str] = Field(None, max_length=COMMENT_MAX_LENGTH)
+    # Presence in the body decides: absent = untouched, null = clear, value = set.
+    flair: Optional[str] = None
 
 class SideRatingOut(BaseModel):
     side_name: str
@@ -607,6 +624,7 @@ def create_rating(meal_id: int, data: RatingInput, db: Session = Depends(get_db)
     if not meal:
         raise HTTPException(status_code=404, detail="Meal not found")
 
+    _valid_flair(data.flair)
     user_name, user_id = rating_identity(user)
     rating = DBRating(
         meal_id=meal_id,
@@ -614,6 +632,7 @@ def create_rating(meal_id: int, data: RatingInput, db: Session = Depends(get_db)
         comment=data.comment,
         user_name=user_name,
         user_id=user_id,
+        flair=data.flair,
     )
     db.add(rating)
     db.flush()  # Get rating.id before commit
@@ -632,7 +651,7 @@ def create_rating(meal_id: int, data: RatingInput, db: Session = Depends(get_db)
 
 
 @app.post("/api/v1/meals/{meal_id}/ratings-with-photo", status_code=201, tags=["Ratings"])
-def create_rating_with_photo(meal_id: int, rating: int = Form(..., ge=1, le=5), comment: Optional[str] = Form(None, max_length=COMMENT_MAX_LENGTH), photo: Optional[UploadFile] = File(None), db: Session = Depends(get_db), user: Optional[DBUser] = Depends(auth.optional_user), voter_id: Optional[str] = Header(None, alias="X-Voter-Id")):
+def create_rating_with_photo(meal_id: int, rating: int = Form(..., ge=1, le=5), comment: Optional[str] = Form(None, max_length=COMMENT_MAX_LENGTH), flair: Optional[str] = Form(None), photo: Optional[UploadFile] = File(None), db: Session = Depends(get_db), user: Optional[DBUser] = Depends(auth.optional_user), voter_id: Optional[str] = Header(None, alias="X-Voter-Id")):
     """Create a rating with optional photo upload"""
     # Check if meal exists
     meal = db.query(DBMeal).filter(DBMeal.id == meal_id).first()
@@ -685,6 +704,7 @@ def create_rating_with_photo(meal_id: int, rating: int = Form(..., ge=1, le=5), 
 
         photo_url = f"/uploads/{new_filename}"
 
+    _valid_flair(flair)
     user_name, user_id = rating_identity(user)
     rating_obj = DBRating(
         meal_id=meal_id,
@@ -693,6 +713,7 @@ def create_rating_with_photo(meal_id: int, rating: int = Form(..., ge=1, le=5), 
         user_name=user_name,
         user_id=user_id,
         photo_url=photo_url,
+        flair=flair,
     )
     db.add(rating_obj)
     db.flush()  # Get rating.id before commit
@@ -1012,7 +1033,8 @@ def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db), voter_id:
             score=comment_scores.get(r.Rating.id, 0),
             vote_direction=viewer_votes.get(r.Rating.id),
             photo_score=photo_scores.get(r.Rating.id, 0),
-            photo_vote_direction=viewer_photo_votes.get(r.Rating.id)
+            photo_vote_direction=viewer_photo_votes.get(r.Rating.id),
+            flair=r.Rating.flair
         )
         for r in comments_query
     ]
@@ -1053,7 +1075,8 @@ def get_ratings_breakdown(meal_id: int, db: Session = Depends(get_db), voter_id:
                 "score": c.score,
                 "vote_direction": c.vote_direction,
                 "photo_score": c.photo_score,
-                "photo_vote_direction": c.photo_vote_direction
+                "photo_vote_direction": c.photo_vote_direction,
+                "flair": c.flair
             }
             for c in comments
         ]
@@ -1740,6 +1763,15 @@ def update_own_rating(
     if data.comment is not None and data.comment != rating.comment:
         rating.comment = data.comment
         rating_changed = True
+    # model_fields_set distinguishes "flair absent" (untouched) from
+    # "flair: null" (clear) -- the same Optional-None ambiguity the other
+    # fields resolve by ignoring nulls, but clearing a wrong flair is a
+    # legitimate edit, so it must be expressible.
+    if "flair" in data.model_fields_set:
+        _valid_flair(data.flair)
+        if data.flair != rating.flair:
+            rating.flair = data.flair
+            rating_changed = True
     if rating_changed:
         rating.edited_at = func.now()
     db.add(rating)

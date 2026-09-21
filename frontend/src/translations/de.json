@@ -79,6 +79,7 @@
     "rateThisDish": "Dieses Gericht bewerten",
     "submitReview": "Bewertung absenden",
     "commentOptional": "Kommentar (optional)",
+    "flairLabel": "Kommentar-Flair",
     "saving": "Speichern...",
     "charCount": "{{used}} von {{max}} Zeichen",
     "needStars": "Sterne sind nötig, der Kommentar ist optional.",
@@ -111,6 +112,12 @@
     "main": "Hauptgericht",
     "side": "Beilage",
     "dessert": "Dessert"
+  },
+  "flair": {
+    "recommendation": "Empfehlung",
+    "warning": "Warnung",
+    "do-not-eat": "Nicht essen",
+    "unexpected": "Überraschend"
   },
   "tags": {
     "vegan": "Vegan",

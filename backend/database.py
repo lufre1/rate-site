@@ -120,6 +120,9 @@ class Rating(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     photo_url = Column(String, nullable=True)
     edited_at = Column(DateTime, nullable=True)
+    # Comment flair (issue #35): one optional label per comment, from a fixed
+    # set (see FLAIRS in main.py). NULL means "no flair".
+    flair = Column(String, nullable=True)
     created_at = Column(DateTime, default=func.now())
     meal = relationship("Meal", back_populates="ratings")
 
@@ -319,6 +322,16 @@ def init_db():
             ))
             conn.commit()
             log.info("Added is_public column to users table")
+        # Add flair column to ratings if missing (issue #35). Nullable: an
+        # absent flair is the normal case, and every pre-flair row stays valid.
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='ratings' AND column_name='flair'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("ALTER TABLE ratings ADD COLUMN flair VARCHAR(32)"))
+            conn.commit()
+            log.info("Added flair column to ratings table")
         # Add expires_at column to auth_tokens if missing, and retire every
         # session that predates token hashing.
         #

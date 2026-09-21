@@ -79,6 +79,7 @@
     "rateThisDish": "Rate this dish",
     "submitReview": "Submit review",
     "commentOptional": "Comment (optional)",
+    "flairLabel": "Comment flair",
     "saving": "Saving...",
     "charCount": "{{used}} of {{max}} characters",
     "needStars": "Stars are required, the comment is optional.",
@@ -111,6 +112,12 @@
     "main": "Main",
     "side": "Side",
     "dessert": "Dessert"
+  },
+  "flair": {
+    "recommendation": "Recommendation",
+    "warning": "Warning",
+    "do-not-eat": "Do not eat",
+    "unexpected": "Unexpected"
   },
   "tags": {
     "vegan": "Vegan",

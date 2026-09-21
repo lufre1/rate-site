@@ -9,6 +9,10 @@
 
 Never create or commit the `.dev-instance` file.
 
+## Interaction preferences
+
+- **Offer selectable options whenever a choice is possible.** Ask with concrete options (recommended one first) instead of open-ended questions, so the user picks rather than types.
+
 ## Architecture
 
 - **Frontend**: React (Create React App, Nginx serve), **Backend**: FastAPI (Python 3.11), **DB**: PostgreSQL 15
@@ -57,6 +61,21 @@ Never create or commit the `.dev-instance` file.
   `PATCH /ratings/{id}/comment` parses a raw dict, so its check is manual. No
   migration — the column is already `Text`, and lowering the number would not
   invalidate rows already stored above it.
+- **Comment flair (issue #35)**: `ratings.flair` is one optional label per
+  comment, a stable slug from `FLAIRS` in `main.py`
+  (`recommendation`/`warning`/`do-not-eat`/`unexpected`), mirrored by `FLAIRS`
+  in `App.js`; the display text is translated (`flair.*`), so the stored value
+  must stay a slug, never a user-visible string. Unknown values are a 400 via
+  `_valid_flair()` on both creation routes and the PATCH. Flair labels the
+  *comment*: the frontend only shows the picker (and only ships the value)
+  while the comment is non-empty, but the backend is permissive and stores a
+  flair on a commentless row rather than inventing a cross-field rule.
+  `PATCH /ratings/{id}` resolves the Optional-None ambiguity with
+  `model_fields_set` — key absent = untouched, explicit `null` = clear, value
+  = set — because clearing a wrong flair is a legitimate edit. Side ratings
+  have no flair (the side-ratings routes are not rendered in the comment UI),
+  and the community-agreed dish-level alert icon from the issue is deferred —
+  nothing computes it yet.
 - **Side ratings aggregation**: `side-ratings` are **global per side name** across all meals in a mensa, not per-meal; API returns aggregated stats
 - **Deleting a rating deletes its votes first.** `comment_votes.rating_id` and
   `photo_votes.rating_id` are FKs with `NO ACTION` and `Rating` declares no

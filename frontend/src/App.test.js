@@ -310,8 +310,65 @@ test('a submitted comment appears in the list without a reload', async () => {
 
   expect(await screen.findByText('Frisch gekocht')).toBeInTheDocument();
   expect(posted.url).toContain('/meals/10/ratings');
-  expect(posted.body).toEqual({ rating: 5, comment: 'Frisch gekocht' });
+  expect(posted.body).toEqual({ rating: 5, comment: 'Frisch gekocht', flair: null });
   expect(await screen.findByText(/Danke! Deine Bewertung steht jetzt oben/)).toBeInTheDocument();
+});
+
+test('a comment flair is picked, sent with the review, and shown on the row', async () => {
+  // Issue #35: one optional label per comment. The picker only appears once
+  // there is a comment to label, and the stored value is the stable slug.
+  let posted = null;
+  const flaired = { ...createdAsListed, comment: 'Eher nicht', flair: 'warning' };
+  global.fetch = mockSubmitFlow({
+    postResponse: () => Promise.resolve({ ok: true, status: 201, json: () => Promise.resolve({ ...created, comment: 'Eher nicht', flair: 'warning' }) }),
+    breakdowns: [
+      { comments: [] },
+      { comments: [flaired], recent: { ratings: [], avg: 5, count: 1 }, overall: { avg: 5, count: 1 } },
+    ],
+    onPost: (url, options) => { posted = { url, body: JSON.parse(options.body) }; },
+  });
+
+  renderApp();
+  await openRatingForm('Neues Gericht');
+  await userEvent.click(starButtons()[4]);
+
+  // No comment yet: the flair picker is hidden.
+  expect(screen.queryByRole('button', { name: 'Warnung' })).not.toBeInTheDocument();
+  await userEvent.type(screen.getByRole('textbox', { name: 'Kommentar (optional)' }), 'Eher nicht');
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Warnung' }));
+  expect(screen.getByRole('button', { name: 'Warnung' })).toHaveAttribute('aria-pressed', 'true');
+
+  await userEvent.click(screen.getByRole('button', { name: 'Bewertung absenden' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Veröffentlichen' }));
+
+  expect(posted.body).toEqual({ rating: 5, comment: 'Eher nicht', flair: 'warning' });
+  // The published row carries the flair badge.
+  expect(await screen.findByText('Warnung')).toBeInTheDocument();
+});
+
+test('a comment with a flair shows its badge in the review list', async () => {
+  const meal = {
+    id: 40, name: 'Gericht mit Flair', description: '', tags: null, type: 'main',
+    mensa: MENSA, date: '2026-07-07', avg_rating: 5, rating_count: 1,
+  };
+  const review = {
+    id: 400, rating: 2, comment: 'Eher nicht', user_name: 'Fred',
+    date: '2026-07-05', created_at: '2026-07-05T12:00:00', meal_id: 40, photo_url: null,
+    flair: 'do-not-eat',
+  };
+
+  global.fetch = jest.fn((url) => {
+    if (url.includes('/mensas')) return jsonResponse([MENSA]);
+    if (url.includes('/meals-summary')) return jsonResponse({});
+    if (url.includes('/ratings-breakdown')) return breakdown({ comments: [review] });
+    if (url.includes('/meals?')) return jsonResponse([meal]);
+    return jsonResponse([]);
+  });
+
+  renderApp();
+  await userEvent.click(await screen.findByText('Gericht mit Flair'));
+  expect(await screen.findByText('Nicht essen')).toBeInTheDocument();
 });
 
 test('the submitted row is marked as the visitor\'s own', async () => {

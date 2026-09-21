@@ -430,6 +430,40 @@
 .badge--positive { background: var(--positive-soft); color: var(--positive); }
 .badge--accent   { background: var(--accent-soft);   color: var(--accent-on-soft); }
 
+/* Comment flair (issue #35): one label per comment, a distinct colour each.
+   The picker chips reuse the same four pairings when pressed. */
+.flair-badge[data-flair="recommendation"] { background: var(--positive-soft); color: var(--positive); }
+.flair-badge[data-flair="warning"]        { background: var(--warning-soft);  color: var(--warning); }
+.flair-badge[data-flair="do-not-eat"]     { background: var(--danger-soft);   color: var(--danger); }
+.flair-badge[data-flair="unexpected"]     { background: var(--accent-soft);   color: var(--accent-on-soft); }
+
+.flair-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+}
+
+.flair-chip {
+  min-height: var(--tap-min);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-card);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color var(--speed), background var(--speed), color var(--speed);
+}
+
+.flair-chip:hover { border-color: var(--accent); }
+
+.flair-chip[data-flair="recommendation"][aria-pressed="true"] { background: var(--positive-soft); color: var(--positive); border-color: transparent; }
+.flair-chip[data-flair="warning"][aria-pressed="true"]        { background: var(--warning-soft);  color: var(--warning);  border-color: transparent; }
+.flair-chip[data-flair="do-not-eat"][aria-pressed="true"]     { background: var(--danger-soft);   color: var(--danger);   border-color: transparent; }
+.flair-chip[data-flair="unexpected"][aria-pressed="true"]     { background: var(--accent-soft);   color: var(--accent-on-soft); border-color: transparent; }
+
 /* ==================================================================
    Stars
    ================================================================== */

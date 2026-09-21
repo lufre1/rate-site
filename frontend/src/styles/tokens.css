@@ -32,6 +32,8 @@
   --star-empty:    #d6d3d1;
   --positive:      #15803d;
   --positive-soft: #dcfce7;
+  --warning:       #92400e;
+  --warning-soft:  #fef3c7;
   --danger:        #dc2626;
   --danger-soft:   #fee2e2;
 
@@ -119,6 +121,8 @@
     --star-empty:    #57534e;
     --positive:      #4ade80;
     --positive-soft: #14532d;
+    --warning:       #fcd34d;
+    --warning-soft:  #451a03;
     --danger:        #f87171;
     --danger-soft:   #450a0a;
 
@@ -159,12 +163,14 @@
   --header-from:    #7c2d12;
   --header-to:      #c2410c;
 
-  --star:          #fbbf24;
-  --star-empty:    #57534e;
-  --positive:      #4ade80;
-  --positive-soft: #14532d;
-  --danger:        #f87171;
-  --danger-soft:   #450a0a;
+    --star:          #fbbf24;
+    --star-empty:    #57534e;
+    --positive:      #4ade80;
+    --positive-soft: #14532d;
+    --warning:       #fcd34d;
+    --warning-soft:  #451a03;
+    --danger:        #f87171;
+    --danger-soft:   #450a0a;
 
   --tag-vegan-bg:          #14532d;  --tag-vegan-fg:          #86efac;
   --tag-vegetarisch-bg:    #422006;  --tag-vegetarisch-fg:    #fde047;

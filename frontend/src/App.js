@@ -887,6 +887,10 @@ function SideRatingRow({ mealId, sideName, avgRating, ratingCount, recentAvg = 0
 // cosmetic; a server-only cap would reject a comment after the user wrote it.
 const COMMENT_MAX = 1000;
 
+// Mirrors FLAIRS in main.py. Stored value is a stable slug; the display text
+// is translated (flair.* in the translation files).
+const FLAIRS = ['recommendation', 'warning', 'do-not-eat', 'unexpected'];
+
 // FastAPI's `detail` strings (main.py) are English and the UI defaults to
 // German, so never render one raw. The two known 400s map onto the existing
 // specific photo messages; everything else gets one honest line that also says
@@ -904,6 +908,8 @@ function DishCard({ meal, summary, user, onSignIn }) {
   const notify = useToast();
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
+  // One optional label for the comment (issue #35). null = no flair.
+  const [flair, setFlair] = useState(null);
   // null | 'saved' | 'starsOnly'. Persists until the next deliberate
   // interaction -- the old boolean was cleared by a 1500 ms timer.
   const [submitStatus, setSubmitStatus] = useState(null);
@@ -937,6 +943,7 @@ function DishCard({ meal, summary, user, onSignIn }) {
   const [editingId, setEditingId] = useState(null);
   const [editRating, setEditRating] = useState(0);
   const [editComment, setEditComment] = useState('');
+  const [editFlair, setEditFlair] = useState(null);
   // `reviews` starts empty, so without these every expand flashed "Noch keine
   // Bewertungen" before the request landed -- and showed it forever if the
   // request failed, which is the same lie the menu empty state told.
@@ -1002,6 +1009,9 @@ function DishCard({ meal, summary, user, onSignIn }) {
     // -- but naming them here makes that not something to reason about.
     const hadPhoto = Boolean(selectedImage);
     const hadComment = Boolean(comment);
+    // Flair labels the comment, so it only ships with one. The picker is
+    // hidden for an empty comment, but the state can outlive it.
+    const effectiveFlair = comment.trim() ? flair : null;
 
     setUploading(true);
     setSubmitError('');
@@ -1013,6 +1023,7 @@ function DishCard({ meal, summary, user, onSignIn }) {
         const formData = new FormData();
         formData.append('rating', rating);
         if (comment) formData.append('comment', comment);
+        if (effectiveFlair) formData.append('flair', effectiveFlair);
         formData.append('photo', selectedImage);
 
         response = await fetch(`${API}/api/v1/meals/${meal.id}/ratings-with-photo`, {
@@ -1024,7 +1035,7 @@ function DishCard({ meal, summary, user, onSignIn }) {
         response = await fetch(`${API}/api/v1/meals/${meal.id}/ratings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authHeaders(), ...voteHeaders() },
-          body: JSON.stringify({ rating, comment: comment || null }),
+          body: JSON.stringify({ rating, comment: comment || null, flair: effectiveFlair }),
         });
       }
 
@@ -1043,6 +1054,7 @@ function DishCard({ meal, summary, user, onSignIn }) {
       // 1.5 s after a FAILED submit, while the error was still on screen.
       setRating(0);
       setComment('');
+      setFlair(null);
       setSelectedImage(null);
       setImagePreview(null);
       setConfirming(false);
@@ -1307,6 +1319,9 @@ function DishCard({ meal, summary, user, onSignIn }) {
                     {'★'.repeat(rating)}{'☆'.repeat(5 - rating)}
                   </p>
                   <span className="sr-only">{t('ui.starLabel', { count: rating })}</span>
+                  {flair && comment.trim() && (
+                    <span className="badge flair-badge" data-flair={flair}>{t(`flair.${flair}`)}</span>
+                  )}
                   <p className="review__text">
                     {comment || <span className="muted-text">{t('ui.confirmNoComment')}</span>}
                   </p>
@@ -1389,6 +1404,20 @@ function DishCard({ meal, summary, user, onSignIn }) {
                     </button>
                   </div>
 
+                  {/* Flair labels the comment, so it only appears once there
+                      is one. Tapping the active chip again clears it. */}
+                  {comment.trim() && (
+                    <div className="flair-picker" role="group" aria-label={t('ui.flairLabel')}>
+                      {FLAIRS.map(f => (
+                        <button key={f} type="button" className="flair-chip" data-flair={f}
+                          aria-pressed={flair === f}
+                          onClick={() => setFlair(flair === f ? null : f)}>
+                          {t(`flair.${f}`)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Only once there is something to count, so an empty form
                       stays uncluttered. The hint says why submit is disabled --
                       until now the only cue was opacity: .55. */}
@@ -1444,6 +1473,9 @@ function DishCard({ meal, summary, user, onSignIn }) {
                 ref={r.id === scrollToId ? myRowRef : null}>
                 <div className="review__head">
                   <span className="review__author">{r.user_name || 'Anonymous'}</span>
+                  {r.flair && (
+                    <span className="badge flair-badge" data-flair={r.flair}>{t(`flair.${r.flair}`)}</span>
+                  )}
                   {mine && <span className="badge badge--accent">{t('ui.yourReview')}</span>}
                   {r.is_owner && (
                     <button
@@ -1453,6 +1485,7 @@ function DishCard({ meal, summary, user, onSignIn }) {
                         setEditingId(r.id);
                         setEditRating(r.rating);
                         setEditComment(r.comment || '');
+                        setEditFlair(r.flair || null);
                       }}
                       aria-label={t('auth.edit')}
                     >
@@ -1477,7 +1510,7 @@ function DishCard({ meal, summary, user, onSignIn }) {
                       fetch(`${API}/api/v1/ratings/${r.id}`, {
                         method: 'PATCH',
                         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-                        body: JSON.stringify({ rating: editRating, comment: editComment }),
+                        body: JSON.stringify({ rating: editRating, comment: editComment, flair: editComment.trim() ? editFlair : null }),
                       }).then(res => {
                         if (res.ok) {
                           loadBreakdown();
@@ -1495,6 +1528,17 @@ function DishCard({ meal, summary, user, onSignIn }) {
                       onChange={e => setEditComment(e.target.value)}
                       rows={2}
                     />
+                    {editComment.trim() && (
+                      <div className="flair-picker" role="group" aria-label={t('ui.flairLabel')}>
+                        {FLAIRS.map(f => (
+                          <button key={f} type="button" className="flair-chip" data-flair={f}
+                            aria-pressed={editFlair === f}
+                            onClick={() => setEditFlair(editFlair === f ? null : f)}>
+                            {t(`flair.${f}`)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <div className="row-2">
                       <button type="submit" className="btn btn--primary">{t('auth.save')}</button>
                       <button
@@ -1504,6 +1548,7 @@ function DishCard({ meal, summary, user, onSignIn }) {
                           setEditingId(null);
                           setEditRating(0);
                           setEditComment('');
+                          setEditFlair(null);
                         }}
                       >
                         {t('auth.cancel')}
