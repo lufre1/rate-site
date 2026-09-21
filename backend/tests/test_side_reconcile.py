@@ -107,3 +107,84 @@ def test_stale_main_still_reconciled_with_pruning_on(db, mensa):
     db.commit()
 
     assert _names(db, type='main') == set()
+
+
+def test_today_reconcile_off_does_not_delete(db, mensa):
+    """Today's mains should not be deleted even if the page drops them mid-day."""
+    today = date.today()
+    _add(db, mensa, 'Gestrichenes Gericht', type='main', available=True)
+
+    scraper._reconcile(db, mensa, today, keep_names=set(),
+                       side_names=set(), prune_sides=True, reconcile=False)
+    db.commit()
+
+    # The row should still exist (not deleted), and still available
+    assert _names(db, type='main') == {'Gestrichenes Gericht'}
+    row = db.query(DBMeal).filter(DBMeal.name == 'Gestrichenes Gericht').one()
+    assert row.is_available is True
+
+
+def test_past_date_reconcile_still_deletes(db, mensa):
+    """Past dates should still be reconciled (delete unrated stale rows)."""
+    # Use a future date that is NOT today, so reconcile=True should delete
+    future = date(2030, 1, 1)
+    # Add with the same date we'll reconcile
+    _add(db, mensa, 'Gestrichenes Gericht', type='main', available=True)
+    # Update the row's date to match the reconcile target
+    row = db.query(DBMeal).filter(DBMeal.name == 'Gestrichenes Gericht').one()
+    row.date = future
+    db.commit()
+
+    result = scraper._reconcile(db, mensa, future, keep_names=set(),
+                                side_names=set(), prune_sides=True, reconcile=True)
+    db.commit()
+
+    assert _names(db, type='main') == set()
+
+
+def test_extract_side_parts_keeps_dressing_sauce_ketchup(db):
+    """Comma-listed dressings/sauces should now be rateable sides."""
+    from scraper import _extract_side_parts
+
+    # The Kebab row's sides
+    desc = 'Tzatziki mit Joghurt, Country frites, Blattsalatmix, hausgemachtes Tomatendressing'
+    assert set(_extract_side_parts(desc)) == {
+        'Tzatziki mit Joghurt',
+        'Country frites',
+        'Blattsalatmix',
+        'hausgemachtes Tomatendressing',
+    }
+
+    # Currywurst row's sides
+    desc2 = 'Curryketchup Berliner Blume, Pommes frites, Farmermixsalat'
+    assert set(_extract_side_parts(desc2)) == {
+        'Curryketchup Berliner Blume',
+        'Pommes frites',
+        'Farmermixsalat',
+    }
+
+    # ZM Schnitzel row's sides
+    desc3 = 'Paprikarahmsauce, Pommes frites, Pariser Karotten'
+    assert set(_extract_side_parts(desc3)) == {
+        'Paprikarahmsauce',
+        'Pommes frites',
+        'Pariser Karotten',
+    }
+
+
+def test_extract_side_parts_still_rejects_garnish(db):
+    """Run-on garnish with 'mit' prefix should still be rejected."""
+    from scraper import _extract_side_parts
+
+    # "mit hausgemachte Vanillesauce" is a garnish, not a side
+    desc = '4 Nuss Nougatbällchen, mit hausgemachte Vanillesauce'
+    # The "mit" part is rejected, but "4 Nuss Nougatbällchen" is a valid side
+    assert set(_extract_side_parts(desc)) == {'4 Nuss Nougatbällchen'}
+
+    # "mit" in the middle of a side name is kept
+    desc2 = 'Kartoffelsalat mit Ei und Gurke'
+    assert _extract_side_parts(desc2) == ['Kartoffelsalat mit Ei und Gurke']
+
+    # ketchup/sauce/sauce in a run-on garnish is rejected
+    desc3 = 'Hähnchenbrustfilet mit cremiger Kräutersauce'
+    assert _extract_side_parts(desc3) == ['Hähnchenbrustfilet mit cremiger Kräutersauce']

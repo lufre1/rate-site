@@ -149,6 +149,7 @@ SIDE_TRANSLATIONS = {
     "Fava Bohnen": "Fava Beans",
     "Wicken": "Vetch",
     "Lupinen": "Lupins",
+    "hausgemachtes Tomatendressing": "Homemade Tomato Dressing",
 }
 
 # Last Minute boilerplate, in either language. The type cell usually says
@@ -184,11 +185,12 @@ LEADING_CONJUNCTION_RE = re.compile(r'^(?:oder|und)\s+', re.IGNORECASE)
 # middle part of "A, oder, B" would become a rateable meal named "oder".
 SIDE_STOPWORDS = {'oder', 'or', 'und', 'and', 'mit', 'sowie', 'dazu', 'wahlweise'}
 
-# What a side is not: an accompaniment poured over the dish, or a dessert
-# component. "mit" is deliberately absent -- it belongs to the side's own name
-# ("Kartoffelsalat mit Ei und Gurke") and rejecting it dropped real sides.
+# What a side is not: a dessert component or a run-on garnish. Comma-listed
+# dressings and sauces (Tomatendressing, Paprikarahmsauce, Curryketchup,
+# Senf-Kartoffeln) are real side choices on the official page, so they are NOT
+# rejected here -- the leading-"mit " rule in _extract_side_parts already
+# filters the poured-over garnish case ("mit hausgemachte Vanillesauce").
 SIDE_REJECT_KEYWORDS = (
-    'sauce', 'dressing', 'ketchup', 'remoulade', 'mayo', 'senf',
     'kompott', 'topping', 'zusätzlich',
 )
 
@@ -494,7 +496,7 @@ def _upsert_meal(db, mensa_obj, date_obj, de_dish, en_dish):
     return 'new'
 
 
-def _reconcile(db, mensa_obj, date_obj, keep_names, side_names=frozenset(), prune_sides=False):
+def _reconcile(db, mensa_obj, date_obj, keep_names, side_names=frozenset(), prune_sides=False, reconcile=True):
     """Mark stale rows as unavailable for this date+mensa not in the current German name set.
 
     Rows that already have ratings are preserved to avoid orphaning data, but
@@ -506,8 +508,15 @@ def _reconcile(db, mensa_obj, date_obj, keep_names, side_names=frozenset(), prun
     because "not extracted this run" and "nothing was extracted at all" look
     identical from here and the second must never delete a day's sides.
 
+    `reconcile` gates the whole pass. The official page for *today* churns
+    during the day (mains drop off once service ends), so reconciling today
+    would delete the day's still-rateable mains. Pass reconcile=False for the
+    live service day.
+
     Returns count of dishes marked as unavailable.
     """
+    if not reconcile:
+        return 0
     rows = db.query(DBMeal).filter(
         DBMeal.date == date_obj,
         DBMeal.mensa_id == mensa_obj.id,
@@ -710,10 +719,15 @@ def _write_day(scrape_date, de_tables, en_tables):
                         _extract_and_create_sides(db, mensa_obj, scrape_date, de_dish['description'], seen_sides)
                         sides_extracted = True
 
+            # The official page for today churns during the day (mains drop
+            # off once service ends), so reconciling today would delete the
+            # day's still-rateable mains. Only reconcile dates that are no
+            # longer the live service day.
             removed_count += _reconcile(
                 db, mensa_obj, scrape_date, german_names,
                 side_names=seen_sides.get((mensa_obj.id, scrape_date), frozenset()),
                 prune_sides=PRUNE_SIDES and sides_extracted,
+                reconcile=(scrape_date != date.today()),
             )
 
         db.commit()

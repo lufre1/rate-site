@@ -269,8 +269,14 @@ def test_short_side_survives_the_length_floor():
 
 
 def test_sauces_and_dressings_still_rejected():
-    assert _extract_side_parts('Reis, Kräuterdressing, Senfsauce') == ['Reis']
-    assert _extract_side_parts('cremige Dillsauce, Butterkartoffeln') == ['Butterkartoffeln']
+    # Sauces/dressings that are run-on garnishes (with "mit" prefix) are rejected
+    assert _extract_side_parts('Reis, mit Kräuterdressing') == ['Reis']
+    assert _extract_side_parts('mit cremige Dillsauce, Butterkartoffeln') == ['Butterkartoffeln']
+    # But comma-listed dressings/sauces are now rateable sides (CGiN style)
+    assert set(_extract_side_parts('Reis, Kräuterdressing, Senfsauce')) == \
+        {'Reis', 'Kräuterdressing', 'Senfsauce'}
+    assert set(_extract_side_parts('cremige Dillsauce, Butterkartoffeln')) == \
+        {'cremige Dillsauce', 'Butterkartoffeln'}
 
 
 def test_stray_conjunction_never_becomes_a_dish():
@@ -287,5 +293,6 @@ def test_description_keeps_oder_for_display():
     dish = _parse_dish_rows(_row(ODER_ROW_DE))[0]
     assert dish['description'] == \
         'Tomatensahnesauce, Basmatireis oder Trüffel Pommes, grüne Bohnen mit Mais'
-    assert _extract_side_parts(dish['description']) == \
-        ['Basmatireis', 'Trüffel Pommes', 'grüne Bohnen mit Mais']
+    # Tomatensahnesauce is now a rateable side (comma-listed)
+    assert set(_extract_side_parts(dish['description'])) == \
+        {'Tomatensahnesauce', 'Basmatireis', 'Trüffel Pommes', 'grüne Bohnen mit Mais'}
