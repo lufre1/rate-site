@@ -148,6 +148,10 @@ class User(Base):
     # Public profiles (issue #30): private by default. A user opts in to being
     # listed; until then their profile route 404s exactly like a nonexistent one.
     is_public = Column(Boolean, nullable=False, default=False)
+    # The user's preferred mensa, stored as the mensa NAME: names are the
+    # unique, stable key the /mensas endpoint and the frontend filter both use,
+    # and the scraper never deletes mensas rows. NULL = no preference.
+    default_mensa = Column(String, nullable=True)
 
 
 class LeaderboardScore(Base):
@@ -322,6 +326,16 @@ def init_db():
             ))
             conn.commit()
             log.info("Added is_public column to users table")
+        # Add default_mensa column to users if missing. Nullable: most users
+        # have no preference, and every pre-column row stays valid.
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='users' AND column_name='default_mensa'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("ALTER TABLE users ADD COLUMN default_mensa VARCHAR"))
+            conn.commit()
+            log.info("Added default_mensa column to users table")
         # Add flair column to ratings if missing (issue #35). Nullable: an
         # absent flair is the normal case, and every pre-flair row stays valid.
         result = conn.execute(text(

@@ -191,7 +191,7 @@
     "storageDiet": "mensa_diet — Ihre Auswahl des Ernährungsfilters. Rein lokal, ohne Bezug zu Ihrer Person.",
     "storageDelete": "Sie können diese Werte jederzeit löschen, indem Sie in Ihrem Browser die Website-Daten für diese Seite entfernen. Danach beginnt die Zählung Ihrer Stimmen von vorn.",
     "account": "Benutzerkonto",
-    "accountText": "Ein Konto ist freiwillig — Bewerten funktioniert auch ohne Anmeldung. Wenn Sie sich registrieren, werden gespeichert: Benutzername, ein optionaler Anzeigename, ein Hashwert Ihres Passworts (scrypt — das Passwort selbst wird nicht gespeichert) und der Zeitpunkt der Registrierung. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Bereitstellung des Kontos).",
+    "accountText": "Ein Konto ist freiwillig — Bewerten funktioniert auch ohne Anmeldung. Wenn Sie sich registrieren, werden gespeichert: Benutzername, ein optionaler Anzeigename, ein Hashwert Ihres Passworts (scrypt — das Passwort selbst wird nicht gespeichert), der Zeitpunkt der Registrierung und — falls Sie eine wählen — Ihre Standard-Mensa. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Bereitstellung des Kontos).",
     "accountNoEmail": "Eine E-Mail-Adresse wird bewusst nicht erhoben. Das heißt auch: Ein vergessenes Passwort lässt sich nicht zurücksetzen, und ich kann Sie nicht von mir aus kontaktieren.",
     "accountSession": "Bei der Anmeldung wird auf dem Server ein Sitzungsschlüssel gespeichert. Er läuft nicht automatisch ab, sondern wird beim Abmelden gelöscht. Beim Löschen des Kontos werden alle Sitzungen beendet.",
     "content": "Bewertungen, Kommentare und Fotos",
@@ -257,7 +257,11 @@
     "profileVisibilityHint": "Wenn öffentlich, können andere dein Profil öffnen und deine Bewertungen, Kommentare und Fotos sehen.",
     "profilePublic": "Öffentlich – privat machen",
     "profilePrivate": "Privat – öffentlich machen",
-    "profileToggleFailed": "Die Profil-Einstellung konnte nicht geändert werden."
+    "profileToggleFailed": "Die Profil-Einstellung konnte nicht geändert werden.",
+    "defaultMensa": "Standard-Mensa",
+    "defaultMensaHint": "Beim Öffnen der Seite und beim Zurückkehren zur Startansicht wird diese Mensa vorausgewählt.",
+    "defaultMensaNone": "Alle Mensen (keine Standard-Mensa)",
+    "defaultMensaFailed": "Die Standard-Mensa konnte nicht geändert werden."
   },
   "stats": {
     "title": "Statistiken",

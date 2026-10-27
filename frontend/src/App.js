@@ -184,9 +184,19 @@ function App() {
     if (!getToken()) return;
     fetch(`${API}/api/v1/me`, { headers: authHeaders() })
       .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then(data => setUser({ username: data.username, display_name: data.display_name }))
+      .then(data => setUser({ username: data.username, display_name: data.display_name, default_mensa: data.default_mensa || null }))
       .catch(() => { clearToken(); setUser(null); });
   }, []);
+
+  // Preselect the user's default mensa in the menu filter. Only touches the
+  // filter while it is still at its initial 'all', so a manual choice survives
+  // a later user-object refresh (e.g. saving the display name). `filter` is
+  // deliberately not a dependency -- a functional update reads the current
+  // value without re-running the effect.
+  useEffect(() => {
+    const def = user && user.default_mensa;
+    if (def) setFilter(f => (f === 'all' ? def : f));
+  }, [user]);
 
   // Function to change language
   const changeLanguage = (lng) => {
@@ -225,7 +235,7 @@ function App() {
     scrollToTop();
     setSearchQuery('');
     setSearchResults([]);
-    setFilter('all');
+    setFilter((user && user.default_mensa) || 'all');
     setDate(today());
     setShowStats(false);
     setShowAccount(false);

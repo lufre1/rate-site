@@ -606,3 +606,75 @@ test('the copy button copies the URL to clipboard', async () => {
   // Verify the "Kopiert ✓" message appears
   expect(screen.getByRole('button', { name: /Kopiert ✓/ })).toBeInTheDocument();
 });
+
+// The session-restore effect only runs when a token is present, so these tests
+// seed one. `/me` is matched with endsWith, NOT includes: `/meals` contains the
+// substring `/me`, so a looser check would answer the menu request with the
+// user object.
+function meResponse(defaultMensa) {
+  return jsonResponse({
+    username: 'alice', display_name: null, rating_count: 0,
+    created_at: '2026-01-01T00:00:00', is_public: false,
+    default_mensa: defaultMensa,
+  });
+}
+
+test('a signed-in user\'s default mensa preselects the menu filter', async () => {
+  const OTHER = 'OtherMensa';
+  const mealDefault = {
+    id: 1, name: 'Gericht A', description: '', tags: null, type: 'main',
+    mensa: MENSA, date: todayKey(), avg_rating: 0, rating_count: 0,
+  };
+  const mealOther = {
+    id: 2, name: 'Gericht B', description: '', tags: null, type: 'main',
+    mensa: OTHER, date: todayKey(), avg_rating: 0, rating_count: 0,
+  };
+
+  localStorage.setItem('mensa_token', 'test-token');
+  global.fetch = jest.fn((url) => {
+    if (url.endsWith('/api/v1/me')) return meResponse(MENSA);
+    if (url.includes('/mensas')) return jsonResponse([MENSA, OTHER]);
+    if (url.includes('/meals-summary')) return jsonResponse({});
+    if (url.includes('/meals?')) return jsonResponse([mealDefault, mealOther]);
+    return jsonResponse([]);
+  });
+
+  renderApp();
+
+  // The filter select (aria-label "Nach Mensa filtern") is preselected to the
+  // default mensa, so the other mensa's dish is filtered out. The session
+  // restore is async, so wait for the value to change rather than asserting
+  // immediately after the select first renders.
+  const select = await screen.findByLabelText('Nach Mensa filtern');
+  await waitFor(() => expect(select).toHaveValue(MENSA));
+  expect(await screen.findByText('Gericht A')).toBeInTheDocument();
+  expect(screen.queryByText('Gericht B')).not.toBeInTheDocument();
+});
+
+test('no default mensa leaves the filter on "all mensas"', async () => {
+  const OTHER = 'OtherMensa';
+  const mealDefault = {
+    id: 1, name: 'Gericht A', description: '', tags: null, type: 'main',
+    mensa: MENSA, date: todayKey(), avg_rating: 0, rating_count: 0,
+  };
+  const mealOther = {
+    id: 2, name: 'Gericht B', description: '', tags: null, type: 'main',
+    mensa: OTHER, date: todayKey(), avg_rating: 0, rating_count: 0,
+  };
+
+  localStorage.setItem('mensa_token', 'test-token');
+  global.fetch = jest.fn((url) => {
+    if (url.endsWith('/api/v1/me')) return meResponse(null);
+    if (url.includes('/mensas')) return jsonResponse([MENSA, OTHER]);
+    if (url.includes('/meals-summary')) return jsonResponse({});
+    if (url.includes('/meals?')) return jsonResponse([mealDefault, mealOther]);
+    return jsonResponse([]);
+  });
+
+  renderApp();
+
+  const select = await screen.findByLabelText('Nach Mensa filtern');
+  expect(select).toHaveValue('all');
+  expect(await screen.findByText('Gericht A')).toBeInTheDocument();
+  expect(screen.getByText('Gericht B')).toBeInTheDocument();
+});

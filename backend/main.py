@@ -312,6 +312,9 @@ class TokenOut(BaseModel):
     token: str
     username: str
     display_name: Optional[str] = None
+    # Carried in the login response like display_name, so the frontend knows
+    # the preference immediately after signing in without a second /me fetch.
+    default_mensa: Optional[str] = None
 
 class MeOut(BaseModel):
     username: str
@@ -319,6 +322,7 @@ class MeOut(BaseModel):
     rating_count: int
     created_at: Optional[datetime] = None
     is_public: bool = False
+    default_mensa: Optional[str] = None
 
 
 class PublicProfileOut(BaseModel):
@@ -1453,7 +1457,7 @@ def register(data: CredentialsInput, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
-    return TokenOut(token=auth.issue_token(db, user), username=user.username, display_name=None)
+    return TokenOut(token=auth.issue_token(db, user), username=user.username, display_name=None, default_mensa=None)
 
 
 @app.post("/api/v1/auth/login", response_model=TokenOut, tags=["Auth"])
@@ -1464,7 +1468,7 @@ def login(data: CredentialsInput, db: Session = Depends(get_db)):
     # endpoint can't be used to enumerate which usernames exist.
     if not user or not auth.verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    return TokenOut(token=auth.issue_token(db, user), username=user.username, display_name=user.display_name)
+    return TokenOut(token=auth.issue_token(db, user), username=user.username, display_name=user.display_name, default_mensa=user.default_mensa)
 
 
 @app.post("/api/v1/auth/logout", status_code=204, tags=["Auth"])
@@ -1480,7 +1484,7 @@ def logout(authorization: Optional[str] = Header(None), db: Session = Depends(ge
 @app.get("/api/v1/me", response_model=MeOut, tags=["Auth"])
 def get_me(user: DBUser = Depends(auth.current_user), db: Session = Depends(get_db)):
     count = db.query(func.count(DBRating.id)).filter(DBRating.user_id == user.id).scalar()
-    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at, is_public=bool(user.is_public))
+    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at, is_public=bool(user.is_public), default_mensa=user.default_mensa)
 
 
 @app.patch("/api/v1/me/profile", response_model=MeOut, tags=["Auth"])
@@ -1495,7 +1499,7 @@ def set_profile_public(data: dict, user: DBUser = Depends(auth.current_user), db
     db.commit()
     db.refresh(user)
     count = db.query(func.count(DBRating.id)).filter(DBRating.user_id == user.id).scalar()
-    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at, is_public=bool(user.is_public))
+    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at, is_public=bool(user.is_public), default_mensa=user.default_mensa)
 
 
 def _public_user_or_404(db: Session, username: str) -> DBUser:
@@ -1608,7 +1612,34 @@ def set_display_name(data: dict, user: DBUser = Depends(auth.current_user), db: 
     db.commit()
     db.refresh(user)
     count = db.query(func.count(DBRating.id)).filter(DBRating.user_id == user.id).scalar()
-    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at)
+    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at, default_mensa=user.default_mensa)
+
+
+@app.patch("/api/v1/me/default-mensa", response_model=MeOut, tags=["Auth"])
+def set_default_mensa(data: dict, user: DBUser = Depends(auth.current_user), db: Session = Depends(get_db)):
+    """Set or clear the user's preferred mensa.
+
+    The value is a mensa NAME (the same stable key /mensas and the frontend
+    filter use). `null` clears the preference; a string must name a real mensa
+    or the request is a 400. The frontend's "Alle Mensen" option sends null.
+    """
+    if "default_mensa" not in data:
+        raise HTTPException(status_code=400, detail="default_mensa is required")
+    value = data["default_mensa"]
+    if value is not None:
+        if not isinstance(value, str):
+            raise HTTPException(status_code=400, detail="default_mensa must be a string or null")
+        value = value.strip()
+        if not value:
+            value = None
+        elif not db.query(DBMensa).filter(DBMensa.name == value).first():
+            raise HTTPException(status_code=400, detail="Unknown mensa")
+    user.default_mensa = value
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    count = db.query(func.count(DBRating.id)).filter(DBRating.user_id == user.id).scalar()
+    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at, is_public=bool(user.is_public), default_mensa=user.default_mensa)
 
 
 def _ratings_for_user(db: Session, user_id: int, min_rating: int, sort: str, lang: str) -> List[MyRatingOut]:

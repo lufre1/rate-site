@@ -28,8 +28,9 @@ function AuthForm({ onAuth }) {
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data.detail || t('auth.failed'));
       setToken(data.token);
-      // The login response now carries the display name from the user record.
-      onAuth({ username: data.username, display_name: data.display_name || null });
+      // The login response now carries the display name and default mensa from
+      // the user record.
+      onAuth({ username: data.username, display_name: data.display_name || null, default_mensa: data.default_mensa || null });
     } catch (err) {
       setError(err.message || t('auth.failed'));
     } finally {
@@ -175,6 +176,9 @@ function Profile({ user, onLogout, language, onUpdate }) {
   const [streakLoading, setStreakLoading] = useState(true);
   const [isPublic, setIsPublic] = useState(null);
   const [profileBusy, setProfileBusy] = useState(false);
+  const [defaultMensa, setDefaultMensa] = useState(user.default_mensa || null);
+  const [mensaList, setMensaList] = useState([]);
+  const [mensaBusy, setMensaBusy] = useState(false);
 
   // "favourites" is not a separate store -- it is the same endpoint filtered to
   // the dishes this user actually rated 4 or 5.
@@ -221,15 +225,25 @@ function Profile({ user, onLogout, language, onUpdate }) {
       .catch(() => { setStreak(null); setStreakLoading(false); });
   }, [user]);
 
-  // Load the current profile-visibility flag. /me is the source of truth; the
-  // login response does not carry it, so we cannot rely on the `user` prop.
+  // Load the current profile-visibility flag and default mensa. /me is the
+  // source of truth; the login response does not carry them, so we cannot rely
+  // on the `user` prop.
   useEffect(() => {
     if (!user) return;
     fetch(`${API}/api/v1/me`, { headers: authHeaders() })
       .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then(data => setIsPublic(!!data.is_public))
+      .then(data => { setIsPublic(!!data.is_public); setDefaultMensa(data.default_mensa || null); })
       .catch(() => setIsPublic(false));
   }, [user]);
+
+  // The dropdown lists the real mensas. On failure the select still works for
+  // clearing the preference, so an empty list is an acceptable fallback.
+  useEffect(() => {
+    fetch(`${API}/api/v1/mensas`)
+      .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then(m => setMensaList(Array.isArray(m) ? m : []))
+      .catch(() => setMensaList([]));
+  }, []);
 
   const togglePublic = async () => {
     if (profileBusy) return;
@@ -244,6 +258,24 @@ function Profile({ user, onLogout, language, onUpdate }) {
       setIsPublic(!isPublic);
     } else {
       notify(t('auth.profileToggleFailed'));
+    }
+  };
+
+  const saveDefaultMensa = async (value) => {
+    if (mensaBusy) return;
+    setMensaBusy(true);
+    const resp = await fetch(`${API}/api/v1/me/default-mensa`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ default_mensa: value || null }),
+    }).catch(() => null);
+    setMensaBusy(false);
+    if (resp && resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      setDefaultMensa(data.default_mensa || null);
+      if (onUpdate) onUpdate({ username: user.username, display_name: user.display_name, default_mensa: data.default_mensa || null });
+    } else {
+      notify(t('auth.defaultMensaFailed'));
     }
   };
 
@@ -343,6 +375,21 @@ function Profile({ user, onLogout, language, onUpdate }) {
             </button>
           )}
         </div>
+      </div>
+
+      <div className="card">
+        <label className="form-label" htmlFor="default-mensa">
+          {t('auth.defaultMensa')}
+        </label>
+        <p className="muted-text">{t('auth.defaultMensaHint')}</p>
+        <select id="default-mensa" className="field"
+          aria-label={t('auth.defaultMensa')}
+          value={defaultMensa || ''}
+          onChange={e => saveDefaultMensa(e.target.value)}
+          disabled={mensaBusy}>
+          <option value="">{t('auth.defaultMensaNone')}</option>
+          {mensaList.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
       </div>
 
       <div className="card">

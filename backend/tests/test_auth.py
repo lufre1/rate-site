@@ -315,6 +315,72 @@ def test_display_name_requires_auth(client):
     assert resp.status_code == 401
 
 
+# ------------------------------------------------- default mensa
+
+def test_set_default_mensa(client, meal_id):
+    """The meal_id fixture creates a Mensa named "Zentralmensa", so that is the
+    valid name to set. The value is stored and surfaced through /me and the
+    login response."""
+    token = register(client, "mensa-user").json()["token"]
+
+    resp = client.patch("/api/v1/me/default-mensa", json={"default_mensa": "Zentralmensa"},
+                        headers=bearer(token))
+    assert resp.status_code == 200
+    assert resp.json()["default_mensa"] == "Zentralmensa"
+
+    me = client.get("/api/v1/me", headers=bearer(token))
+    assert me.json()["default_mensa"] == "Zentralmensa"
+
+    login = client.post("/api/v1/auth/login",
+                        json={"username": "mensa-user", "password": GOOD_PW})
+    assert login.json()["default_mensa"] == "Zentralmensa"
+
+
+def test_clear_default_mensa(client, meal_id):
+    token = register(client, "mensa-clear").json()["token"]
+    client.patch("/api/v1/me/default-mensa", json={"default_mensa": "Zentralmensa"},
+                 headers=bearer(token))
+
+    resp = client.patch("/api/v1/me/default-mensa", json={"default_mensa": None},
+                        headers=bearer(token))
+    assert resp.status_code == 200
+    assert resp.json()["default_mensa"] is None
+
+    me = client.get("/api/v1/me", headers=bearer(token))
+    assert me.json()["default_mensa"] is None
+
+
+def test_default_mensa_unknown_name_rejected(client, meal_id):
+    token = register(client, "mensa-bad").json()["token"]
+    resp = client.patch("/api/v1/me/default-mensa", json={"default_mensa": "No Such Mensa"},
+                        headers=bearer(token))
+    assert resp.status_code == 400
+
+
+def test_default_mensa_validation(client, meal_id):
+    token = register(client, "mensa-val").json()["token"]
+
+    # Non-string value
+    resp = client.patch("/api/v1/me/default-mensa", json={"default_mensa": 42},
+                        headers=bearer(token))
+    assert resp.status_code == 400
+
+    # Missing key
+    resp = client.patch("/api/v1/me/default-mensa", json={}, headers=bearer(token))
+    assert resp.status_code == 400
+
+    # Empty string treated as clear
+    resp = client.patch("/api/v1/me/default-mensa", json={"default_mensa": ""},
+                        headers=bearer(token))
+    assert resp.status_code == 200
+    assert resp.json()["default_mensa"] is None
+
+
+def test_default_mensa_requires_auth(client):
+    resp = client.patch("/api/v1/me/default-mensa", json={"default_mensa": "Zentralmensa"})
+    assert resp.status_code == 401
+
+
 # ------------------------------------------------- deleting a voted rating
 
 def voter(vid):

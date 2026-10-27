@@ -191,7 +191,7 @@
     "storageDiet": "mensa_diet — your choice of diet filter. Purely local, with no relation to your person.",
     "storageDelete": "You can delete these values at any time by clearing this site\u2019s data in your browser. Your vote counting then starts afresh.",
     "account": "User account",
-    "accountText": "An account is optional — rating works without signing in. If you register, the following is stored: your username, an optional display name, a hash of your password (scrypt — the password itself is not stored) and the time of registration. The legal basis is Art. 6(1)(b) GDPR (provision of the account).",
+    "accountText": "An account is optional — rating works without signing in. If you register, the following is stored: your username, an optional display name, a hash of your password (scrypt — the password itself is not stored), the time of registration and — if you choose one — your default mensa. The legal basis is Art. 6(1)(b) GDPR (provision of the account).",
     "accountNoEmail": "No email address is collected, deliberately. This also means a forgotten password cannot be reset, and I have no way to contact you on my own initiative.",
     "accountSession": "When you sign in, a session key is stored on the server. It does not expire automatically; it is deleted when you sign out. Deleting your account ends all sessions.",
     "content": "Ratings, reviews and photos",
@@ -257,7 +257,11 @@
     "profileVisibilityHint": "When public, other people can open your profile and see your ratings, comments and photos.",
     "profilePublic": "Public – make private",
     "profilePrivate": "Private – make public",
-    "profileToggleFailed": "The profile setting could not be changed."
+    "profileToggleFailed": "The profile setting could not be changed.",
+    "defaultMensa": "Default mensa",
+    "defaultMensaHint": "This mensa is preselected when you open the site and when you return to the home view.",
+    "defaultMensaNone": "All mensas (no default)",
+    "defaultMensaFailed": "The default mensa could not be changed."
   },
   "stats": {
     "title": "Statistics",
