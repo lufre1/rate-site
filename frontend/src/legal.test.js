@@ -89,6 +89,7 @@ describe('content the audit requires', () => {
       'mensa_voter_id',   // the persistent pseudonymous vote id
       'mensa_token',
       'mensa_diet',       // the diet filter key
+      'mensa_seen_announcements', // the dismissed-notices key
       'studierendenwerk', // the third-party icon host
       'gwdg',             // the hoster
       'scrypt',           // how passwords are stored

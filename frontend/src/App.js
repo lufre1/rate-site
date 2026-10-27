@@ -10,6 +10,7 @@ import Stats from './Stats';
 import Leaderboard from './Leaderboard';
 import Rewind from './Rewind';
 import Profile from './Profile';
+import AnnouncementBanner from './AnnouncementBanner';
 import { useToast } from './Toast';
 import {
   API, authHeaders, getToken, clearToken, formatRelativeDate, StarPicker,
@@ -631,6 +632,8 @@ function App() {
           <ThemeToggle />
         </nav>
       </header>
+
+      <AnnouncementBanner />
 
       <main className="page" id="main" tabIndex={-1}>
         {showStats ? (

@@ -50,6 +50,7 @@ function Datenschutz({ onBack }) {
           <li>{t('datenschutz.storageTheme')}</li>
           <li>{t('datenschutz.storageVoter')}</li>
           <li>{t('datenschutz.storageDiet')}</li>
+          <li>{t('datenschutz.storageAnnouncement')}</li>
         </ul>
         <p>{t('datenschutz.storageDelete')}</p>
 
@@ -63,6 +64,9 @@ function Datenschutz({ onBack }) {
         <p>{t('datenschutz.contentAnon')}</p>
         <p>{t('datenschutz.contentPhotos')}</p>
         <p>{t('datenschutz.contentExif')}</p>
+
+        <h3>{t('datenschutz.announcement')}</h3>
+        <p>{t('datenschutz.announcementText')}</p>
 
         <h3>{t('datenschutz.votes')}</h3>
         <p>{t('datenschutz.votesText')}</p>

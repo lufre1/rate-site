@@ -164,6 +164,17 @@ class LeaderboardScore(Base):
     
     user = relationship("User", backref="leaderboard_scores")
 
+class SiteAnnouncement(Base):
+    # A single current announcement shown once per browser (see AnnouncementBanner
+    # in the frontend). Publishing a new one = inserting a new row; the browser
+    # remembers which ids it has already dismissed, so a new id shows again.
+    __tablename__ = "site_announcements"
+    id = Column(Integer, primary_key=True, index=True)
+    text_de = Column(Text, nullable=False)
+    text_en = Column(Text, nullable=False)
+    active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime, default=func.now())
+
 class AuthToken(Base):
     # Not "Session" -- that name is already sqlalchemy.orm.Session throughout this codebase.
     __tablename__ = "auth_tokens"
@@ -447,3 +458,21 @@ def init_db():
             conn.execute(text("CREATE INDEX ix_leaderboard_scores_date ON leaderboard_scores (date)"))
             conn.commit()
             log.info("Created leaderboard_scores table")
+        # Create site_announcements table if not exists
+        result = conn.execute(text(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name='site_announcements'"
+        ))
+        if not result.fetchone():
+            conn.execute(text("""
+                CREATE TABLE site_announcements (
+                    id SERIAL PRIMARY KEY,
+                    text_de TEXT NOT NULL,
+                    text_en TEXT NOT NULL,
+                    active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX ix_site_announcements_active ON site_announcements (active)"))
+            conn.commit()
+            log.info("Created site_announcements table")

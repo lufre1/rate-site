@@ -29,7 +29,7 @@ from logging_config import configure_logging, request_id_var
 configure_logging()
 log = logging.getLogger("api")
 
-from database import Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, User as DBUser, AuthToken as DBAuthToken, CommentVote as DBCommentVote, PhotoVote as DBPhotoVote, LeaderboardScore as DBLeaderboardScore, init_db, get_db, SessionLocal, POOL_CAPACITY
+from database import Meal as DBMeal, Rating as DBRating, SideRating as DBSideRating, Mensa as DBMensa, User as DBUser, AuthToken as DBAuthToken, CommentVote as DBCommentVote, PhotoVote as DBPhotoVote, LeaderboardScore as DBLeaderboardScore, SiteAnnouncement as DBSiteAnnouncement, init_db, get_db, SessionLocal, POOL_CAPACITY
 import auth
 from images import render_upload
 from scraper import scrape_menus, scrape_today
@@ -461,6 +461,26 @@ def health_db(db: Session = Depends(get_db)):
     from sqlalchemy import text as _text
     db.execute(_text("SELECT 1"))
     return {"status": "ok"}
+
+
+@app.get("/api/v1/announcement", tags=["Announcement"])
+def get_current_announcement(lang: str = "de", db: Session = Depends(get_db)):
+    """The current active announcement, or 404 when there is none.
+
+    The frontend shows it once per browser (AnnouncementBanner remembers which
+    ids it has already dismissed). Publishing a new announcement is inserting a
+    new row; a new id then shows again even to browsers that dismissed the old
+    one. `active` retires one without deleting it.
+    """
+    ann = (
+        db.query(DBSiteAnnouncement)
+        .filter(DBSiteAnnouncement.active == True)  # noqa: E712
+        .order_by(DBSiteAnnouncement.id.desc())
+        .first()
+    )
+    if not ann:
+        raise HTTPException(status_code=404, detail="No active announcement")
+    return {"id": ann.id, "text": ann.text_de if lang == "de" else ann.text_en}
 
 
 @app.get("/api/v1/meals/search")

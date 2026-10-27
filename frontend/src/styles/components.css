@@ -101,6 +101,54 @@
 }
 
 /* ==================================================================
+   Announcement banner
+   ================================================================== */
+
+/* A dismissible, once-per-browser notice about new features/updates. Sits
+   between the header and the page content; renders nothing when there is no
+   announcement or the visitor has already dismissed it. */
+.announcement {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: var(--page-max);
+  margin: var(--space-3) auto 0;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  background: var(--warning-soft);
+  color: var(--warning);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
+}
+
+.announcement__text {
+  flex: 1;
+  font-size: var(--text-base);
+  line-height: var(--leading);
+  word-break: break-word;
+}
+
+.announcement__close {
+  flex-shrink: 0;
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: var(--radius-pill);
+  color: inherit;
+  font-size: var(--text-xl);
+  line-height: 1;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .announcement__close:hover { background: var(--surface-sunken); }
+}
+
+/* ==================================================================
    Skip link
    ================================================================== */
 
