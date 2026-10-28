@@ -366,5 +366,16 @@
     "ratingsCount": "{{count}} ratings",
     "loadFailed": "The reviews could not be loaded.",
     "noRatings": "No ratings yet."
+  },
+  "admin": {
+    "announcementTitle": "Announcement",
+    "announcementHint": "Publish a notice shown once to every visitor. A new notice also appears to visitors who dismissed the previous one.",
+    "textDe": "German text",
+    "textEn": "English text",
+    "announcementPublish": "Publish",
+    "announcementRetire": "Remove",
+    "announcementPublished": "Announcement published.",
+    "announcementRetired": "Announcement removed.",
+    "announcementFailed": "Could not save the announcement."
   }
 }

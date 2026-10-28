@@ -185,7 +185,7 @@ function App() {
     if (!getToken()) return;
     fetch(`${API}/api/v1/me`, { headers: authHeaders() })
       .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then(data => setUser({ username: data.username, display_name: data.display_name, default_mensa: data.default_mensa || null }))
+      .then(data => setUser({ username: data.username, display_name: data.display_name, default_mensa: data.default_mensa || null, is_admin: data.is_admin === true }))
       .catch(() => { clearToken(); setUser(null); });
   }, []);
 

@@ -366,5 +366,16 @@
     "ratingsCount": "{{count}} Bewertungen",
     "loadFailed": "Die Bewertungen konnten nicht geladen werden.",
     "noRatings": "Noch keine Bewertungen."
+  },
+  "admin": {
+    "announcementTitle": "Ankündigung",
+    "announcementHint": "Veröffentliche einen Hinweis, der allen Besuchern einmal angezeigt wird. Ein neuer Hinweis erscheint auch bei Besuchern, die den vorherigen geschlossen haben.",
+    "textDe": "Deutscher Text",
+    "textEn": "Englischer Text",
+    "announcementPublish": "Veröffentlichen",
+    "announcementRetire": "Entfernen",
+    "announcementPublished": "Ankündigung veröffentlicht.",
+    "announcementRetired": "Ankündigung entfernt.",
+    "announcementFailed": "Ankündigung konnte nicht gespeichert werden."
   }
 }

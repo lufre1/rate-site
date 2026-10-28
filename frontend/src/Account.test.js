@@ -154,3 +154,84 @@ test('choosing "all mensas" clears the default', async () => {
   expect(JSON.parse(patch[1].body)).toEqual({ default_mensa: null });
   await waitFor(() => expect(select).toHaveValue(''));
 });
+
+test('the admin announcement section is hidden for non-admins', async () => {
+  const user = { username: 'alice', display_name: null, default_mensa: null, is_admin: false };
+  renderAccount(user);
+  // The section title must not appear for a plain user.
+  await waitFor(() => {
+    expect(screen.queryByText('Ankündigung')).not.toBeInTheDocument();
+  });
+});
+
+test('an admin can publish and retire the announcement', async () => {
+  const user = { username: 'boss', display_name: null, default_mensa: null, is_admin: true };
+  let active = false;
+
+  global.fetch = jest.fn((url, opts) => {
+    if (url.endsWith('/api/v1/announcement') && (!opts || !opts.method)) {
+      // GET: reflect the current active state.
+      return active
+        ? Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 1, text_de: 'Neu', text_en: 'New' }) })
+        : Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
+    }
+    if (url.endsWith('/api/v1/admin/announcement') && opts && opts.method === 'POST') {
+      active = true;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 2, text_de: 'Neu', text_en: 'New' }) });
+    }
+    if (url.endsWith('/api/v1/admin/announcement') && opts && opts.method === 'DELETE') {
+      active = false;
+      return Promise.resolve({ ok: true, status: 204, json: () => Promise.resolve({}) });
+    }
+    if (url.endsWith('/api/v1/me')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ is_public: false, default_mensa: null }) });
+    }
+    if (url.includes('/mensas')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    }
+    if (url.includes('/leaderboard/me')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ score: 0, rank: null }) });
+    }
+    if (url.includes('/me/streak')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ current: 0, best: 0, active: false }) });
+    }
+    if (url.includes('/me/ratings')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    }
+    return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+  });
+
+  renderAccount(user);
+
+  // The admin section is visible.
+  const title = await screen.findByText('Ankündigung');
+  expect(title).toBeInTheDocument();
+
+  // Fill both texts and publish.
+  const deField = await screen.findByLabelText('Deutscher Text');
+  const enField = await screen.findByLabelText('Englischer Text');
+  await userEvent.type(deField, 'Neu');
+  await userEvent.type(enField, 'New');
+  await userEvent.click(screen.getByRole('button', { name: 'Veröffentlichen' }));
+
+  await waitFor(() => {
+    const post = global.fetch.mock.calls.find(
+      ([u, o]) => u.endsWith('/api/v1/admin/announcement') && o && o.method === 'POST'
+    );
+    expect(post).toBeDefined();
+  });
+  const post = global.fetch.mock.calls.find(
+    ([u, o]) => u.endsWith('/api/v1/admin/announcement') && o && o.method === 'POST'
+  );
+  expect(JSON.parse(post[1].body)).toEqual({ text_de: 'Neu', text_en: 'New' });
+
+  // The retire button appears once something is active; clicking it DELETEs.
+  const retire = await screen.findByRole('button', { name: 'Entfernen' });
+  await userEvent.click(retire);
+  await waitFor(() => {
+    const del = global.fetch.mock.calls.find(
+      ([u, o]) => u.endsWith('/api/v1/admin/announcement') && o && o.method === 'DELETE'
+    );
+    expect(del).toBeDefined();
+  });
+});

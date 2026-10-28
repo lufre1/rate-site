@@ -158,6 +158,10 @@ def resolve_language(r, lang: str):
 # not invalidate rows already stored above it.
 COMMENT_MAX_LENGTH = 1000
 
+# Announcement banner text cap. A banner is a single short line, so this is
+# deliberately far below the comment cap.
+ANNOUNCEMENT_MAX_LENGTH = 500
+
 # Comment flairs (issue #35): one optional label per comment. The frontend
 # mirrors this list in FLAIRS (App.js); the display text is translated, so the
 # stored value is a stable slug, not a user-visible string.
@@ -315,6 +319,8 @@ class TokenOut(BaseModel):
     # Carried in the login response like display_name, so the frontend knows
     # the preference immediately after signing in without a second /me fetch.
     default_mensa: Optional[str] = None
+    # Same rationale: the admin section should appear right after sign-in.
+    is_admin: bool = False
 
 class MeOut(BaseModel):
     username: str
@@ -323,6 +329,7 @@ class MeOut(BaseModel):
     created_at: Optional[datetime] = None
     is_public: bool = False
     default_mensa: Optional[str] = None
+    is_admin: bool = False
 
 
 class PublicProfileOut(BaseModel):
@@ -330,6 +337,11 @@ class PublicProfileOut(BaseModel):
     display_name: Optional[str] = None
     rating_count: int
     created_at: Optional[datetime] = None
+
+
+class AnnouncementIn(BaseModel):
+    text_de: str
+    text_en: str
 
 
 class StreakOut(BaseModel):
@@ -481,6 +493,70 @@ def get_current_announcement(lang: str = "de", db: Session = Depends(get_db)):
     if not ann:
         raise HTTPException(status_code=404, detail="No active announcement")
     return {"id": ann.id, "text": ann.text_de if lang == "de" else ann.text_en}
+
+
+def _require_admin(user: DBUser) -> None:
+    """Raise 403 unless the signed-in user is an admin.
+
+    Deliberately stricter than the open /leaderboard/recalculate route: an
+    announcement is visible to every visitor, so publishing one is not a
+    privilege every signed-in user should have.
+    """
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+
+
+@app.post("/api/v1/admin/announcement", status_code=201, tags=["Announcement"])
+def publish_announcement(
+    data: AnnouncementIn,
+    db: Session = Depends(get_db),
+    user: DBUser = Depends(auth.current_user),
+):
+    """Publish a new announcement banner (admin only).
+
+    Inserting a new row gives it a fresh id, so it shows again even to browsers
+    that dismissed the old one -- the dismissal feature's existing contract.
+    The previously active row is retired so `active` keeps meaning "the current
+    one".
+    """
+    _require_admin(user)
+    text_de = data.text_de.strip()
+    text_en = data.text_en.strip()
+    if not text_de or not text_en:
+        raise HTTPException(status_code=400, detail="Both texts are required")
+    if len(text_de) > ANNOUNCEMENT_MAX_LENGTH or len(text_en) > ANNOUNCEMENT_MAX_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Announcement text exceeds {ANNOUNCEMENT_MAX_LENGTH} characters",
+        )
+    db.query(DBSiteAnnouncement).filter(
+        DBSiteAnnouncement.active == True  # noqa: E712
+    ).update({DBSiteAnnouncement.active: False}, synchronize_session=False)
+    ann = DBSiteAnnouncement(text_de=text_de, text_en=text_en, active=True)
+    db.add(ann)
+    db.commit()
+    db.refresh(ann)
+    return {"id": ann.id, "text_de": ann.text_de, "text_en": ann.text_en}
+
+
+@app.delete("/api/v1/admin/announcement", status_code=204, tags=["Announcement"])
+def retire_announcement(
+    db: Session = Depends(get_db),
+    user: DBUser = Depends(auth.current_user),
+):
+    """Retire the current announcement banner (admin only). 404 when none is active."""
+    _require_admin(user)
+    ann = (
+        db.query(DBSiteAnnouncement)
+        .filter(DBSiteAnnouncement.active == True)  # noqa: E712
+        .order_by(DBSiteAnnouncement.id.desc())
+        .first()
+    )
+    if not ann:
+        raise HTTPException(status_code=404, detail="No active announcement")
+    ann.active = False
+    db.commit()
+    return Response(status_code=204)
 
 
 @app.get("/api/v1/meals/search")
@@ -1477,7 +1553,7 @@ def register(data: CredentialsInput, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
-    return TokenOut(token=auth.issue_token(db, user), username=user.username, display_name=None, default_mensa=None)
+    return TokenOut(token=auth.issue_token(db, user), username=user.username, display_name=None, default_mensa=None, is_admin=False)
 
 
 @app.post("/api/v1/auth/login", response_model=TokenOut, tags=["Auth"])
@@ -1488,7 +1564,7 @@ def login(data: CredentialsInput, db: Session = Depends(get_db)):
     # endpoint can't be used to enumerate which usernames exist.
     if not user or not auth.verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    return TokenOut(token=auth.issue_token(db, user), username=user.username, display_name=user.display_name, default_mensa=user.default_mensa)
+    return TokenOut(token=auth.issue_token(db, user), username=user.username, display_name=user.display_name, default_mensa=user.default_mensa, is_admin=bool(user.is_admin))
 
 
 @app.post("/api/v1/auth/logout", status_code=204, tags=["Auth"])
@@ -1504,7 +1580,7 @@ def logout(authorization: Optional[str] = Header(None), db: Session = Depends(ge
 @app.get("/api/v1/me", response_model=MeOut, tags=["Auth"])
 def get_me(user: DBUser = Depends(auth.current_user), db: Session = Depends(get_db)):
     count = db.query(func.count(DBRating.id)).filter(DBRating.user_id == user.id).scalar()
-    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at, is_public=bool(user.is_public), default_mensa=user.default_mensa)
+    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at, is_public=bool(user.is_public), default_mensa=user.default_mensa, is_admin=bool(user.is_admin))
 
 
 @app.patch("/api/v1/me/profile", response_model=MeOut, tags=["Auth"])
@@ -1519,7 +1595,7 @@ def set_profile_public(data: dict, user: DBUser = Depends(auth.current_user), db
     db.commit()
     db.refresh(user)
     count = db.query(func.count(DBRating.id)).filter(DBRating.user_id == user.id).scalar()
-    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at, is_public=bool(user.is_public), default_mensa=user.default_mensa)
+    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at, is_public=bool(user.is_public), default_mensa=user.default_mensa, is_admin=bool(user.is_admin))
 
 
 def _public_user_or_404(db: Session, username: str) -> DBUser:
@@ -1632,7 +1708,7 @@ def set_display_name(data: dict, user: DBUser = Depends(auth.current_user), db: 
     db.commit()
     db.refresh(user)
     count = db.query(func.count(DBRating.id)).filter(DBRating.user_id == user.id).scalar()
-    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at, default_mensa=user.default_mensa)
+    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at, default_mensa=user.default_mensa, is_admin=bool(user.is_admin))
 
 
 @app.patch("/api/v1/me/default-mensa", response_model=MeOut, tags=["Auth"])
@@ -1659,7 +1735,7 @@ def set_default_mensa(data: dict, user: DBUser = Depends(auth.current_user), db:
     db.commit()
     db.refresh(user)
     count = db.query(func.count(DBRating.id)).filter(DBRating.user_id == user.id).scalar()
-    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at, is_public=bool(user.is_public), default_mensa=user.default_mensa)
+    return MeOut(username=user.username, display_name=user.display_name, rating_count=count or 0, created_at=user.created_at, is_public=bool(user.is_public), default_mensa=user.default_mensa, is_admin=bool(user.is_admin))
 
 
 def _ratings_for_user(db: Session, user_id: int, min_rating: int, sort: str, lang: str) -> List[MyRatingOut]:

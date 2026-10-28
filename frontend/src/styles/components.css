@@ -1606,6 +1606,12 @@
   font-weight: 500;
 }
 
+.success-text {
+  color: var(--positive);
+  font-size: var(--text-base);
+  font-weight: 500;
+}
+
 .hint-text { color: var(--text-muted); font-size: var(--text-xs); }
 
 .result-count {

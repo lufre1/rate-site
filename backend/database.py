@@ -152,6 +152,9 @@ class User(Base):
     # unique, stable key the /mensas endpoint and the frontend filter both use,
     # and the scraper never deletes mensas rows. NULL = no preference.
     default_mensa = Column(String, nullable=True)
+    # Admin flag: only admins can publish/retire the site announcement banner.
+    # Defaults to False; granted per-environment with a one-off UPDATE.
+    is_admin = Column(Boolean, nullable=False, default=False)
 
 
 class LeaderboardScore(Base):
@@ -347,6 +350,19 @@ def init_db():
             conn.execute(text("ALTER TABLE users ADD COLUMN default_mensa VARCHAR"))
             conn.commit()
             log.info("Added default_mensa column to users table")
+        # Add is_admin column to users if missing. NOT NULL with a FALSE default
+        # so every existing account is a non-admin on first run; granted per
+        # environment with a one-off UPDATE.
+        result = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='users' AND column_name='is_admin'"
+        ))
+        if not result.fetchone():
+            conn.execute(text(
+                "ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            conn.commit()
+            log.info("Added is_admin column to users table")
         # Add flair column to ratings if missing (issue #35). Nullable: an
         # absent flair is the normal case, and every pre-flair row stays valid.
         result = conn.execute(text(

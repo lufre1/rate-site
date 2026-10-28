@@ -30,7 +30,7 @@ function AuthForm({ onAuth }) {
       setToken(data.token);
       // The login response now carries the display name and default mensa from
       // the user record.
-      onAuth({ username: data.username, display_name: data.display_name || null, default_mensa: data.default_mensa || null });
+      onAuth({ username: data.username, display_name: data.display_name || null, default_mensa: data.default_mensa || null, is_admin: data.is_admin === true });
     } catch (err) {
       setError(err.message || t('auth.failed'));
     } finally {
@@ -157,6 +157,103 @@ function RatingRow({ entry, onChanged }) {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function AnnouncementAdmin({ language }) {
+  const { t } = useTranslation();
+  const [textDe, setTextDe] = useState('');
+  const [textEn, setTextEn] = useState('');
+  const [status, setStatus] = useState(null);   // { ok: bool, msg: string } | null
+  const [busy, setBusy] = useState(false);
+  const [hasActive, setHasActive] = useState(false);
+
+  // Load the current announcement so the admin sees what is live. A 404 means
+  // none is active -- that is a normal state, not an error.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API}/api/v1/announcement?lang=${language}`)
+      .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then(data => {
+        if (cancelled) return;
+        setHasActive(true);
+        setTextDe(data.text_de || '');
+        setTextEn(data.text_en || '');
+      })
+      .catch(() => { if (!cancelled) setHasActive(false); });
+    return () => { cancelled = true; };
+  }, [language]);
+
+  const publish = async () => {
+    if (busy) return;
+    setBusy(true);
+    setStatus(null);
+    const resp = await fetch(`${API}/api/v1/admin/announcement`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ text_de: textDe, text_en: textEn }),
+    }).catch(() => null);
+    setBusy(false);
+    if (resp && resp.ok) {
+      setHasActive(true);
+      setStatus({ ok: true, msg: t('admin.announcementPublished') });
+    } else {
+      const data = await resp.json().catch(() => ({}));
+      setStatus({ ok: false, msg: data.detail || t('admin.announcementFailed') });
+    }
+  };
+
+  const retire = async () => {
+    if (busy) return;
+    setBusy(true);
+    setStatus(null);
+    const resp = await fetch(`${API}/api/v1/admin/announcement`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    }).catch(() => null);
+    setBusy(false);
+    if (resp && resp.ok) {
+      setHasActive(false);
+      setTextDe('');
+      setTextEn('');
+      setStatus({ ok: true, msg: t('admin.announcementRetired') });
+    } else {
+      setStatus({ ok: false, msg: t('admin.announcementFailed') });
+    }
+  };
+
+  return (
+    <div className="card">
+      <h3>{t('admin.announcementTitle')}</h3>
+      <p className="muted-text">{t('admin.announcementHint')}</p>
+      <div className="stack-2">
+        <label className="form-label" htmlFor="ann-de">{t('admin.textDe')}</label>
+        <textarea id="ann-de" className="field field--textarea" rows={2}
+          value={textDe} onChange={e => setTextDe(e.target.value)}
+          maxLength={500} />
+        <label className="form-label" htmlFor="ann-en">{t('admin.textEn')}</label>
+        <textarea id="ann-en" className="field field--textarea" rows={2}
+          value={textEn} onChange={e => setTextEn(e.target.value)}
+          maxLength={500} />
+      </div>
+      <p aria-live="polite">
+        {status && (
+          <span className={status.ok ? 'success-text' : 'error-text'}>{status.msg}</span>
+        )}
+      </p>
+      <div className="row-2">
+        <button type="button" className="btn btn--primary btn--sm"
+          onClick={publish} disabled={busy || !textDe.trim() || !textEn.trim()}>
+          {busy ? '…' : t('admin.announcementPublish')}
+        </button>
+        {hasActive && (
+          <button type="button" className="btn btn--ghost btn--sm"
+            onClick={retire} disabled={busy}>
+            {t('admin.announcementRetire')}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -437,6 +534,8 @@ function Profile({ user, onLogout, language, onUpdate }) {
           {profileBusy ? '…' : (isPublic ? t('auth.profilePublic') : t('auth.profilePrivate'))}
         </button>
       </div>
+
+      {user.is_admin && <AnnouncementAdmin language={language} />}
 
       <div className="tabs mt-4">
         {[['mine', 'auth.myRatings'], ['favourites', 'auth.favourites']].map(([key, label]) => (
