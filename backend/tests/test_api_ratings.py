@@ -29,6 +29,15 @@ PNG_BASE64 = (
     "R0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAkSURBVDhPY2RgYGBgAAEYAQABYDCqAAAAAElFTkSuQmCC"
 )
 
+# The same idea, but a container Pillow can actually decode. PNG_BASE64 ends in a
+# truncated IDAT chunk, so it takes render_upload()'s "store unresized, no
+# derived copies" path -- which is correct, and is why anything asserting on the
+# card or thumb has to use this one.
+PNG_DECODABLE_BASE64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAGCAIAAABxZ0isAAAAFElEQVR4nGM8ISfHgA0wYRWlkwQAmxQBECiK"
+    "gAAAAAAASUVORK5CYII="
+)
+
 
 @pytest.fixture()
 def client(monkeypatch, tmp_path, sqlite_db):
@@ -38,7 +47,12 @@ def client(monkeypatch, tmp_path, sqlite_db):
     "on_startup" hook (init_db's Postgres-only ALTER TABLE calls, the live
     scraper run, the background scheduler) never fires.
     """
+    # The derived subdirectories are bound at import time, so patching
+    # UPLOAD_DIR alone would leave the route writing cards/thumbs into the
+    # real uploads directory.
     monkeypatch.setattr(main, "UPLOAD_DIR", str(tmp_path))
+    monkeypatch.setattr(main, "CARD_DIR", str(tmp_path / "cards"))
+    monkeypatch.setattr(main, "THUMB_DIR", str(tmp_path / "thumbs"))
 
     def override_get_db():
         db = SessionLocal()
@@ -128,6 +142,35 @@ def test_create_rating_with_photo_via_form_fields(client, meal_id):
     assert body["rating"] == 5
     assert body["comment"] == "Tasty"
     assert body["photo_url"]
+
+
+def test_upload_writes_all_three_sizes_and_delete_removes_them(client, meal_id):
+    """A photo is stored three times (display, card, thumb), and deleting the
+    review must remove all three: a leftover derived copy is a publicly
+    readable image of a photo its author deleted."""
+    png_bytes = base64.b64decode(PNG_DECODABLE_BASE64)
+    token = client.post("/api/v1/auth/register",
+                        json={"username": "deleter", "password": "correct-horse-battery"}
+                        ).json()["token"]
+    resp = client.post(
+        f"/api/v1/meals/{meal_id}/ratings-with-photo",
+        data={"rating": 5, "comment": "Tasty"},
+        files={"photo": ("test.png", png_bytes, "image/png")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 201, resp.text
+    name = os.path.basename(resp.json()["photo_url"])
+
+    paths = [
+        os.path.join(main.UPLOAD_DIR, name),
+        os.path.join(main.CARD_DIR, name),
+        os.path.join(main.THUMB_DIR, name),
+    ]
+    assert [os.path.isfile(p) for p in paths] == [True, True, True]
+
+    assert client.delete(f"/api/v1/ratings/{resp.json()['id']}",
+                         headers={"Authorization": f"Bearer {token}"}).status_code == 204
+    assert [os.path.isfile(p) for p in paths] == [False, False, False]
 
 
 def test_photo_upload_rejects_out_of_range_rating(client, meal_id):

@@ -103,15 +103,18 @@ async def unhandled_exception(request: Request, exc: Exception):
 # Upload directory
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
 
-# Thumbnails live in a subdirectory under the same name as their original, so
-# /uploads/<name> and /uploads/thumbs/<name> are the same photo at two sizes and
-# the frontend can derive one URL from the other. StaticFiles serves the
-# subdirectory as-is; no extra mount and no database column.
+# Derived copies live in subdirectories under the same name as their original,
+# so /uploads/<name>, /uploads/cards/<name> and /uploads/thumbs/<name> are the
+# same photo at three sizes and the frontend can derive one URL from another.
+# StaticFiles serves the subdirectories as-is; no extra mount and no database
+# column.
+CARD_DIR = os.path.join(UPLOAD_DIR, "cards")
 THUMB_DIR = os.path.join(UPLOAD_DIR, "thumbs")
 
 def ensure_upload_dir():
     """Ensure upload directory exists"""
     os.makedirs(UPLOAD_DIR, exist_ok=True)
+    os.makedirs(CARD_DIR, exist_ok=True)
     os.makedirs(THUMB_DIR, exist_ok=True)
 
 # Must exist before the StaticFiles mount below (module import time), not just
@@ -790,17 +793,19 @@ def create_rating_with_photo(meal_id: int, rating: int = Form(..., ge=1, le=5), 
         # camera recorded it. render_upload strips all of that AND resizes --
         # originals used to be stored at full phone resolution and served into a
         # 120px box, which is what made one page load 31 MB. See images.py.
-        display, thumb = render_upload(content, file_ext)
+        display, thumb, card = render_upload(content, file_ext)
         with open(photo_path, 'wb') as f:
             f.write(display)
 
-        # A missing thumbnail is not an upload failure: render_upload returns
-        # None for anything it could not decode, and the frontend falls back to
-        # the full image. Losing the review over a thumbnail would be worse.
-        if thumb is not None:
-            ensure_upload_dir()
-            with open(os.path.join(THUMB_DIR, new_filename), 'wb') as f:
-                f.write(thumb)
+        # A missing derived size is not an upload failure: render_upload
+        # returns None for anything it could not decode, and the frontend falls
+        # back to the full image. Losing the review over a thumbnail would be
+        # worse.
+        ensure_upload_dir()
+        for directory, data in ((CARD_DIR, card), (THUMB_DIR, thumb)):
+            if data is not None:
+                with open(os.path.join(directory, new_filename), 'wb') as f:
+                    f.write(data)
 
         photo_url = f"/uploads/{new_filename}"
 
@@ -1923,10 +1928,11 @@ def delete_own_rating(
     db.query(DBPhotoVote).filter(DBPhotoVote.rating_id == rating.id).delete()
 
     # basename() so a crafted photo_url can't escape the upload directory.
-    photo_path = thumb_path = None
+    photo_path = card_path = thumb_path = None
     if rating.photo_url:
         photo_name = os.path.basename(rating.photo_url)
         photo_path = os.path.join(UPLOAD_DIR, photo_name)
+        card_path = os.path.join(CARD_DIR, photo_name)
         thumb_path = os.path.join(THUMB_DIR, photo_name)
 
     db.delete(rating)
@@ -1934,8 +1940,9 @@ def delete_own_rating(
 
     # Unlink only once the row is really gone. Removing the file first meant a
     # failed commit left a visible review pointing at a photo that no longer
-    # existed.
-    for path in (photo_path, thumb_path):
+    # existed. All three sizes go: a leftover derived copy is a publicly
+    # readable image of a photo its author deleted.
+    for path in (photo_path, card_path, thumb_path):
         if path and os.path.isfile(path):
             os.remove(path)
     

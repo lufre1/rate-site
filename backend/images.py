@@ -250,11 +250,22 @@ def strip_metadata(data: bytes, ext: str) -> bytes:
 # original nobody looks at.
 MAX_DISPLAY_EDGE = 1600
 
-# .review__photo is 120x120 and .dish__photo 220px tall, so 240 covers both at
-# 2x device pixel ratio.
+# .review__photo is a 120x90 box and the Rewind and Profile lists use the same
+# size, so 240 covers all of them at 2x device pixel ratio.
 THUMB_EDGE = 240
 
+# The grid dish photo is the one surface that outgrew its thumbnail. A collapsed
+# card is up to ~361px wide in the three-column grid on a 1180px page and a
+# full-width ~330px on a phone, so the 240px thumb was being upscaled 1.5x on a
+# desktop and ~3x on a phone screen -- the "blurry thumbnails" of issue #42.
+# 720 is 2x the widest card. It is a *separate* file under a separate URL on
+# purpose: /uploads is served `immutable, max-age=2592000`, so rewriting the
+# existing thumbnails in place would leave returning visitors on the soft
+# version for up to 30 days.
+CARD_EDGE = 720
+
 DISPLAY_QUALITY = 82
+CARD_QUALITY = 80
 THUMB_QUALITY = 78
 
 # A 5 MB PNG can decode to gigabytes; the upload cap bounds the file, not the
@@ -316,15 +327,16 @@ def _encode(img, fmt: str, icc: bytes | None, quality: int) -> bytes:
 
 
 def render_upload(data: bytes, ext: str):
-    """Return `(display, thumb)` bytes for an uploaded image.
+    """Return `(display, thumb, card)` bytes for an uploaded image.
 
     `display` is the image to store under the upload's own name, capped at
-    MAX_DISPLAY_EDGE. `thumb` is a THUMB_EDGE version for the grid, or None
-    when no thumbnail could be produced -- the caller must cope with that,
-    because every failure path here returns it.
+    MAX_DISPLAY_EDGE. `thumb` is a THUMB_EDGE version for the 120px review
+    photos, and `card` a CARD_EDGE version for the grid dish photo. Both
+    derived sizes are None when they could not be produced -- the caller must
+    cope with that, because every failure path here returns it.
 
-    Both outputs go through strip_metadata() as well. Pillow does not copy EXIF
-    into the files it writes, so that is belt and braces, but it means the
+    All three outputs go through strip_metadata() as well. Pillow does not copy
+    EXIF into the files it writes, so that is belt and braces, but it means the
     privacy guarantee is enforced by the same audited code on every path.
     """
     stripped = strip_metadata(data, ext)
@@ -333,7 +345,7 @@ def render_upload(data: bytes, ext: str):
     if fmt is None or Image is None:
         if Image is None:
             log.warning("Pillow unavailable; storing %s upload unresized", ext)
-        return stripped, None
+        return stripped, None, None
 
     try:
         img = Image.open(io.BytesIO(data))
@@ -343,13 +355,13 @@ def render_upload(data: bytes, ext: str):
         # still (MPO) is not animated -- see _ANIMATION_FORMATS.
         if img.format in _ANIMATION_FORMATS and getattr(img, "n_frames", 1) > 1:
             log.info("animated %s upload left unresized", ext)
-            return stripped, None
+            return stripped, None, None
 
         w, h = img.size
         if w * h > MAX_DECODE_PIXELS:
             log.warning("%s upload is %dx%d (> %d pixels); storing unresized",
                         ext, w, h, MAX_DECODE_PIXELS)
-            return stripped, None
+            return stripped, None, None
 
         icc = img.info.get("icc_profile")
         orientation = img.getexif().get(0x0112, 1)
@@ -365,14 +377,17 @@ def render_upload(data: bytes, ext: str):
 
         display_img = img.copy()
         display_img.thumbnail((MAX_DISPLAY_EDGE, MAX_DISPLAY_EDGE), Image.LANCZOS)
+        card_img = display_img.copy()
+        card_img.thumbnail((CARD_EDGE, CARD_EDGE), Image.LANCZOS)
         thumb_img = display_img.copy()
         thumb_img.thumbnail((THUMB_EDGE, THUMB_EDGE), Image.LANCZOS)
 
         display = strip_metadata(_encode(display_img, fmt, icc, DISPLAY_QUALITY), ext)
+        card = strip_metadata(_encode(card_img, fmt, icc, CARD_QUALITY), ext)
         thumb = strip_metadata(_encode(thumb_img, fmt, icc, THUMB_QUALITY), ext)
     except Exception as exc:  # Pillow raises a wide and undocumented range
         log.warning("could not resize %s upload: %s; storing unresized", ext, exc)
-        return stripped, None
+        return stripped, None, None
 
     # Re-encoding a small image can make it bigger. Keep whichever is smaller,
     # but only when the pixels did not have to move: an image that needed
@@ -381,4 +396,4 @@ def render_upload(data: bytes, ext: str):
             and len(stripped) <= len(display):
         display = stripped
 
-    return display, thumb
+    return display, thumb, card

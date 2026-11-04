@@ -45,6 +45,25 @@ def photo_on_disk():
 
 
 @pytest.fixture()
+def derived_on_disk():
+    """The two derived sizes, written where main.py writes them."""
+    written = []
+    for subdir in ("cards", "thumbs"):
+        directory = os.path.join(_served_directory(), subdir)
+        os.makedirs(directory, exist_ok=True)
+        path = os.path.join(directory, "regression_pixel.png")
+        with open(path, "wb") as fh:
+            fh.write(PNG)
+        written.append(path)
+    try:
+        yield "regression_pixel.png"
+    finally:
+        for path in written:
+            if os.path.isfile(path):
+                os.remove(path)
+
+
+@pytest.fixture()
 def client():
     return TestClient(main.app)
 
@@ -54,6 +73,16 @@ def test_photo_is_served_with_its_content_type(client, photo_on_disk):
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "image/png"
     assert resp.content == PNG
+
+
+def test_derived_sizes_are_served_from_their_subdirectories(client, derived_on_disk):
+    """The frontend derives /uploads/cards/<name> and /uploads/thumbs/<name>
+    from photo_url, so both have to come off the same mount as the original."""
+    for subdir in ("cards", "thumbs"):
+        resp = client.get(f"/uploads/{subdir}/{derived_on_disk}")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/png"
+        assert resp.content == PNG
 
 
 def test_response_carries_cache_validators(client, photo_on_disk):

@@ -14,7 +14,7 @@ import io
 import pytest
 
 from images import (
-    MAX_DECODE_PIXELS, MAX_DISPLAY_EDGE, THUMB_EDGE, render_upload,
+    CARD_EDGE, MAX_DECODE_PIXELS, MAX_DISPLAY_EDGE, THUMB_EDGE, render_upload,
 )
 
 PIL = pytest.importorskip("PIL", reason="Pillow is optional; render_upload degrades without it")
@@ -52,19 +52,36 @@ def _size(data):
 # --------------------------------------------------------------------------
 
 def test_oversized_photo_is_capped_at_the_display_edge():
-    display, thumb = render_upload(_photo(3000, 2000), ".jpg")
+    display, thumb, card = render_upload(_photo(3000, 2000), ".jpg")
     assert max(_size(display)) == MAX_DISPLAY_EDGE
     assert thumb is not None
+    assert card is not None
 
 
 def test_thumbnail_is_produced_at_the_thumb_edge():
-    _, thumb = render_upload(_photo(3000, 2000), ".jpg")
+    _, thumb, _ = render_upload(_photo(3000, 2000), ".jpg")
     assert max(_size(thumb)) == THUMB_EDGE
 
 
+def test_card_is_produced_at_the_card_edge():
+    """#42: the collapsed grid card is up to ~361px wide, so the 240px thumb was
+    upscaled 1.5x on a desktop and ~3x on a phone screen."""
+    _, _, card = render_upload(_photo(3000, 2000), ".jpg")
+    assert max(_size(card)) == CARD_EDGE
+    assert THUMB_EDGE < CARD_EDGE < MAX_DISPLAY_EDGE
+
+
+def test_card_is_a_separate_smaller_file_than_the_display_copy():
+    """It exists to save bytes as much as to be sharp -- if it ever matched the
+    display copy, the derivation would be pointless."""
+    display, _, card = render_upload(_photo(1600, 1200, quality=95), ".jpg")
+    assert len(card) < len(display)
+    assert max(_size(card)) == CARD_EDGE
+
+
 def test_aspect_ratio_is_preserved():
-    display, thumb = render_upload(_photo(3000, 1500), ".jpg")
-    for out in (display, thumb):
+    display, thumb, card = render_upload(_photo(3000, 1500), ".jpg")
+    for out in (display, thumb, card):
         w, h = _size(out)
         assert abs(w / h - 2.0) < 0.02
 
@@ -72,7 +89,7 @@ def test_aspect_ratio_is_preserved():
 def test_the_whole_point_the_result_is_dramatically_smaller():
     """A 12 MP phone photo has to stop being a multi-megabyte download."""
     raw = _photo(4000, 3000, quality=95)
-    display, thumb = render_upload(raw, ".jpg")
+    display, thumb, card = render_upload(raw, ".jpg")
     assert len(display) < len(raw) / 4
     # The grid is what loads 15 of these at once; it is the number that made
     # one page load 31 MB.
@@ -80,14 +97,15 @@ def test_the_whole_point_the_result_is_dramatically_smaller():
 
 
 def test_small_photo_is_not_upscaled():
-    display, thumb = render_upload(_photo(320, 240), ".jpg")
+    display, thumb, card = render_upload(_photo(320, 240), ".jpg")
     assert _size(display) == (320, 240)
     assert max(_size(thumb)) <= THUMB_EDGE
+    assert max(_size(card)) <= CARD_EDGE
 
 
 def test_a_small_photo_is_never_made_bigger_by_re_encoding():
     raw = _photo(200, 150, quality=30)
-    display, _ = render_upload(raw, ".jpg")
+    display, _, _ = render_upload(raw, ".jpg")
     assert len(display) <= len(raw)
 
 
@@ -102,8 +120,8 @@ def test_exif_is_gone_from_both_outputs():
     raw = _photo(2000, 1500, exif=exif.tobytes())
     assert b"ACME Phone" in raw
 
-    display, thumb = render_upload(raw, ".jpg")
-    for out in (display, thumb):
+    display, thumb, card = render_upload(raw, ".jpg")
+    for out in (display, thumb, card):
         assert b"Exif\x00\x00" not in out
         assert b"ACME Phone" not in out
 
@@ -116,7 +134,7 @@ def test_orientation_is_baked_into_the_pixels():
     raw = _photo(400, 200, exif=exif.tobytes())
     assert _size(raw) == (400, 200)
 
-    display, _ = render_upload(raw, ".jpg")
+    display, _, _ = render_upload(raw, ".jpg")
     assert _size(display) == (200, 400)
 
 
@@ -125,8 +143,8 @@ def test_icc_profile_survives_the_re_encode():
     _strip_jpeg keeps APP2."""
     icc = b"\x00\x00\x02\x0c" + b"acsp" + b"\x00" * 120
     raw = _photo(2000, 1500, icc_profile=icc)
-    display, thumb = render_upload(raw, ".jpg")
-    for out in (display, thumb):
+    display, thumb, card = render_upload(raw, ".jpg")
+    for out in (display, thumb, card):
         assert b"ICC_PROFILE" in out
 
 
@@ -136,8 +154,8 @@ def test_icc_profile_survives_the_re_encode():
 
 def test_png_stays_png_and_keeps_its_alpha():
     raw = _photo(1800, 1200, fmt="PNG", mode="RGBA")
-    display, thumb = render_upload(raw, ".png")
-    for out in (display, thumb):
+    display, thumb, card = render_upload(raw, ".png")
+    for out in (display, thumb, card):
         with Image.open(io.BytesIO(out)) as im:
             assert im.format == "PNG"
             assert im.mode in ("RGBA", "LA", "P")
@@ -145,8 +163,8 @@ def test_png_stays_png_and_keeps_its_alpha():
 
 def test_webp_stays_webp():
     raw = _photo(1800, 1200, fmt="WEBP")
-    display, thumb = render_upload(raw, ".webp")
-    for out in (display, thumb):
+    display, thumb, card = render_upload(raw, ".webp")
+    for out in (display, thumb, card):
         with Image.open(io.BytesIO(out)) as im:
             assert im.format == "WEBP"
 
@@ -170,7 +188,7 @@ def test_mpo_still_is_resized_not_mistaken_for_an_animation():
         assert probe.format == "MPO", "fixture is not an MPO"
         assert probe.n_frames == 2
 
-    display, thumb = render_upload(raw, ".jpeg")
+    display, thumb, card = render_upload(raw, ".jpeg")
     assert thumb is not None, "MPO was skipped as if it were animated"
     assert max(_size(display)) == MAX_DISPLAY_EDGE
     assert max(_size(thumb)) == THUMB_EDGE
@@ -185,7 +203,7 @@ def test_animated_webp_is_left_alone():
     frames[0].save(buf, "WEBP", save_all=True, append_images=frames[1:], duration=100)
     raw = buf.getvalue()
 
-    display, thumb = render_upload(raw, ".webp")
+    display, thumb, card = render_upload(raw, ".webp")
     assert thumb is None
     with Image.open(io.BytesIO(display)) as im:
         assert getattr(im, "n_frames", 1) == 3
@@ -197,21 +215,24 @@ def test_animated_webp_is_left_alone():
 
 def test_unparseable_bytes_fall_back_to_the_stripper():
     junk = b"\xff\xd8" + b"not really a jpeg" * 10
-    display, thumb = render_upload(junk, ".jpg")
+    display, thumb, card = render_upload(junk, ".jpg")
     assert thumb is None
+    assert card is None
     assert display  # intact, just not resized
 
 
 def test_unknown_extension_is_passed_through_untouched():
-    display, thumb = render_upload(b"whatever", ".gif")
+    display, thumb, card = render_upload(b"whatever", ".gif")
     assert display == b"whatever"
     assert thumb is None
+    assert card is None
 
 
 def test_empty_input_does_not_raise():
-    display, thumb = render_upload(b"", ".jpg")
+    display, thumb, card = render_upload(b"", ".jpg")
     assert display == b""
     assert thumb is None
+    assert card is None
 
 
 def test_decompression_bomb_is_not_decoded(monkeypatch):
@@ -219,8 +240,9 @@ def test_decompression_bomb_is_not_decoded(monkeypatch):
     import images
     monkeypatch.setattr(images, "MAX_DECODE_PIXELS", 1000)
     raw = _photo(400, 300)
-    display, thumb = render_upload(raw, ".jpg")
+    display, thumb, card = render_upload(raw, ".jpg")
     assert thumb is None
+    assert card is None
     assert _size(display) == (400, 300)  # stored as-is, never expanded
     assert MAX_DECODE_PIXELS > 1000      # the real ceiling is not this low
 
@@ -229,6 +251,7 @@ def test_pillow_missing_degrades_to_stripping(monkeypatch):
     import images
     monkeypatch.setattr(images, "Image", None)
     raw = _photo(3000, 2000)
-    display, thumb = render_upload(raw, ".jpg")
+    display, thumb, card = render_upload(raw, ".jpg")
     assert thumb is None
+    assert card is None
     assert _size(display) == (3000, 2000)

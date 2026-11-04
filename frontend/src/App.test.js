@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import { ToastProvider } from './Toast';
-import { API, thumbSrc } from './shared';
+import { API, cardSrc, thumbSrc } from './shared';
 
 const MENSA = 'Testmensa';
 
@@ -498,7 +498,7 @@ test('a photo upload takes over an empty dish\'s picture without another request
   await userEvent.click(screen.getByRole('button', { name: 'Veröffentlichen' }));
 
   await waitFor(() => {
-    expect(document.querySelector(`img.dish__photo[src="${API}${thumbSrc(withPhoto.photo_url)}"]`))
+    expect(document.querySelector(`img.dish__photo[src="${API}${cardSrc(withPhoto.photo_url)}"]`))
       .toBeInTheDocument();
   });
   expect(topPhotoCalls).toBe(0);

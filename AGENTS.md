@@ -279,13 +279,30 @@ seconds was not a coincidence: it is `pool_timeout` in `database.py`.
   metadata, 21 had a GPS IFD, and the iPhone files shrink 180-280 KB each.
 - **APP0 (JFIF) and APP2 (ICC) are deliberately kept.** Dropping the ICC
   profile visibly shifts the colours of a wide-gamut phone photo.
+- **Every upload is stored three times, and the two derived copies are separate
+  files under separate URLs**: `/uploads/<name>` (the display copy, ≤1600px,
+  what the lightbox opens), `/uploads/cards/<name>` (≤720px, `CARD_EDGE`, the
+  grid dish photo) and `/uploads/thumbs/<name>` (≤240px, `THUMB_EDGE`, the
+  120×90 review photos in the breakdown, Profile and Rewind). The frontend
+  derives one URL from another (`cardSrc()`/`thumbSrc()` in `shared.js`), so
+  there is no column and no API field. The sizes are separate directories and
+  not one bigger thumbnail because `/uploads` is served
+  `Cache-Control: immutable, max-age=2592000`: rewriting the files in place
+  would leave returning visitors on the old bytes for up to 30 days, which is
+  exactly the "blurry thumbnails" report of #42. `render_upload()` returns
+  `(display, thumb, card)`, and **`DELETE /api/v1/ratings/{id}` must unlink all
+  three** — a leftover derived copy is a publicly readable image of a photo its
+  author deleted.
 - **Filenames are a bare `uuid4().hex`.** They used to be prefixed with the
   uploader's own file name, which put it in a public, 30-day-immutable URL.
   Files uploaded before 2026-09-02 still carry the old prefix; their URLs are
   stored in `ratings.photo_url`, so they must not be renamed.
-- **The backlog is fixed by `ops/strip-existing-exif.py`** (dry run by default,
-  `--apply` to write, atomic rename, preserves mode). Back up first —
-  `ops/backup.sh` tars the uploads directory.
+- **The backlog is fixed by `ops/strip-existing-exif.py`** and
+  `ops/resize-existing-uploads.py` (both dry run by default, `--apply` to write,
+  atomic rename, preserves mode). The resize pass skips a file only when the
+  display copy is already ≤1600px **and** both `cards/` and `thumbs/` exist;
+  a file that only lacks the card copy keeps its stored display bytes. Back up
+  first — `ops/backup.sh` tars the uploads directory.
 - **Anything user-visible about this is also stated in the privacy notice.**
   `frontend/src/Datenschutz.js` claims metadata is removed on upload; if that
   stops being true, that page is then a false statement, not just stale.

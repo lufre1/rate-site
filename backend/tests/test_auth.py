@@ -25,7 +25,12 @@ def client(monkeypatch, tmp_path, sqlite_db):
     Not used as a context manager, so the on_startup hook (Postgres-only ALTERs,
     the live scraper, the scheduler) never fires.
     """
+    # The derived subdirectories are bound at import time, so patching
+    # UPLOAD_DIR alone would leave the route writing cards/thumbs into the
+    # real uploads directory.
     monkeypatch.setattr(main, "UPLOAD_DIR", str(tmp_path))
+    monkeypatch.setattr(main, "CARD_DIR", str(tmp_path / "cards"))
+    monkeypatch.setattr(main, "THUMB_DIR", str(tmp_path / "thumbs"))
 
     def override_get_db():
         db = SessionLocal()

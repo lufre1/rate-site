@@ -13,16 +13,30 @@ import { IconAuto, IconSun, IconMoon } from './Icons';
 // undefined when the variable is absent.
 export const API = process.env.REACT_APP_API_URL ?? 'http://localhost:8000';
 
-// Every upload is stored twice: its own name is the display copy (capped at
-// 1600px, what the lightbox opens) and /uploads/thumbs/<same name> is a 240px
-// version for the grid. Deriving one URL from the other keeps the pairing out
-// of the database and out of every API response -- see backend/images.py.
-// Anything that is not an upload path is handed back untouched.
+// Every upload is stored three times: its own name is the display copy (capped
+// at 1600px, what the lightbox opens), /uploads/cards/<same name> is a 720px
+// version for the grid dish photo, and /uploads/thumbs/<same name> is a 240px
+// version for the 120px review photos. Deriving one URL from another keeps the
+// pairing out of the database and out of every API response -- see
+// backend/images.py. Anything that is not an upload path is handed back
+// untouched.
 const UPLOADS_PREFIX = '/uploads/';
 
-export function thumbSrc(photoUrl) {
+function derived(photoUrl, subdir) {
   if (!photoUrl || !photoUrl.startsWith(UPLOADS_PREFIX)) return photoUrl;
-  return `${UPLOADS_PREFIX}thumbs/${photoUrl.slice(UPLOADS_PREFIX.length)}`;
+  return `${UPLOADS_PREFIX}${subdir}/${photoUrl.slice(UPLOADS_PREFIX.length)}`;
+}
+
+// The dish card is up to ~361px wide, so it gets the 720px copy. The card is a
+// different directory rather than a bigger thumbs/ because /uploads is served
+// `immutable, max-age=2592000`: a new URL is what makes the sharper file reach
+// returning visitors immediately (issue #42).
+export function cardSrc(photoUrl) {
+  return derived(photoUrl, 'cards');
+}
+
+export function thumbSrc(photoUrl) {
+  return derived(photoUrl, 'thumbs');
 }
 
 // A thumbnail is allowed to be missing: render_upload() returns none for an

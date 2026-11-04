@@ -1,5 +1,5 @@
 import {
-  toDateKey, parseServerDate, formatRelativeDate, thumbSrc, thumbErrorHandler,
+  toDateKey, parseServerDate, formatRelativeDate, cardSrc, thumbSrc, thumbErrorHandler,
 } from './shared';
 
 // These are the two date helpers that had UTC/local bugs. Both are pure, so they
@@ -70,9 +70,30 @@ describe('formatRelativeDate', () => {
   });
 });
 
-// Uploads are stored twice -- the display copy under its own name and a 240px
-// version under /uploads/thumbs/ -- and the pairing is derived, not stored, so
-// this is the only thing keeping the two halves in agreement.
+// Uploads are stored three times -- the display copy under its own name, a
+// 720px card under /uploads/cards/ and a 240px thumb under /uploads/thumbs/ --
+// and the pairing is derived, not stored, so this is the only thing keeping the
+// three in agreement.
+describe('cardSrc', () => {
+  test('points an upload path at its card copy', () => {
+    // #42: the grid card is ~361px wide, so it must not get the 240px thumb.
+    expect(cardSrc('/uploads/abc123.jpg')).toBe('/uploads/cards/abc123.jpg');
+  });
+
+  test('is a different file from the thumb', () => {
+    expect(cardSrc('/uploads/abc123.jpg')).not.toBe(thumbSrc('/uploads/abc123.jpg'));
+  });
+
+  test('leaves a non-upload path alone', () => {
+    expect(cardSrc('/static/media/logo.png')).toBe('/static/media/logo.png');
+  });
+
+  test('passes null and undefined through', () => {
+    expect(cardSrc(null)).toBe(null);
+    expect(cardSrc(undefined)).toBe(undefined);
+  });
+});
+
 describe('thumbSrc', () => {
   test('points an upload path at its thumbnail', () => {
     expect(thumbSrc('/uploads/abc123.jpg')).toBe('/uploads/thumbs/abc123.jpg');

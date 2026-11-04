@@ -19,7 +19,7 @@ import {
 import {
   API, authHeaders, getToken, clearToken, formatRelativeDate, StarPicker,
   getVoterId, voteHeaders, ThemeToggle, toDateKey, getDietFilter, DIET_ORDER,
-  thumbSrc, thumbErrorHandler, Lightbox,
+  cardSrc, thumbSrc, thumbErrorHandler, Lightbox,
 } from './shared';
 
 // Shown when GET /api/v1/mensas fails, so the filter still works. The user is
@@ -1406,7 +1406,7 @@ function DishCard({ meal, summary, user, onSignIn, number }) {
         <figure className="dish__figure">
           <button type="button" className="dish__photo-btn"
             onClick={() => setEnlargedImage(`${API}${topPhoto}`)}>
-            <img className="dish__photo" src={`${API}${thumbSrc(topPhoto)}`}
+            <img className="dish__photo" src={`${API}${cardSrc(topPhoto)}`}
               alt={t('ui.dishPhotoOf', { dish: displayName })}
               loading="lazy" decoding="async"
               onError={thumbErrorHandler(`${API}${topPhoto}`)} />
