@@ -65,16 +65,6 @@ function Leaderboard({ onBack, language, user, onOpenProfile }) {
     }
   };
 
-  const getBadgeColor = (badge) => {
-    switch (badge) {
-      case 'platinum': return '#e5e4e2';
-      case 'gold': return '#ffd700';
-      case 'silver': return '#c0c0c0';
-      case 'bronze': return '#cd7f32';
-      default: return '#ccc';
-    }
-  };
-
   const getBadgeLabel = (badge) => {
     switch (badge) {
       case 'platinum': return t('leaderboard.badges.platinum');
@@ -122,7 +112,7 @@ function Leaderboard({ onBack, language, user, onOpenProfile }) {
                   onClick={() => onOpenProfile && onOpenProfile(myPosition.real_username)}>
                   {myPosition.username}
                 </button>
-                <span className="leaderboard-badge" style={{ backgroundColor: getBadgeColor(myPosition.badge) }}>
+                <span className="leaderboard-badge" data-badge={myPosition.badge}>
                   {getBadgeLabel(myPosition.badge)}
                 </span>
                 {isCurrentUser(myPosition) && <span className="you-label">{t('leaderboard.you')}</span>}

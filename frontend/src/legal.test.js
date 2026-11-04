@@ -90,7 +90,7 @@ describe('content the audit requires', () => {
       'mensa_token',
       'mensa_diet',       // the diet filter key
       'mensa_seen_announcements', // the dismissed-notices key
-      'studierendenwerk', // the third-party icon host
+      'studierendenwerk', // icons are no longer loaded from there -- says so
       'gwdg',             // the hoster
       'scrypt',           // how passwords are stored
       'exif',             // metadata removal

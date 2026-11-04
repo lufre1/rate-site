@@ -2,6 +2,7 @@
 // Account.js doesn't have to import from its own parent (a cycle).
 import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { IconAuto, IconSun, IconMoon } from './Icons';
 
 // `??`, not `||`. Behind the reverse proxy the correct value is the EMPTY string
 // -- calls are same-origin, so `${API}/api/v1/x` must come out as `/api/v1/x`.
@@ -134,7 +135,8 @@ export function setTheme(theme) {
   } catch (e) { /* non-fatal: the choice just won't survive a reload */ }
 }
 
-const THEME_ICONS = { system: '🖥️', light: '☀️', dark: '🌙' };
+// Line icons, not emoji: an emoji brings its own colours into a black-and-grey design.
+const THEME_ICONS = { system: IconAuto, light: IconSun, dark: IconMoon };
 
 // One button that cycles system -> light -> dark. A three-way control needs
 // three labels, so the accessible name says which mode is active and the
@@ -152,9 +154,9 @@ export function ThemeToggle() {
   const label = t('ui.themeSwitch', { mode: t(`ui.theme_${theme}`) });
 
   return (
-    <button type="button" className="nav-btn" onClick={cycle}
+    <button type="button" className="icon-btn" onClick={cycle}
       aria-label={label} title={label}>
-      <span aria-hidden="true">{THEME_ICONS[theme]}</span>
+      {React.createElement(THEME_ICONS[theme])}
     </button>
   );
 }

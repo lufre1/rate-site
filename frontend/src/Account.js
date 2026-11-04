@@ -5,6 +5,7 @@ import {
   thumbSrc, thumbErrorHandler,
 } from './shared';
 import { useToast } from './Toast';
+import { IconStreak } from './Icons';
 
 function AuthForm({ onAuth }) {
   const { t } = useTranslation();
@@ -512,7 +513,7 @@ function Profile({ user, onLogout, language, onUpdate }) {
           <p className="muted-text">{t('leaderboard.loading')}</p>
         ) : streak && streak.current > 0 ? (
           <div className="streak-display">
-            <span className="streak-flame" aria-hidden="true">🔥</span>
+            <span className="streak-flame" aria-hidden="true"><IconStreak /></span>
             <span className="streak-value">{streak.current}</span>
             <span className="streak-label">{t('streak.current', { days: streak.current })}</span>
             <span className="streak-best">{t('streak.best', { days: streak.best })}</span>

@@ -1,5 +1,6 @@
 import React from 'react';
 import i18n from 'i18next';
+import { IconAlert } from './Icons';
 
 // This renders OUTSIDE the i18n-initialised tree (index.js wraps App, which is
 // what calls init), and it exists to survive a crash -- possibly one that
@@ -28,7 +29,7 @@ class ErrorBoundary extends React.Component {
     if (this.state.hasError) {
       return (
         <div className="fatal" role="alert">
-          <span className="empty__icon" aria-hidden="true">😵</span>
+          <span className="empty__icon" aria-hidden="true"><IconAlert size={32} /></span>
           <p className="empty__text">
             {tr('ui.fatalError', 'Something went wrong. Please reload the page.')}
           </p>

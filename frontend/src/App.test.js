@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import { ToastProvider } from './Toast';
@@ -641,12 +641,13 @@ test('a signed-in user\'s default mensa preselects the menu filter', async () =>
 
   renderApp();
 
-  // The filter select (aria-label "Nach Mensa filtern") is preselected to the
+  // The mensa tab row (group "Nach Mensa filtern") is preselected to the
   // default mensa, so the other mensa's dish is filtered out. The session
-  // restore is async, so wait for the value to change rather than asserting
-  // immediately after the select first renders.
-  const select = await screen.findByLabelText('Nach Mensa filtern');
-  await waitFor(() => expect(select).toHaveValue(MENSA));
+  // restore is async, so wait for the pressed tab to change rather than
+  // asserting immediately after the row first renders.
+  const tabs = await screen.findByRole('group', { name: 'Nach Mensa filtern' });
+  await waitFor(() =>
+    expect(within(tabs).getByRole('button', { name: MENSA })).toHaveAttribute('aria-pressed', 'true'));
   expect(await screen.findByText('Gericht A')).toBeInTheDocument();
   expect(screen.queryByText('Gericht B')).not.toBeInTheDocument();
 });
@@ -673,8 +674,8 @@ test('no default mensa leaves the filter on "all mensas"', async () => {
 
   renderApp();
 
-  const select = await screen.findByLabelText('Nach Mensa filtern');
-  expect(select).toHaveValue('all');
+  const tabs = await screen.findByRole('group', { name: 'Nach Mensa filtern' });
+  expect(within(tabs).getByRole('button', { name: 'Alle Mensen' })).toHaveAttribute('aria-pressed', 'true');
   expect(await screen.findByText('Gericht A')).toBeInTheDocument();
   expect(screen.getByText('Gericht B')).toBeInTheDocument();
 });

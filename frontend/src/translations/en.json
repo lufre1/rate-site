@@ -107,12 +107,29 @@
     "shareUrl": "Website address",
     "shareCopy": "Copy",
     "shareCopied": "Copied ✓",
-    "shareNative": "Share…"
+    "shareNative": "Share…",
+    "prevWeek": "Previous week",
+    "nextWeek": "Next week",
+    "dayPicker": "Choose a day",
+    "chapterLabel": "Menu",
+    "mensaCount_one": "{{count}} canteen",
+    "mensaCount_other": "{{count}} canteens",
+    "unrated": "Not rated yet",
+    "atAGlance": "At a glance",
+    "calendarWeek": "Week {{n}}",
+    "vegCount_one": "{{count}} vegetarian or vegan",
+    "vegCount_other": "{{count}} vegetarian or vegan",
+    "searchShortcut": "Press / to search"
   },
   "mealTypes": {
     "main": "Main",
     "side": "Side",
     "dessert": "Dessert"
+  },
+  "courses": {
+    "main": "Main dishes",
+    "side": "Sides",
+    "dessert": "Desserts"
   },
   "flair": {
     "recommendation": "Recommendation",
@@ -146,6 +163,8 @@
     "loadingMenu": "Loading..."
   },
   "footer": {
+    "signaturePrefix": "rated by",
+    "signatureName": "you",
     "impressum": "Impressum (Legal Notice)",
     "datenschutz": "Privacy",
     "github": "GitHub - Feedback / Report Bug"
@@ -168,7 +187,7 @@
   },
   "datenschutz": {
     "title": "Privacy Policy",
-    "updated": "Last updated: September 2026",
+    "updated": "Last updated: October 2026",
     "intro": "This website is a private, non-commercial project. It runs without advertising, tracking or analytics services. What follows describes the data that nevertheless arises, what it is used for, and what rights you have.",
     "controller": "Controller",
     "controllerText": "The controller responsible for processing personal data on this website is:",
@@ -206,7 +225,7 @@
     "votes": "Votes on reviews and photos",
     "votesText": "For each up- or downvote the following is stored: the review concerned, the direction of the vote, the time, the mensa_voter_id identifier described above and — if you were signed in — your account. The sole purpose is to prevent repeat voting and to determine the representative photo for a dish (Art. 6(1)(f) GDPR).",
     "external": "External content",
-    "externalText": "The small icons for labels such as “vegan” or “vegetarian” are loaded directly from the servers of Studierendenwerk Göttingen. In doing so, that provider learns your IP address, your browser identification and the address of this website; this is outside my control. No other external content is embedded: no web fonts, no CDNs, no analytics or error-reporting services.",
+    "externalText": "Labels such as “vegan” or “vegetarian” are shown as text; no icons are loaded from the servers of Studierendenwerk Göttingen any more. No external content is embedded: no third-party web fonts (this website serves its own fonts), no CDNs, no analytics or error-reporting services.",
     "retention": "Retention and backups",
     "retentionText": "Your account, ratings, reviews, photos and votes are kept until you delete them or delete your account; there is no automatic deletion schedule. The database and the photos are backed up nightly. Deleted content may still be contained in those backups for up to 14 days (daily backups) and, if it was present on a Sunday, for up to 56 days (weekly copies). After that the backups are overwritten.",
     "rights": "Your rights",

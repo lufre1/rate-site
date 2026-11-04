@@ -107,12 +107,29 @@
     "shareUrl": "Webadresse",
     "shareCopy": "Kopieren",
     "shareCopied": "Kopiert ✓",
-    "shareNative": "Teilen…"
+    "shareNative": "Teilen…",
+    "prevWeek": "Vorherige Woche",
+    "nextWeek": "Nächste Woche",
+    "dayPicker": "Tag wählen",
+    "chapterLabel": "Speiseplan",
+    "mensaCount_one": "{{count}} Mensa",
+    "mensaCount_other": "{{count}} Mensen",
+    "unrated": "Noch nicht bewertet",
+    "atAGlance": "Auf einen Blick",
+    "calendarWeek": "KW {{n}}",
+    "vegCount_one": "{{count}} vegetarisch oder vegan",
+    "vegCount_other": "{{count}} vegetarisch oder vegan",
+    "searchShortcut": "Taste / springt zur Suche"
   },
   "mealTypes": {
     "main": "Hauptgericht",
     "side": "Beilage",
     "dessert": "Dessert"
+  },
+  "courses": {
+    "main": "Hauptgerichte",
+    "side": "Beilagen",
+    "dessert": "Desserts"
   },
   "flair": {
     "recommendation": "Empfehlung",
@@ -146,6 +163,8 @@
     "loadingMenu": "Lädt..."
   },
   "footer": {
+    "signaturePrefix": "bewertet von",
+    "signatureName": "euch",
     "impressum": "Impressum",
     "datenschutz": "Datenschutz",
     "github": "GitHub - Feedback / Bug melden"
@@ -168,7 +187,7 @@
   },
   "datenschutz": {
     "title": "Datenschutzerklärung",
-    "updated": "Stand: September 2026",
+    "updated": "Stand: Oktober 2026",
     "intro": "Diese Website ist ein privates, nicht kommerzielles Projekt. Sie kommt ohne Werbung, ohne Tracking und ohne Analyse-Dienste aus. Im Folgenden ist beschrieben, welche Daten dennoch anfallen, wozu sie verwendet werden und welche Rechte Sie haben.",
     "controller": "Verantwortlicher",
     "controllerText": "Verantwortlich für die Verarbeitung personenbezogener Daten auf dieser Website ist:",
@@ -206,7 +225,7 @@
     "votes": "Stimmen für Kommentare und Fotos",
     "votesText": "Zu jeder Auf- oder Abwertung werden gespeichert: die betroffene Bewertung, die Richtung der Stimme, der Zeitpunkt, die oben beschriebene Kennung mensa_voter_id und — falls Sie angemeldet waren — Ihr Konto. Zweck ist ausschließlich, Mehrfachabstimmungen zu verhindern und das repräsentative Foto eines Gerichts zu bestimmen (Art. 6 Abs. 1 lit. f DSGVO).",
     "external": "Externe Inhalte",
-    "externalText": "Die kleinen Symbole für Kennzeichnungen wie „vegan“ oder „vegetarisch“ werden direkt von den Servern des Studierendenwerks Göttingen geladen. Dabei erfährt dieser Anbieter Ihre IP-Adresse, Ihre Browserkennung und die Adresse dieser Website; darauf habe ich keinen Einfluss. Weitere externe Inhalte werden nicht eingebunden: keine Web-Fonts, keine CDNs, keine Analyse- oder Fehlerdienste.",
+    "externalText": "Kennzeichnungen wie „vegan“ oder „vegetarisch“ werden als Text angezeigt; Symbole von den Servern des Studierendenwerks Göttingen werden nicht mehr geladen. Externe Inhalte werden nicht eingebunden: keine Web-Fonts von Drittanbietern (die Schriften liefert diese Website selbst aus), keine CDNs, keine Analyse- oder Fehlerdienste.",
     "retention": "Speicherdauer und Backups",
     "retentionText": "Konto, Bewertungen, Kommentare, Fotos und Stimmen bleiben gespeichert, bis Sie sie oder Ihr Konto löschen; eine automatische Löschfrist gibt es nicht. Von der Datenbank und den Fotos werden nachts Sicherungen erstellt. Gelöschte Inhalte können darin noch bis zu 14 Tage (tägliche Sicherungen) und, wenn sie an einem Sonntag vorhanden waren, bis zu 56 Tage (Wochensicherungen) enthalten sein. Danach werden die Sicherungen überschrieben.",
     "rights": "Ihre Rechte",

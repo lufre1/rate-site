@@ -9,11 +9,12 @@
 
 body {
   margin: 0;
-  background-color: var(--surface-page);
-  color: var(--text);
+  background-color: var(--paper);
+  color: var(--ink);
   font-family: var(--font);
   font-size: var(--text-md);
   line-height: var(--leading);
+  font-feature-settings: 'cv11', 'ss01';
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
@@ -21,30 +22,37 @@ body {
 }
 
 h1, h2, h3 {
-  color: var(--text-strong);
-  line-height: var(--leading-tight);
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  line-height: 1.05;
+  letter-spacing: var(--track-tight);
   margin: 0;
 }
 
-h1 { font-size: var(--text-xl); font-weight: 700; }
-h2 { font-size: var(--text-lg); font-weight: 700; }
+h1 { font-size: var(--text-lg); }
+h2 { font-size: var(--text-xl); }
+h3 { font-size: var(--text-lg); }
 
 p { margin: 0; }
 
-img { max-width: 100%; }
+img { max-width: 100%; display: block; }
 
 a {
-  color: var(--accent);
-  text-decoration: none;
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--ink-soft);
+  text-underline-offset: .2em;
   font-weight: 500;
 }
 
 @media (hover: hover) {
-  a:hover { text-decoration: underline; }
+  a:hover { text-decoration-color: var(--ink); }
 }
 
-/* Inputs do not inherit the document font by default, which is why the old
-   date field looked different from every other control. */
+::selection { background: var(--ink); color: var(--on-ink); }
+
+/* Inputs do not inherit the document font by default. */
 input,
 select,
 textarea,
@@ -54,15 +62,12 @@ button {
   color: inherit;
 }
 
-/* One focus rule for every interactive element in the app. There was none
-   before, so keyboard users had nothing to follow. */
+/* One focus rule for every interactive element: a square ink ring. */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ink);
   outline-offset: 2px;
-  border-radius: var(--radius-sm);
 }
 
-/* Only show the ring for keyboard users, not on mouse click. */
 :focus:not(:focus-visible) {
   outline: none;
 }

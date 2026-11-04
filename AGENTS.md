@@ -823,7 +823,10 @@ existence. Scripts live in `ops/`, config in `ops/lib.sh`.
 - **The filter toolbar is a disclosure.** `.toolbar` is `position: sticky`, so
   everything in it costs screen space on every scroll — it used to stack four
   44px rows plus a checkbox, with an always-open 7-item `.legend` under it,
-  ~250px of a 360x640 viewport. Date and search stay out; mensa, sort and
-  `includePast` live behind `toolbar__toggle`, and the legend is a `<details>`.
-  The collapsed toggle names the active filters, so a forgotten filter is never
-  hidden silently.
+  ~250px of a 360x640 viewport. Since the frontend redesign (2026-10) the
+  toolbar is sticky only from 720px up; the day is picked in the week strip
+  (`WeekStrip`), the mensa in a visible tab row, and diet, sort and
+  `includePast` live behind `toolbar__toggle`. The collapsed toggle names the
+  active filters, so a forgotten filter is never hidden silently. Diet tags are
+  text labels (`DietLabels`); the Studierendenwerk icons are no longer
+  hot-linked, and `datenschutz.externalText` says so.

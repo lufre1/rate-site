@@ -13,12 +13,14 @@ import Profile from './Profile';
 import AnnouncementBanner from './AnnouncementBanner';
 import { useToast } from './Toast';
 import {
+  IconSearch, IconLink, IconChevronLeft, IconChevronRight, IconChevronDown,
+  IconCalendar, IconPlate, IconAlert, IconPencil, IconComment,
+} from './Icons';
+import {
   API, authHeaders, getToken, clearToken, formatRelativeDate, StarPicker,
   getVoterId, voteHeaders, ThemeToggle, toDateKey, getDietFilter, DIET_ORDER,
   thumbSrc, thumbErrorHandler, Lightbox,
 } from './shared';
-
-const ICON_BASE = 'https://www.studierendenwerk-goettingen.de/fileadmin/templates/images/mensaspeiseplan/png/';
 
 // Shown when GET /api/v1/mensas fails, so the filter still works. The user is
 // told, because a wrong list must not look authoritative.
@@ -40,13 +42,6 @@ i18n
   });
 
 const TYPE_ORDER = { main: 0, side: 1, dessert: 2 };
-
-// Only the keys matter -- the labels come from the translation files and the
-// colours from the .badge[data-tag] rules in components.css.
-const TAG_KEYS = [
-  'vegan', 'vegetarisch', 'fleisch', 'fisch',
-  'strohschwein', 'leinetalerrind', 'NDS',
-];
 
 function formatDate(dateStr, lang) {
   const date = new Date(dateStr);
@@ -81,22 +76,118 @@ function scrollToTop() {
   window.scrollTo?.({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
 }
 
-// A <details>, not a permanent block: seven items across the full width cost
-// ~60px of every phone viewport for a key that is read once.
-function IconLegend() {
+// YYYY-MM-DD -> local Date. `new Date('2026-10-30')` parses as UTC midnight,
+// which is the previous evening anywhere west of Greenwich.
+function fromDateKey(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function shiftKey(key, days) {
+  const d = fromDateKey(key);
+  d.setDate(d.getDate() + days);
+  return toDateKey(d);
+}
+
+const localeOf = (lang) => (lang === 'en' ? 'en-GB' : 'de-DE');
+
+// ISO-8601 week number, for the "KW 44" in the chapter label.
+function isoWeek(d) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  return Math.ceil(((t - yearStart) / 86400000 + 1) / 7);
+}
+
+// The page's opener, set like a recipe card: a small tag line, the day as a
+// heavy two-line headline, a hairline, and the day "at a glance" where a
+// recipe lists its ingredients. The best-rated dish photo of the day bleeds
+// off the right edge as a large circle -- the one place colour enters the page.
+function Chapter({ date, language, dishCount, mensaCount, vegCount, photo, onToday }) {
   const { t } = useTranslation();
+  const d = fromDateKey(date);
+  const locale = localeOf(language);
   return (
-    <details className="legend">
-      <summary className="legend__summary">{t('ui.legend')}</summary>
-      <div className="legend__items">
-        {TAG_KEYS.map(tag => (
-          <div key={tag} className="legend__item">
-            <img className="legend__icon" src={`${ICON_BASE}${tag}.png`} alt="" />
-            <span>{t('tags.' + tag)}</span>
-          </div>
-        ))}
+    <section className="chapter" aria-labelledby="chapter-title" data-photo={photo ? 'true' : undefined}>
+      <div className="chapter__text">
+        <p className="chapter__tag">
+          #{t('ui.chapterLabel')} <span aria-hidden="true">&middot;</span> {t('ui.calendarWeek', { n: isoWeek(d) })}
+        </p>
+        <h2 className="chapter__title" id="chapter-title">
+          <span>{d.toLocaleDateString(locale, { weekday: 'long' })}</span>
+          <span>{d.toLocaleDateString(locale, { day: 'numeric', month: 'long' })}</span>
+        </h2>
+        <span className="chapter__line" aria-hidden="true" />
+        <div className="chapter__facts">
+          <p className="chapter__facts-title">{t('ui.atAGlance')}</p>
+          <ul>
+            <li>{t('ui.dishCount', { count: dishCount })}</li>
+            {mensaCount > 0 && <li>{t('ui.mensaCount', { count: mensaCount })}</li>}
+            {vegCount > 0 && <li>{t('ui.vegCount', { count: vegCount })}</li>}
+          </ul>
+        </div>
+        {date !== today() && (
+          <button type="button" className="btn btn--line btn--sm chapter__today" onClick={onToday}>
+            {t('ui.showToday')} <span aria-hidden="true">&rarr;</span>
+          </button>
+        )}
       </div>
-    </details>
+      {photo && (
+        <div className="chapter__photo" aria-hidden="true">
+          <img src={`${API}${photo}`} alt="" decoding="async" />
+        </div>
+      )}
+    </section>
+  );
+}
+
+// Seven days of the selected week as a calendar row. The API serves a window
+// of today -7 / +7 (getMinDate/getMaxDate), so days outside it are disabled
+// rather than hidden -- the row keeps its shape on every week.
+function WeekStrip({ date, language, onChange }) {
+  const { t } = useTranslation();
+  const locale = localeOf(language);
+  const min = getMinDate();
+  const max = getMaxDate();
+  const d = fromDateKey(date);
+  const monday = shiftKey(date, -((d.getDay() + 6) % 7));
+  const days = Array.from({ length: 7 }, (_, i) => shiftKey(monday, i));
+  const todayKey = today();
+  const clamp = (k) => (k < min ? min : k > max ? max : k);
+  const prev = clamp(shiftKey(date, -7));
+  const next = clamp(shiftKey(date, 7));
+
+  return (
+    <div className="week" role="group" aria-label={t('ui.dayPicker')}>
+      <button type="button" className="week__step" onClick={() => onChange(prev)}
+        disabled={days[0] <= min} aria-label={t('ui.prevWeek')} title={t('ui.prevWeek')}>
+        <IconChevronLeft />
+      </button>
+      <div className="week__days">
+        {days.map(key => {
+          const day = fromDateKey(key);
+          const out = key < min || key > max;
+          return (
+            <button key={key} type="button" className="week__day"
+              aria-pressed={key === date}
+              aria-current={key === todayKey ? 'date' : undefined}
+              aria-label={day.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' })}
+              disabled={out}
+              onClick={() => onChange(key)}>
+              <span className="week__wd" aria-hidden="true">
+                {day.toLocaleDateString(locale, { weekday: 'short' }).replace('.', '')}
+              </span>
+              <span className="week__dn" aria-hidden="true">{day.getDate()}</span>
+            </button>
+          );
+        })}
+      </div>
+      <button type="button" className="week__step" onClick={() => onChange(next)}
+        disabled={days[6] >= max} aria-label={t('ui.nextWeek')} title={t('ui.nextWeek')}>
+        <IconChevronRight />
+      </button>
+    </div>
   );
 }
 
@@ -106,7 +197,7 @@ function IconLegend() {
 
 function DishCardSkeleton() {
   return (
-    <div className="dish" aria-hidden="true">
+    <div className="dish dish--skeleton" aria-hidden="true">
       <div className="skeleton skeleton--title" />
       <div className="skeleton skeleton--sub" />
       <div className="skeleton skeleton--meta" />
@@ -116,16 +207,16 @@ function DishCardSkeleton() {
 
 function DishListSkeleton({ count = 5 }) {
   return (
-    <div>
+    <div className="dish-grid">
       {Array.from({ length: count }, (_, i) => <DishCardSkeleton key={i} />)}
     </div>
   );
 }
 
-function EmptyState({ icon, text, actionLabel, onAction }) {
+function EmptyState({ icon: Icon = IconPlate, text, actionLabel, onAction }) {
   return (
     <div className="empty">
-      <span className="empty__icon" aria-hidden="true">{icon}</span>
+      <span className="empty__icon" aria-hidden="true"><Icon size={32} /></span>
       <p className="empty__text">{text}</p>
       {actionLabel && (
         <button type="button" className="btn btn--primary" onClick={onAction}>
@@ -178,6 +269,23 @@ function App() {
   const [dietFilter, setDietFilterState] = useState(getDietFilter);
   // Temporarily disable filter for "show all" (local state, doesn't clear stored pref)
   const [showAllDiet, setShowAllDiet] = useState(false);
+  const searchRef = useRef(null);
+
+  // "/" jumps to the search, like most tools with one. Ignored while typing
+  // anywhere else, so a slash in a comment stays a slash.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = document.activeElement;
+      const tag = el && el.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el && el.isContentEditable)) return;
+      if (!searchRef.current) return;
+      e.preventDefault();
+      searchRef.current.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
   // Restore the session on load. A token the backend no longer recognises
   // (logged out elsewhere, DB reset) is dropped rather than left to 401 forever.
@@ -361,40 +469,94 @@ function App() {
     return (TYPE_ORDER[typeA] || 0) - (TYPE_ORDER[typeB] || 0);
   });
 
+  // Dishes per mensa after the diet filter -- shown in the mensa tabs, so a
+  // tab that would come up empty says so before it is pressed.
+  const mensaCounts = {};
+  (effectiveDietFilter === 'all' ? menu : menu.filter(m => {
+    const tags = typeof m.tags === 'string' ? JSON.parse(m.tags) : (m.tags || []);
+    if (tags.length === 0) return true;
+    if (effectiveDietFilter === 'vegan') return !tags.some(x => MEAT_TAGS.includes(x) || x === VEGETARIAN_TAG);
+    return !tags.some(x => MEAT_TAGS.includes(x));
+  })).forEach(m => { mensaCounts[m.mensa] = (mensaCounts[m.mensa] || 0) + 1; });
+  const servingMensas = Object.keys(mensaCounts).length;
+
+  const vegCount = filteredMenuWithDiet.filter(m => {
+    const tags = typeof m.tags === 'string' ? JSON.parse(m.tags) : (m.tags || []);
+    return tags.includes('vegan.png') || tags.includes(VEGETARIAN_TAG);
+  }).length;
+
+  // The opener's photo: the best-rated dish of the visible menu that has one.
+  // Only from data the page already loaded (/meals-summary) -- no request.
+  const heroPhoto = [...filteredMenuWithDiet]
+    .filter(m => summaries[m.id] && summaries[m.id].top_photo)
+    .sort((a, b) => (b.avg_rating || 0) - (a.avg_rating || 0))
+    .map(m => summaries[m.id].top_photo)[0] || null;
+
+  // Number dishes per mensa chapter, the way a cookbook numbers its recipes,
+  // so "Zentralmensa 04" is something two people at a table can point at.
+  let runningMensa = null;
+  let runningNo = 0;
+
   const menuView = (
     <>
-      <div className="toolbar">
-        {/* Date and search stay out of the disclosure: they are the two
-            controls a lunch menu is actually used through. */}
-        <input
-          type="date"
-          className="field"
-          aria-label={t('ui.pickDate')}
-          value={date}
-          onChange={e => { if (e.target.value) setDate(e.target.value); }}
-          min={getMinDate()}
-          max={getMaxDate()}
-        />
+      <Chapter
+        date={date}
+        language={language}
+        dishCount={filteredMenuWithDiet.length}
+        mensaCount={filter === 'all' ? servingMensas : (filteredMenu.length ? 1 : 0)}
+        vegCount={vegCount}
+        photo={heroPhoto}
+        onToday={() => setDate(today())}
+      />
 
+      <WeekStrip date={date} language={language} onChange={setDate} />
+
+      <div className="toolbar">
+        {/* Search stays out of the disclosure: with the day strip above, it
+            is one of the two controls a lunch menu is actually used through. */}
         <div className="toolbar__search">
+          <IconSearch className="toolbar__search-icon" />
           <input
+            ref={searchRef}
             type="search"
-            className="field"
+            className="field field--line"
             placeholder={t('ui.searchPlaceholder')}
             aria-label={t('ui.searchPlaceholder')}
+            aria-describedby="search-shortcut"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Escape') setSearchQuery(''); }}
           />
-          {searchQuery && (
+          {searchQuery ? (
             <button
               type="button"
               className="toolbar__clear"
-              onClick={() => setSearchQuery('')}
+              onClick={() => { setSearchQuery(''); searchRef.current?.focus(); }}
               aria-label={t('ui.clearSearch')}
             >
               <span aria-hidden="true">&times;</span>
             </button>
+          ) : (
+            <kbd className="toolbar__kbd" aria-hidden="true">/</kbd>
           )}
+          <span className="sr-only" id="search-shortcut">{t('ui.searchShortcut')}</span>
+        </div>
+
+        {/* Mensa is the filter people change most, so it is a visible tab row
+            rather than a select inside the disclosure. */}
+        <div className="tabs-row" role="group" aria-label={t('ui.filterByMensa')}>
+          <button type="button" className="tab" aria-pressed={filter === 'all'}
+            onClick={() => setFilter('all')}>
+            {t('ui.allMensas')}
+            <span className="tab__count" aria-hidden="true">{Object.values(mensaCounts).reduce((a, b) => a + b, 0)}</span>
+          </button>
+          {mensas.map(m => (
+            <button key={m} type="button" className="tab" aria-pressed={filter === m}
+              onClick={() => setFilter(m)}>
+              {m}
+              <span className="tab__count" aria-hidden="true">{mensaCounts[m] || 0}</span>
+            </button>
+          ))}
         </div>
 
         {/* The label names what is active, so a collapsed panel never hides a
@@ -407,30 +569,41 @@ function App() {
           aria-controls="toolbar-filters"
           aria-label={filtersOpen ? t('ui.hideFilters') : t('ui.showFilters')}
         >
-          <span aria-hidden="true">{filtersOpen ? '▲' : '▼'}</span>
           <span>{t('ui.filters')}</span>
           <span className="toolbar__summary">{filterSummary}</span>
+          <IconChevronDown className="toolbar__chev" />
         </button>
 
         <div className="toolbar__panel" id="toolbar-filters" hidden={!filtersOpen}>
-          <select
-            className="field"
-            aria-label={t('ui.filterByMensa')}
-            value={filter}
-            onChange={e => setFilter(e.target.value)}
-          >
-            <option value="all">{t('ui.allMensas')}</option>
-            {mensas.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
-          <select
-            className="field"
-            aria-label={t('ui.sortBy')}
-            value={sortMode}
-            onChange={e => setSortMode(e.target.value)}
-          >
-            <option value="default">{t('ui.sortStandard')}</option>
-            <option value="alpha">{t('ui.sortAlphabetical')}</option>
-          </select>
+          {/* Diet filter: three-way control */}
+          <div className="diet-filter">
+            <span className="label diet-filter__label">{t('ui.dietFilter')}</span>
+            <div className="segmented diet-filter__group" role="radiogroup" aria-label={t('ui.dietFilter')}>
+              {DIET_ORDER.map(opt => (
+                <button
+                  key={opt}
+                  type="button"
+                  className={`segmented__btn diet-filter__btn${dietFilter === opt ? ' diet-filter__btn--active' : ''}`}
+                  aria-pressed={dietFilter === opt}
+                  onClick={() => { setDietFilterState(opt); setShowAllDiet(false); }}
+                >
+                  {t(`ui.diet${opt.charAt(0).toUpperCase() + opt.slice(1)}`)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <label className="select-label">
+            <span className="label">{t('ui.sortBy')}</span>
+            <select
+              className="field"
+              value={sortMode}
+              onChange={e => setSortMode(e.target.value)}
+            >
+              <option value="default">{t('ui.sortStandard')}</option>
+              <option value="alpha">{t('ui.sortAlphabetical')}</option>
+            </select>
+          </label>
 
           {/* Only affects search, which is why it reads as a stray menu
               filter out in the open. */}
@@ -442,28 +615,8 @@ function App() {
             />
             {t('ui.includePast')}
           </label>
-
-          {/* Diet filter: three-way control */}
-          <div className="diet-filter">
-            <span className="diet-filter__label">{t('ui.dietFilter')}</span>
-            <div className="diet-filter__group" role="radiogroup" aria-label={t('ui.dietFilter')}>
-              {DIET_ORDER.map(opt => (
-                <button
-                  key={opt}
-                  type="button"
-                  className={`btn btn--ghost diet-filter__btn${dietFilter === opt ? ' diet-filter__btn--active' : ''}`}
-                  aria-pressed={dietFilter === opt}
-                  onClick={() => setDietFilterState(opt)}
-                >
-                  {t(`ui.diet${opt.charAt(0).toUpperCase() + opt.slice(1)}`)}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
-
-      <IconLegend />
 
       {/* Announce only the COUNT. This wrapper used to be aria-live and hold
           the entire list, so every card expand, every vote and every skeleton
@@ -490,7 +643,7 @@ function App() {
         </div>
       )}
 
-      <div>
+      <div className="menu">
         {searchLoading ? (
           <DishListSkeleton count={3} />
         ) : searchResults.length > 0 ? (
@@ -510,14 +663,14 @@ function App() {
           <DishListSkeleton count={5} />
         ) : searchError ? (
           <EmptyState
-            icon="⚠️"
+            icon={IconAlert}
             text={t('ui.searchLoadError')}
             actionLabel={t('ui.retry')}
             onAction={() => searchDishes(searchQuery)}
           />
         ) : searchQuery.trim().length >= 2 ? (
           <EmptyState
-            icon="🔍"
+            icon={IconSearch}
             text={t('ui.foundResults', { count: 0, query: searchQuery })}
             actionLabel={t('ui.clearSearch')}
             onAction={() => setSearchQuery('')}
@@ -527,21 +680,21 @@ function App() {
           // is not an empty menu, and offering "show today" for a network
           // failure sends the user round the same loop.
           <EmptyState
-            icon="⚠️"
+            icon={IconAlert}
             text={t('ui.menuLoadError')}
             actionLabel={t('ui.retry')}
             onAction={() => setMenuReload(n => n + 1)}
           />
         ) : menu.length === 0 ? (
           <EmptyState
-            icon="🍽️"
+            icon={IconPlate}
             text={t('ui.noMenu')}
             actionLabel={date !== today() ? t('ui.showToday') : null}
             onAction={() => setDate(today())}
           />
         ) : filteredMenu.length === 0 ? (
           <EmptyState
-            icon="🍽️"
+            icon={IconPlate}
             text={t('ui.noMeals', { filter })}
             actionLabel={t('ui.allMensas')}
             onAction={() => setFilter('all')}
@@ -561,17 +714,34 @@ function App() {
             const sortedItems = sortMode === 'alpha'
               ? [...items].sort((a, b) => a.name.localeCompare(b.name))
               : items;
+            const newMensa = mensa !== runningMensa;
+            if (newMensa) { runningMensa = mensa; runningNo = 0; }
+            const mensaTotal = sortedKeys
+              .filter(k => k.startsWith(mensa + '|'))
+              .reduce((n, k) => n + grouped[k].length, 0);
             return (
               <React.Fragment key={key}>
+                {newMensa && (
+                  <h3 className="mensa-heading">
+                    {mensa}
+                    <span className="mensa-heading__count">{t('ui.dishCount', { count: mensaTotal })}</span>
+                  </h3>
+                )}
                 {/* One heading per mensa+course, so the id needs both --
                     keying on the mensa alone produced duplicate ids. */}
-                <h2 className="section-heading" id={`beilage-${mensa}-${type}`}>
-                  {mensa} — {t('mealTypes.' + type) || type}
-                </h2>
-                {sortedItems.map(meal => (
-                  <DishCard key={meal.id} meal={meal} summary={summaries[meal.id]}
-                    user={user} onSignIn={() => openView('account')} />
-                ))}
+                <h4 className="section-heading" id={`beilage-${mensa}-${type}`}>
+                  {t('courses.' + type, { defaultValue: t('mealTypes.' + type) || type })}
+                </h4>
+                <div className="dish-grid">
+                  {sortedItems.map(meal => {
+                    runningNo += 1;
+                    return (
+                      <DishCard key={meal.id} meal={meal} summary={summaries[meal.id]}
+                        number={runningNo}
+                        user={user} onSignIn={() => openView('account')} />
+                    );
+                  })}
+                </div>
               </React.Fragment>
             );
           })
@@ -585,52 +755,62 @@ function App() {
       <a className="skip-link" href="#main">{t('ui.skipToContent')}</a>
 
       <header className="site-header">
-        <h1>
-          <button
-            type="button"
-            className="wordmark"
-            onClick={goHome}
-            title={t('ui.backHome')}
-          >
-            {t('app.title')}
-          </button>
-        </h1>
-        <p className="site-header__tagline">{t('app.subtitle')}</p>
+        <div className="site-header__inner">
+          <div className="site-header__brand">
+            <h1>
+              <button
+                type="button"
+                className="wordmark"
+                onClick={goHome}
+                title={t('ui.backHome')}
+              >
+                {t('app.title')}
+              </button>
+            </h1>
+            <p className="site-header__tagline">{t('app.subtitle')}</p>
+          </div>
 
-        <nav className="site-nav" aria-label={t('ui.navLabel')}>
-          <button type="button" className="nav-btn"
-            aria-pressed={language === 'de'}
-            onClick={() => changeLanguage('de')}>DE</button>
-          <button type="button" className="nav-btn"
-            aria-pressed={language === 'en'}
-            onClick={() => changeLanguage('en')}>EN</button>
-          <button type="button" className="nav-btn"
-            aria-pressed={showStats}
-            onClick={() => openView(showStats ? null : 'stats')}>
-            {t('stats.title')}
-          </button>
-          <button type="button" className="nav-btn"
-            aria-pressed={showLeaderboard}
-            onClick={() => openView(showLeaderboard ? null : 'leaderboard')}>
-            {t('leaderboard.title')}
-          </button>
-          <button type="button" className="nav-btn"
-            aria-pressed={showRewind}
-            onClick={() => openView(showRewind ? null : 'rewind')}>
-            {t('rewind.title')}
-          </button>
-          <button type="button" className="nav-btn"
-            aria-pressed={showAccount}
-            onClick={() => openView(showAccount ? null : 'account')}>
-            {user ? (user.display_name || user.username) : t('auth.login')}
-          </button>
-          <button type="button" className="nav-btn"
-            onClick={() => setShareOpen(true)}
-            aria-label={t('ui.shareButton')} title={t('ui.shareButton')}>
-            <span aria-hidden="true">🔗</span>
-          </button>
-          <ThemeToggle />
-        </nav>
+          <nav className="site-nav" aria-label={t('ui.navLabel')}>
+            <div className="site-nav__views">
+              <button type="button" className="nav-btn"
+                aria-pressed={showStats}
+                onClick={() => openView(showStats ? null : 'stats')}>
+                {t('stats.title')}
+              </button>
+              <button type="button" className="nav-btn"
+                aria-pressed={showLeaderboard}
+                onClick={() => openView(showLeaderboard ? null : 'leaderboard')}>
+                {t('leaderboard.title')}
+              </button>
+              <button type="button" className="nav-btn"
+                aria-pressed={showRewind}
+                onClick={() => openView(showRewind ? null : 'rewind')}>
+                {t('rewind.title')}
+              </button>
+              <button type="button" className="nav-btn nav-btn--account"
+                aria-pressed={showAccount}
+                onClick={() => openView(showAccount ? null : 'account')}>
+                {user ? (user.display_name || user.username) : t('auth.login')}
+              </button>
+            </div>
+            <div className="site-nav__tools">
+              <div className="segmented segmented--sm" role="group" aria-label="Sprache / Language">
+                <button type="button" className="segmented__btn"
+                  aria-pressed={language === 'de'}
+                  onClick={() => changeLanguage('de')}>DE</button>
+                <button type="button" className="segmented__btn"
+                  aria-pressed={language === 'en'}
+                  onClick={() => changeLanguage('en')}>EN</button>
+              </div>
+              <button type="button" className="icon-btn"
+                onClick={() => setShareOpen(true)}
+                aria-label={t('ui.shareButton')} title={t('ui.shareButton')}>
+                <IconLink />
+              </button>
+              <ThemeToggle />
+            </div>
+          </nav>
+        </div>
       </header>
 
       <AnnouncementBanner />
@@ -661,19 +841,22 @@ function App() {
       </main>
 
       <footer className="site-footer">
+        <p className="signature">
+          {t('footer.signaturePrefix')} <strong>{t('footer.signatureName')}</strong>
+        </p>
         <div className="footer-links">
           <button type="button" className="btn--quiet"
             aria-pressed={showImpressum}
             onClick={() => openView(showImpressum ? null : 'impressum')}>
             {t('footer.impressum')}
           </button>
-          <span className="footer-sep" aria-hidden="true">|</span>
+          <span className="footer-sep" aria-hidden="true">&middot;</span>
           <button type="button" className="btn--quiet"
             aria-pressed={showDatenschutz}
             onClick={() => openView(showDatenschutz ? null : 'datenschutz')}>
             {t('footer.datenschutz')}
           </button>
-          <span className="footer-sep" aria-hidden="true">|</span>
+          <span className="footer-sep" aria-hidden="true">&middot;</span>
           <a href="https://github.com/lufre1/rate-site"
             target="_blank" rel="noopener noreferrer">
             {t('footer.github')}
@@ -754,18 +937,7 @@ function DishCardSearch({ meal, onNavigate }) {
     >
       <span className="result__name">{meal.name}</span>
       {tags.length > 0 && (
-        <span className="result__tags">
-          {tags.map(tag => (
-            <img
-              key={tag}
-              className="tag-icon tag-icon--sm"
-              src={`${ICON_BASE}${tag}`}
-              alt=""
-              title={t('tags.' + tag.replace('.png', '')) || tag}
-              onError={(e) => { e.target.style.display = 'none'; }}
-            />
-          ))}
-        </span>
+        <span className="result__tags"><DietLabels tags={tags} /></span>
       )}
       {meal.rating_count > 0 && (
         <span className="result__rating">
@@ -777,20 +949,23 @@ function DishCardSearch({ meal, onNavigate }) {
   );
 }
 
-function IconTags({ tags }) {
+// Diet and origin labels as words. They used to be the Studierendenwerk's
+// coloured PNG icons, hot-linked from its server: a second palette in a
+// one-colour design, a third-party request on every page view (Datenschutz.js
+// disclosed it), and a legend nobody opened. A word needs no legend.
+function DietLabels({ tags }) {
   const { t } = useTranslation();
   if (!tags || tags.length === 0) return null;
   return (
-    <span className="tag-icons">
-      {tags.map(tag => (
-        <img
-          key={tag}
-          className="tag-icon"
-          src={`${ICON_BASE}${tag}`}
-          alt={t('tags.' + tag.replace('.png', '')) || tag}
-          onError={(e) => { e.target.style.display = 'none'; }}
-        />
-      ))}
+    <span className="diet-labels">
+      {tags.map(tag => {
+        const key = String(tag).replace('.png', '');
+        return (
+          <span key={tag} className="diet-label" data-tag={key}>
+            {t('tags.' + key, { defaultValue: key })}
+          </span>
+        );
+      })}
     </span>
   );
 }
@@ -889,7 +1064,7 @@ function SideRatingRow({ mealId, sideName, avgRating, ratingCount, recentAvg = 0
         aria-expanded={showComment}
         title={comment ? t('ui.removeComment') : t('ui.addComment')}
       >
-        <span aria-hidden="true">{comment ? '✏️' : '💬'}</span>
+        {comment ? <IconPencil /> : <IconComment />}
         <span className="sr-only">{comment ? t('ui.removeComment') : t('ui.addComment')}</span>
       </button>
     </div>
@@ -916,7 +1091,7 @@ function submitErrorMessage(err, t) {
   return t('ui.submitError');
 }
 
-function DishCard({ meal, summary, user, onSignIn }) {
+function DishCard({ meal, summary, user, onSignIn, number }) {
   const { t } = useTranslation();
   const notify = useToast();
   const [rating, setRating] = useState(0);
@@ -1224,62 +1399,11 @@ function DishCard({ meal, summary, user, onSignIn }) {
   const displayDescription = meal.description || '';
 
   return (
-    <div className="dish">
-      <button type="button" className="dish__toggle"
-        onClick={() => {
-          if (expanded) { setSubmitStatus(null); setConfirming(false); }
-          setExpanded(e => !e);
-        }}
-        aria-expanded={expanded}>
-        <span className="dish__main">
-          <span className="dish__titlerow">
-            <span className="dish__name" data-unavailable={meal.is_available === false}>
-              {displayName}
-            </span>
-            <span className="badge badge--upper" data-type={meal.type}>
-              {t('mealTypes.' + meal.type)}
-            </span>
-            {meal.is_available === false && (
-              <span className="badge badge--upper badge--danger">{t('ui.notAvailable')}</span>
-            )}
-            {meal.favourite && (
-              <span className="badge badge--upper badge--accent">{t('ui.favouriteBadge')}</span>
-            )}
-            <IconTags tags={tags} />
-          </span>
-          {displayDescription && typeof displayDescription === 'string' && (
-            <span className="dish__desc">{displayDescription.replace(/, +/g, ', ')}</span>
-          )}
-        </span>
-
-        <span className="dish__meta">
-          {isToday && recent.count > 0 && (
-            <RatingLine avg={recent.avg} count={recent.count}
-              label={t('ui.recent')} tone="recent" />
-          )}
-          {overall.count > 0 && (
-            <RatingLine avg={overall.avg} count={overall.count}
-              label={t('ui.overall')} />
-          )}
-          <span className="dish__chevron" aria-hidden="true">{expanded ? '▲' : '▼'}</span>
-        </span>
-      </button>
-
-      {/* Calendar link: only for today or future meals */}
-      {String(meal.date) >= today() && (
-        <a
-          className="btn--quiet"
-          href={`${API}/api/v1/meals/${meal.id}/calendar.ics`}
-          download
-        >
-          {t('ui.addToCalendar')}
-        </a>
-      )}
-
+    <article className="dish" data-expanded={expanded ? 'true' : undefined}>
       {/* Outside the toggle: a button inside a button is invalid markup, and as
           a bare <img onClick> this was unreachable by keyboard. */}
       {topPhoto && (
-        <>
+        <figure className="dish__figure">
           <button type="button" className="dish__photo-btn"
             onClick={() => setEnlargedImage(`${API}${topPhoto}`)}>
             <img className="dish__photo" src={`${API}${thumbSrc(topPhoto)}`}
@@ -1290,12 +1414,68 @@ function DishCard({ meal, summary, user, onSignIn }) {
           {/* NOT "top rated": every photo sits at 0 until someone votes and
               ties go to the oldest, so a dish's only photo wins unvoted. The
               confident wording stays in the list, where photo_score is known. */}
-          <p className="dish__photo-caption">{t('ui.dishPhoto')}</p>
-        </>
+          <figcaption className="dish__photo-caption">{t('ui.dishPhoto')}</figcaption>
+        </figure>
+      )}
+
+      <button type="button" className="dish__toggle"
+        onClick={() => {
+          if (expanded) { setSubmitStatus(null); setConfirming(false); }
+          setExpanded(e => !e);
+        }}
+        aria-expanded={expanded}>
+        {number && (
+          <span className="dish__no" aria-hidden="true">{String(number).padStart(2, '0')}</span>
+        )}
+        <span className="dish__name" data-unavailable={meal.is_available === false}>
+          {displayName}
+        </span>
+        {(meal.is_available === false || meal.favourite) && (
+          <span className="dish__flags">
+            {meal.is_available === false && (
+              <span className="stamp stamp--dashed">{t('ui.notAvailable')}</span>
+            )}
+            {meal.favourite && (
+              <span className="stamp stamp--solid">{t('ui.favouriteBadge')}</span>
+            )}
+          </span>
+        )}
+        {displayDescription && typeof displayDescription === 'string' && (
+          <span className="dish__desc">{displayDescription.replace(/, +/g, ', ')}</span>
+        )}
+        <DietLabels tags={tags} />
+
+        <span className="dish__meta">
+          <span className="dish__ratings">
+            {isToday && recent.count > 0 && (
+              <RatingLine avg={recent.avg} count={recent.count}
+                label={t('ui.recent')} tone="recent" />
+            )}
+            {overall.count > 0 ? (
+              <RatingLine avg={overall.avg} count={overall.count}
+                label={t('ui.overall')} />
+            ) : (
+              <span className="dish__unrated">{t('ui.unrated')}</span>
+            )}
+          </span>
+          <IconChevronDown className="dish__chevron" />
+        </span>
+      </button>
+
+      {/* Calendar link: only for today or future meals */}
+      {String(meal.date) >= today() && (
+        <a
+          className="dish__cal"
+          href={`${API}/api/v1/meals/${meal.id}/calendar.ics`}
+          download
+        >
+          <IconCalendar size={16} /> {t('ui.addToCalendar')}
+        </a>
       )}
 
       {expanded && (
         <div className="dish__body">
+          <div className="dish__compose">
           <p className="dish__note">{t('ui.ratingScopeNote')}</p>
           {/* Mounted unconditionally, like the search region above: a live
               region inserted TOGETHER with its text is not reliably announced.
@@ -1308,7 +1488,7 @@ function DishCard({ meal, summary, user, onSignIn }) {
             )}
           </div>
 
-          <button type="button" className="btn--quiet"
+          <button type="button" className="btn btn--line dish__rate-toggle"
             onClick={() => {
               setShowRatingForm(v => !v);
               setSubmitStatus(null);
@@ -1316,7 +1496,7 @@ function DishCard({ meal, summary, user, onSignIn }) {
               setConfirming(false);
             }}
             aria-expanded={showRatingForm}>
-            <span aria-hidden="true">{showRatingForm ? '▲' : '▼'}</span> {t('ui.rateThisDish')}
+            <IconChevronDown className={showRatingForm ? 'icon--flip' : undefined} /> {t('ui.rateThisDish')}
           </button>
 
           {/* A real form, like AuthForm in Account.js: implicit submit and a
@@ -1461,6 +1641,10 @@ function DishCard({ meal, summary, user, onSignIn }) {
             </form>
           )}
 
+          </div>
+
+          <div className="dish__reviews">
+          <p className="label dish__reviews-label">{t('ui.reviews')}</p>
           {reviewsLoading && reviews.comments.length === 0 ? (
             <div aria-hidden="true">
               <div className="skeleton skeleton--sub" />
@@ -1624,6 +1808,7 @@ function DishCard({ meal, summary, user, onSignIn }) {
               );
             })
           )}
+          </div>
         </div>
       )}
 
@@ -1631,7 +1816,7 @@ function DishCard({ meal, summary, user, onSignIn }) {
         <Lightbox src={enlargedImage} alt={t('ui.enlargedPhoto')}
           onClose={() => setEnlargedImage(null)} />
       )}
-    </div>
+    </article>
   );
 }
 
