@@ -108,6 +108,12 @@ class Meal(Base):
     ratings = relationship("Rating", back_populates="meal")
     side_ratings = relationship("SideRating", back_populates="meal")
     is_available = Column(Boolean, default=True)
+    # Identity rule: one row per dish per mensa per day. A dish listed under two
+    # counters is one row with merged descriptions (see _merge_dish_variants in
+    # scraper.py); without this constraint two rows silently split its ratings.
+    __table_args__ = (
+        UniqueConstraint("date", "mensa_id", "name", name="uq_meal_identity"),
+    )
 
 class Rating(Base):
     __tablename__ = "ratings"
@@ -492,3 +498,73 @@ def init_db():
             conn.execute(text("CREATE INDEX ix_site_announcements_active ON site_announcements (active)"))
             conn.commit()
             log.info("Created site_announcements table")
+
+        # Enforce the Meal identity rule: one row per (date, mensa_id, name).
+        #
+        # Duplicates already exist on dev and production: CGiN lists the same
+        # dish under two counters with a different sauce (issue #43) and the
+        # scraper used to insert one row per description. Merge them first --
+        # ratings move to the surviving row so no vote is lost, and the
+        # descriptions are joined so no sauce text is lost either -- then add
+        # the constraint so a regression fails instead of splitting ratings
+        # again. Gated on the constraint being absent, so it runs exactly once
+        # (a table created from the current model already has it).
+        result = conn.execute(text(
+            "SELECT constraint_name FROM information_schema.table_constraints "
+            "WHERE table_name='meals' AND constraint_name='uq_meal_identity'"
+        ))
+        if not result.fetchone():
+            def _join(values):
+                joined = []
+                for value in values:
+                    if not value or not value.strip():
+                        continue
+                    if value.strip().lower() in (v.lower() for v in joined):
+                        continue
+                    joined.append(value.strip())
+                return '; '.join(joined) or None
+
+            groups = conn.execute(text("""
+                SELECT date, mensa_id, name, MIN(id)
+                FROM meals
+                GROUP BY date, mensa_id, name
+                HAVING COUNT(*) > 1
+            """)).fetchall()
+            merged = 0
+            for group_date, mensa_id, name, keeper in groups:
+                rows = conn.execute(text("""
+                    SELECT id, description, description_de, description_en, is_available
+                    FROM meals
+                    WHERE date = :d AND mensa_id = :m AND name = :n
+                    ORDER BY id
+                """), {"d": group_date, "m": mensa_id, "n": name}).fetchall()
+                for loser in rows[1:]:
+                    for table in ("ratings", "side_ratings"):
+                        conn.execute(
+                            text(f"UPDATE {table} SET meal_id = :keeper WHERE meal_id = :loser"),
+                            {"keeper": keeper, "loser": loser[0]},
+                        )
+                    conn.execute(text("DELETE FROM meals WHERE id = :id"), {"id": loser[0]})
+                conn.execute(text("""
+                    UPDATE meals
+                    SET description = :description,
+                        description_de = :description_de,
+                        description_en = :description_en,
+                        is_available = :is_available
+                    WHERE id = :id
+                """), {
+                    "description": _join(row[1] for row in rows),
+                    "description_de": _join(row[2] for row in rows),
+                    "description_en": _join(row[3] for row in rows),
+                    "is_available": any(row[4] for row in rows),
+                    "id": keeper,
+                })
+                merged += len(rows) - 1
+            conn.execute(text(
+                "ALTER TABLE meals ADD CONSTRAINT uq_meal_identity "
+                "UNIQUE (date, mensa_id, name)"
+            ))
+            conn.commit()
+            log.info(
+                "Added uq_meal_identity to meals (merged %s duplicate row(s))", merged
+            )

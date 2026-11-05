@@ -451,6 +451,47 @@ def _get_or_create_mensa(db, name):
     return mensa_obj
 
 
+def _join_descriptions(descriptions):
+    """Join one dish's variant descriptions into a single string, dropping repeats."""
+    seen = set()
+    parts = []
+    for text in descriptions:
+        if not text:
+            continue
+        key = text.strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        parts.append(text.strip())
+    return '; '.join(parts) or None
+
+
+def _merge_dish_variants(variants):
+    """Collapse one dish name's (de_dish, en_dish) variants into one row payload.
+
+    `(date, mensa_id, name)` identifies a Meal row, but the official page may
+    list that name twice -- CGiN's two counters, each naming its own sauce. One
+    row per variant split the dish's ratings in two, so the descriptions are
+    merged instead. Side extraction still runs on every variant before this
+    (see _write_day), because each counter's sauce is a side choice of its own.
+    """
+    de_dish = dict(variants[0][0])
+    de_dish['description'] = _join_descriptions(
+        de.get('description') for de, _ in variants
+    )
+
+    en_names = [en['name'] for _, en in variants if en and en.get('name')]
+    en_dish = None
+    if en_names:
+        en_dish = {
+            'name': en_names[0],
+            'description': _join_descriptions(
+                en.get('description') for _, en in variants if en
+            ),
+        }
+    return de_dish, en_dish
+
+
 def _upsert_meal(db, mensa_obj, date_obj, de_dish, en_dish):
     """Insert or update a single Meal row carrying both languages. Returns 'new'|'updated'."""
     name = de_dish['name']
@@ -664,7 +705,12 @@ def _write_day(scrape_date, de_tables, en_tables):
     updated_count = 0
     removed_count = 0
 
-    db = SessionLocal()
+    # autoflush=True, unlike the API's sessionmaker (database.py): this is a
+    # batch writer where every lookup must see the rows inserted earlier in the
+    # same transaction. With autoflush off, the pending insert of a side is
+    # invisible to _upsert_meal, which would insert the same (date, mensa, name)
+    # a second time and now trip the unique constraint.
+    db = SessionLocal(autoflush=True)
     try:
         for mensa_name, de_table in de_tables.items():
             if mensa_name not in valid_names:
@@ -683,7 +729,10 @@ def _write_day(scrape_date, de_tables, en_tables):
                 )
 
             german_names = set()
-            seen = set()
+            # Variants per dish name, in page order. The same name can appear
+            # twice -- one per counter, with a different description -- and
+            # (date, mensa_id, name) identifies exactly one row.
+            variants = {}
             # Whether side extraction ran at all for this mensa. An empty page or
             # a markup change would otherwise look like "this day has no sides".
             sides_extracted = False
@@ -700,24 +749,25 @@ def _write_day(scrape_date, de_tables, en_tables):
                 en_dish = None if multi else (_parse_dish_row(en_rows[i]) if i < len(en_rows) else None)
 
                 for de_dish in de_dishes:
-                    dedup_key = (de_dish['name'].lower(), (de_dish.get('description') or '').lower())
-                    if dedup_key in seen:
-                        continue
-                    seen.add(dedup_key)
-                    german_names.add(de_dish['name'])
+                    variants.setdefault(de_dish['name'], []).append((de_dish, en_dish))
 
-                    result = _upsert_meal(db, mensa_obj, scrape_date, de_dish, en_dish)
-                    if result == 'new':
-                        new_count += 1
-                    else:
-                        updated_count += 1
-
-                    # Extract sides from main dish descriptions and create side entries.
-                    # Multi-item rows are already split per item, and their text carries
-                    # prices whose decimal comma would shred a comma split.
+                    # Extract sides from every variant's description: the two
+                    # counters' sauces are separate side choices, and merging the
+                    # text first would hide one behind the other. Multi-item rows
+                    # are already split per item, and their text carries prices
+                    # whose decimal comma would shred a comma split.
                     if not multi and de_dish['type'] == 'main' and de_dish.get('description'):
                         _extract_and_create_sides(db, mensa_obj, scrape_date, de_dish['description'], seen_sides)
                         sides_extracted = True
+
+            for name, group in variants.items():
+                german_names.add(name)
+                de_dish, en_dish = _merge_dish_variants(group)
+                result = _upsert_meal(db, mensa_obj, scrape_date, de_dish, en_dish)
+                if result == 'new':
+                    new_count += 1
+                else:
+                    updated_count += 1
 
             # The official page for today churns during the day (mains drop
             # off once service ends), so reconciling today would delete the
